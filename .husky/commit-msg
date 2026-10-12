@@ -1,0 +1,41 @@
+#!/bin/sh
+# Reject commit messages that do not follow Conventional Commits:
+#   <type>[(scope)][!]: <subject>
+# Messages created by git itself are let through: merges, reverts, and the fixup!, squash! and
+# amend! commits that `git commit --fixup`, `--squash` and `rebase --autosquash` rely on.
+
+commit_msg_file="$1"
+
+# First line of the message, ignoring comment lines added by git.
+subject_line=$(grep -v '^#' "$commit_msg_file" | head -n 1)
+
+case "$subject_line" in
+  'Merge branch '* | 'Merge remote-tracking branch '* | 'Merge tag '* | 'Merge commit '*) exit 0 ;;
+  'Merge pull request '* | 'Revert "'*) exit 0 ;;
+  'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+types='feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert'
+pattern="^($types)(\([A-Za-z0-9._/,-]+\))?!?: [^[:space:]].*\$"
+
+if printf '%s\n' "$subject_line" | grep -Eq "$pattern"; then
+  exit 0
+fi
+
+cat >&2 <<MESSAGE
+Invalid commit message:
+
+  $subject_line
+
+Expected the Conventional Commits format:
+
+  <type>[optional scope][!]: <subject>
+
+Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+
+Examples:
+
+  feat(domain): add the Meeting entity
+  fix!: drop the legacy storage format
+MESSAGE
+exit 1

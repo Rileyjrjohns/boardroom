@@ -1,0 +1,4 @@
+#!/bin/sh
+# Lint and format the staged files, then typecheck the whole project.
+npx --no-install lint-staged
+npm run --silent typecheck
