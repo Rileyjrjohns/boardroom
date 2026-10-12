@@ -1,0 +1,15 @@
+# Dependencies and generated output
+node_modules/
+.expo/
+dist/
+web-build/
+coverage/
+ios/
+android/
+expo-env.d.ts
+
+# Lockfile is owned by npm
+package-lock.json
+
+# Binary assets
+assets/
