@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Continuous Native Generation: native projects are generated, never committed
+/ios
+/android
+.kotlin/
+
+# Native signing material
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+*.orig.*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Tests and coverage
+coverage/
+*.lcov
+
+# TypeScript
+*.tsbuildinfo
+
+# Metro
+.metro-health-check*
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
