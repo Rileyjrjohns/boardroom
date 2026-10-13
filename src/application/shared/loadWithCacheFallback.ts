@@ -1,33 +1,30 @@
 import { isWithinMaxAge } from '@domain/policies/cacheAge';
-import type { RepositoryError } from '@domain/errors/RepositoryError';
+import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
-import type { StorageReadFailedError, StorageWriteFailedError } from '@domain/errors/StorageError';
+import type { RepositoryError } from '@domain/errors/RepositoryError';
+import type {
+  StorageError,
+  StorageReadFailedError,
+  StorageWriteFailedError,
+} from '@domain/errors/StorageError';
 import { err, isErr, isOk, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
-import type { ValueOf } from '@domain/shared/constants';
 import type { Duration } from '@domain/value-objects/Duration';
+import type { UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
 import type { CacheEntry } from '../ports/CacheEntry';
-import type { Clock } from '../ports/Clock';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../ports/Monitoring';
-import type { LogAttributes, Monitoring } from '../ports/Monitoring';
+import type { LogAttributes } from '../ports/Monitoring';
 
+import type { CacheResource } from './CacheResource';
 import { FRESHNESS } from './Loaded';
 import type { Loaded } from './Loaded';
+import { purgeCaches } from './purgeCaches';
+import { requireSameUser } from './requireSession';
+import type { RequireSessionDeps, SessionRequiredError } from './requireSession';
 
-/** What is being cached, for the logs. */
-export const CACHE_RESOURCE = {
-  MeetingPage: 'meetingPage',
-  Meeting: 'meeting',
-  Document: 'document',
-} as const;
-
-export type CacheResource = ValueOf<typeof CACHE_RESOURCE>;
-
-export interface CacheFallbackDeps {
-  readonly clock: Clock;
-  readonly monitoring: Monitoring;
+export interface CacheFallbackDeps extends RequireSessionDeps {
   /**
    * Configuration, set once by the composition root: how old a cached entry may be and still be
    * served as stale data. An older entry counts as a miss.
@@ -43,33 +40,47 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
   fetch(): Promise<Result<T, E>>;
   save(value: T, cachedAt: Instant): Promise<Result<void, StorageWriteFailedError>>;
   read(): Promise<Result<CacheEntry<T> | undefined, StorageReadFailedError>>;
+  /** Drops this entry and nothing else. Used when the entry could not be refreshed. */
   remove(): Promise<Result<void, StorageWriteFailedError>>;
+  /**
+   * Drops this entry and what hangs off it, because the server no longer lets the user have the
+   * item: a meeting takes the documents it lists with it. Used on `forbidden` and `notFound`.
+   */
+  revoke(): Promise<Result<void, StorageError>>;
 }
 
 /**
  * The offline policy of the app, in one place. It is business logic, so it lives in the
  * application layer and not in an adapter, where it would be invisible and untested.
  *
- * 1. Read the remote source. On success, write the data through to the cache and return it
- *    `Fresh`. A cache that cannot be written does not fail the call: the failure is captured by the
- *    monitoring, and the fresh data is returned.
- * 2. When the remote source is unreachable (`networkUnavailable`, and only that), read the cache
+ * 1. Read the remote source. Then check that the user it was read for is still the one signed in
+ *    (and the app still unlocked): a request can take long, and a sign-out and a sign-in can fall
+ *    in the middle of it. If somebody else is signed in now, nothing is written, nothing is
+ *    returned, and the answer is `sessionChanged`.
+ * 2. On success, write the data through to the cache and return it `Fresh`. A cache that cannot be
+ *    written does not fail the call: the failure is captured, the fresh data is returned, and the
+ *    entry is removed (a copy that could not be refreshed must not stay readable as if it were
+ *    current), with a full purge if even that fails.
+ * 3. When the remote source is unreachable (`networkUnavailable`, and only that), read the cache
  *    and return what it holds `Stale`, with the instant it was cached. A cache that cannot be read
  *    is captured and treated as a miss. On a miss the original network error is returned. An entry
  *    older than `maxCacheAge`, or dated in the future, counts as a miss (see `isWithinMaxAge`).
- * 3. When the remote source refuses (`unauthorized`) or says the item is gone (`notFound`), that
- *    answer is authoritative: the entry is evicted from the cache, so the copy cannot be served
- *    later, and the error is returned. An eviction that fails is captured, and the error is still
- *    returned. The cache is never read in this case.
- * 4. Any other error (`unexpected`) is returned as is, and the cache is left alone.
+ * 4. `unauthorized` means the session is no longer valid, for anything: both caches are emptied,
+ *    for every owner. `forbidden` and `notFound` concern one item: it is dropped from the cache
+ *    with what hangs off it (`revoke`). A removal that fails is captured and falls back on the
+ *    full purge, so that a copy the server refused is never served afterwards; a purge that fails
+ *    is captured. The error is returned in every case, and the cache is never read.
+ * 5. Any other error (`unexpected`) is returned as is, and the cache is left alone.
  *
- * Which user the data belongs to is not this function's concern: the source it is given reads, writes
- * and removes for one owner.
+ * Known limit: pages of a list that were cached are not walked. A page that shows the title of a
+ * meeting that became forbidden keeps showing it until it is refreshed or expires; opening the
+ * meeting is refused, and its detail and documents are gone.
  */
 export async function loadWithCacheFallback<T, E extends RepositoryError>(
   deps: CacheFallbackDeps,
+  owner: UserId,
   source: CacheFallbackSource<T, E>,
-): Promise<Result<Loaded<T>, E>> {
+): Promise<Result<Loaded<T>, E | SessionRequiredError | SessionChangedError>> {
   const { clock, monitoring, maxCacheAge } = deps;
   const attributes: LogAttributes = {
     ...source.attributes,
@@ -77,20 +88,27 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
   };
 
   const remote = await source.fetch();
+
+  const stillSignedIn = await requireSameUser(deps, owner);
+  if (isErr(stillSignedIn)) return stillSignedIn;
+
   if (isOk(remote)) {
-    const saved = await source.save(remote.value, clock.now());
+    const loadedAt = clock.now();
+    const saved = await source.save(remote.value, loadedAt);
     if (isErr(saved)) {
       monitoring.captureError(MONITORING_EVENT.CacheWriteFailed, saved.error, attributes);
+      await dropOrPurge(deps, source.remove, attributes);
     }
-    return ok({ data: remote.value, source: { freshness: FRESHNESS.Fresh } });
+    return ok({ data: remote.value, source: { freshness: FRESHNESS.Fresh }, loadedAt });
   }
 
   const { code } = remote.error;
-  if (code === REPOSITORY_ERROR_CODE.Unauthorized || code === REPOSITORY_ERROR_CODE.NotFound) {
-    const removed = await source.remove();
-    if (isErr(removed)) {
-      monitoring.captureError(MONITORING_EVENT.CacheRemoveFailed, removed.error, attributes);
-    }
+  if (code === REPOSITORY_ERROR_CODE.Unauthorized) {
+    await purgeCaches(deps);
+    return remote;
+  }
+  if (code === REPOSITORY_ERROR_CODE.Forbidden || code === REPOSITORY_ERROR_CODE.NotFound) {
+    await dropOrPurge(deps, source.revoke, attributes);
     return remote;
   }
   if (code !== REPOSITORY_ERROR_CODE.NetworkUnavailable) return remote;
@@ -103,14 +121,34 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
   const entry = cached.value;
   if (entry === undefined) return err(remote.error);
 
-  if (!isWithinMaxAge(entry.cachedAt, clock.now(), maxCacheAge)) {
+  const loadedAt = clock.now();
+  if (!isWithinMaxAge(entry.cachedAt, loadedAt, maxCacheAge)) {
     monitoring.log(LOG_LEVEL.Warn, MONITORING_EVENT.CacheEntryDiscarded, attributes);
     return err(remote.error);
   }
 
-  monitoring.log(LOG_LEVEL.Warn, MONITORING_EVENT.ServedFromCache, attributes);
+  // Expected behaviour, not a problem: information, so that it does not raise a warning toast.
+  monitoring.log(LOG_LEVEL.Info, MONITORING_EVENT.ServedFromCache, attributes);
   return ok({
     data: entry.value,
     source: { freshness: FRESHNESS.Stale, cachedAt: entry.cachedAt },
+    loadedAt,
   });
+}
+
+/**
+ * Drops a copy that must not be served any more. A removal that fails is captured and falls back
+ * on emptying both caches, which captures its own failures: the copy is never left behind with
+ * nobody told.
+ */
+async function dropOrPurge(
+  deps: CacheFallbackDeps,
+  drop: () => Promise<Result<void, StorageError>>,
+  attributes: LogAttributes,
+): Promise<void> {
+  const dropped = await drop();
+  if (isErr(dropped)) {
+    deps.monitoring.captureError(MONITORING_EVENT.CacheRemoveFailed, dropped.error, attributes);
+    await purgeCaches(deps);
+  }
 }

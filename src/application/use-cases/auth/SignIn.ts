@@ -1,13 +1,23 @@
 import type { Session } from '@domain/entities/Session';
 import type { ValidationError } from '@domain/errors/ValidationError';
-import { andThenAsync } from '@domain/shared/Result';
+import { andThenAsync, isErr } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 import { createCredentials } from '@domain/value-objects/Credentials';
 
 import type { AuthSession, SignInFailure } from '../../ports/AuthSession';
+import type { DocumentCache } from '../../ports/DocumentCache';
+import type { MeetingCache } from '../../ports/MeetingCache';
+import type { Monitoring } from '../../ports/Monitoring';
+import type { AppLock } from '../../shared/AppLock';
+import { purgeCaches } from '../../shared/purgeCaches';
 
 export interface SignInDeps {
   readonly auth: AuthSession;
+  readonly meetingCache: MeetingCache;
+  readonly documentCache: DocumentCache;
+  readonly monitoring: Monitoring;
+  /** The instance shared by every use case: see `AppLock`. */
+  readonly appLock: AppLock;
 }
 
 /** What the user typed. Validated here, not by the screen. */
@@ -18,14 +28,35 @@ export interface SignInInput {
 
 export type SignInError = ValidationError | SignInFailure;
 
-/** Signs a user in with an email and a password. */
+/**
+ * Signs a user in with an email and a password. A badly formed email or an empty password is a
+ * `validation` error: the server is not called.
+ *
+ * Once the credentials are accepted, and before the new session is used by anything, both caches
+ * are emptied: whoever signed in before (a sign-out that never came, a session that expired while
+ * the app was closed, a purge that failed) does not leave their content on the device for the new
+ * user. This is also the retry of a purge that failed earlier. A purge that fails is captured and
+ * does not stop the sign-in: the caches are kept per owner, so the new user cannot read what is
+ * left, and the next sign-in tries again. The app is locked while it is emptied and left unlocked
+ * after it: the user has just typed their credentials, which is the proof of presence.
+ *
+ * A refused sign-in changes nothing: the current session, the caches and the lock stay as they were.
+ */
 export class SignIn {
   constructor(private readonly deps: SignInDeps) {}
 
-  /** A badly formed email or an empty password is a `validation` error: the server is not called. */
-  execute(input: SignInInput): Promise<Result<Session, SignInError>> {
-    return andThenAsync(createCredentials(input.email, input.password), (credentials) =>
-      this.deps.auth.signIn(credentials),
+  async execute(input: SignInInput): Promise<Result<Session, SignInError>> {
+    const { auth, appLock } = this.deps;
+
+    const signedIn = await andThenAsync(
+      createCredentials(input.email, input.password),
+      (credentials) => auth.signIn(credentials),
     );
+    if (isErr(signedIn)) return signedIn;
+
+    appLock.lock();
+    await purgeCaches(this.deps);
+    appLock.unlock();
+    return signedIn;
   }
 }

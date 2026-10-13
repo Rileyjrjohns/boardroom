@@ -83,4 +83,22 @@ describe('SignOut', () => {
     expect(fakes.auth.session).toEqual(aSession());
     expect(fakes.meetingCache.isEmpty()).toBe(true);
   });
+
+  it('locks the app: the next user signs in, which opens it again', async () => {
+    const fakes = createFakes();
+
+    await new SignOut(fakes).execute();
+
+    expect(fakes.appLock.isLocked()).toBe(true);
+  });
+
+  it('locks the app even when the caches cannot be emptied and the sign-out fails', async () => {
+    const fakes = createFakes();
+    fakes.meetingCache.purgeFailure = storageWriteFailed();
+    fakes.auth.signOutFailure = storageWriteFailed();
+
+    await new SignOut(fakes).execute();
+
+    expect(fakes.appLock.isLocked()).toBe(true);
+  });
 });

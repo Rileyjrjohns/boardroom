@@ -3,7 +3,7 @@ import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from './ports/Monitoring';
 import { SCREEN_CAPTURE_KIND } from './ports/ScreenProtection';
 import { ENQUEUE_OUTCOME } from './ports/VoteOutbox';
 import { FRESHNESS } from './shared/Loaded';
-import { CACHE_RESOURCE } from './shared/loadWithCacheFallback';
+import { CACHE_RESOURCE } from './shared/CacheResource';
 import { SESSION_RESTORE } from './use-cases/auth/RestoreSession';
 import { CAST_VOTE_STATUS } from './use-cases/votes/CastVote';
 import { SYNC_OUTCOME } from './use-cases/votes/SyncPendingVotes';

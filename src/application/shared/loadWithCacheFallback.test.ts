@@ -1,4 +1,6 @@
+import { appLocked, sessionChanged } from '@domain/errors/AuthenticationError';
 import {
+  forbidden,
   networkUnavailable,
   notFound,
   unauthorized,
@@ -7,16 +9,26 @@ import {
 import type { RepositoryError } from '@domain/errors/RepositoryError';
 import { storageReadFailed, storageWriteFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
-import { NOW, aDuration, at } from '@domain/testing/builders';
+import {
+  NOW,
+  aDocument,
+  aDocumentLocation,
+  aDuration,
+  aMeeting,
+  aSession,
+  aUser,
+  aUserId,
+  at,
+} from '@domain/testing/builders';
 import type { Instant } from '@domain/value-objects/Instant';
 
 import type { CacheEntry } from '../ports/CacheEntry';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../ports/Monitoring';
-import { FakeClock } from '../testing/FakeClock';
-import { FakeMonitoring } from '../testing/FakeMonitoring';
+import { createFakes } from '../testing/createFakes';
 
 import { FRESHNESS } from './Loaded';
-import { CACHE_RESOURCE, loadWithCacheFallback } from './loadWithCacheFallback';
+import { CACHE_RESOURCE } from './CacheResource';
+import { loadWithCacheFallback } from './loadWithCacheFallback';
 import type { CacheFallbackSource } from './loadWithCacheFallback';
 
 const REMOTE = 'remote value';
@@ -33,10 +45,12 @@ function scriptedSource(script: {
   read?: ReturnType<CacheFallbackSource<string, RepositoryError>['read']>;
   save?: ReturnType<CacheFallbackSource<string, RepositoryError>['save']>;
   remove?: ReturnType<CacheFallbackSource<string, RepositoryError>['remove']>;
+  revoke?: ReturnType<CacheFallbackSource<string, RepositoryError>['revoke']>;
 }) {
   const saved: { value: string; cachedAt: Instant }[] = [];
   let reads = 0;
   let removals = 0;
+  let revocations = 0;
   const source: CacheFallbackSource<string, RepositoryError> = {
     resource: CACHE_RESOURCE.Meeting,
     attributes: { [LOG_ATTRIBUTE.MeetingId]: 'meeting-1' },
@@ -53,16 +67,25 @@ function scriptedSource(script: {
       removals += 1;
       return script.remove ?? Promise.resolve(ok(undefined));
     },
+    revoke: () => {
+      revocations += 1;
+      return script.revoke ?? Promise.resolve(ok(undefined));
+    },
   };
-  return { source, saved, reads: () => reads, removals: () => removals };
+  return {
+    source,
+    saved,
+    reads: () => reads,
+    removals: () => removals,
+    revocations: () => revocations,
+  };
 }
 
+const OWNER = aUserId();
+
+/** The fakes of the ports as the deps of the policy, with the maximum age of the tests. */
 function setup() {
-  return {
-    clock: new FakeClock(NOW),
-    monitoring: new FakeMonitoring(),
-    maxCacheAge: aDuration(MAX_AGE),
-  };
+  return { ...createFakes(), maxCacheAge: aDuration(MAX_AGE) };
 }
 
 describe('loadWithCacheFallback', () => {
@@ -71,17 +94,36 @@ describe('loadWithCacheFallback', () => {
       const deps = setup();
       const { source, saved } = scriptedSource({ fetch: Promise.resolve(ok(REMOTE)) });
 
-      const result = await loadWithCacheFallback(deps, source);
+      const result = await loadWithCacheFallback(deps, OWNER, source);
 
-      expect(result).toEqual(ok({ data: REMOTE, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: REMOTE, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
       expect(saved).toEqual([{ value: REMOTE, cachedAt: NOW }]);
       expect(deps.monitoring.errors).toEqual([]);
+    });
+
+    it('stamps the data with the instant of the clock when it answers, not when it was asked', async () => {
+      const deps = setup();
+      const { source, saved } = scriptedSource({ fetch: Promise.resolve(ok(REMOTE)) });
+      const slow = {
+        ...source,
+        fetch: async () => {
+          deps.clock.advance(5000);
+          return ok(REMOTE);
+        },
+      };
+
+      const result = await loadWithCacheFallback(deps, OWNER, slow);
+
+      expect(result.ok && result.value.loadedAt).toBe(at(5000));
+      expect(saved).toEqual([{ value: REMOTE, cachedAt: at(5000) }]);
     });
 
     it('does not read nor remove anything in the cache', async () => {
       const { source, reads, removals } = scriptedSource({ fetch: Promise.resolve(ok(REMOTE)) });
 
-      await loadWithCacheFallback(setup(), source);
+      await loadWithCacheFallback(setup(), OWNER, source);
 
       expect(reads()).toBe(0);
       expect(removals()).toBe(0);
@@ -95,9 +137,11 @@ describe('loadWithCacheFallback', () => {
         save: Promise.resolve(err(failure)),
       });
 
-      const result = await loadWithCacheFallback(deps, source);
+      const result = await loadWithCacheFallback(deps, OWNER, source);
 
-      expect(result).toEqual(ok({ data: REMOTE, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: REMOTE, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
       expect(deps.monitoring.errors).toEqual([
         { event: MONITORING_EVENT.CacheWriteFailed, error: failure, attributes: LOG_ATTRIBUTES },
       ]);
@@ -112,18 +156,19 @@ describe('loadWithCacheFallback', () => {
         read: Promise.resolve(ok(CACHED)),
       });
 
-      const result = await loadWithCacheFallback(deps, source);
+      const result = await loadWithCacheFallback(deps, OWNER, source);
 
       expect(result).toEqual(
         ok({
           data: CACHED.value,
           source: { freshness: FRESHNESS.Stale, cachedAt: CACHED.cachedAt },
+          loadedAt: NOW,
         }),
       );
       expect(saved).toEqual([]);
       expect(deps.monitoring.logs).toEqual([
         {
-          level: LOG_LEVEL.Warn,
+          level: LOG_LEVEL.Info,
           event: MONITORING_EVENT.ServedFromCache,
           attributes: LOG_ATTRIBUTES,
         },
@@ -133,7 +178,9 @@ describe('loadWithCacheFallback', () => {
     it('returns the network error on a cache miss', async () => {
       const { source } = scriptedSource({ fetch: Promise.resolve(err(networkUnavailable())) });
 
-      expect(await loadWithCacheFallback(setup(), source)).toEqual(err(networkUnavailable()));
+      expect(await loadWithCacheFallback(setup(), OWNER, source)).toEqual(
+        err(networkUnavailable()),
+      );
     });
 
     it('returns the network error, and captures the failure, when the cache cannot be read', async () => {
@@ -144,7 +191,7 @@ describe('loadWithCacheFallback', () => {
         read: Promise.resolve(err(failure)),
       });
 
-      const result = await loadWithCacheFallback(deps, source);
+      const result = await loadWithCacheFallback(deps, OWNER, source);
 
       expect(result).toEqual(err(networkUnavailable()));
       expect(deps.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CacheReadFailed]);
@@ -159,7 +206,11 @@ describe('loadWithCacheFallback', () => {
         });
 
       it('is accepted up to the maximum age, included', async () => {
-        const result = await loadWithCacheFallback(setup(), offlineWith(at(-MAX_AGE)).source);
+        const result = await loadWithCacheFallback(
+          setup(),
+          OWNER,
+          offlineWith(at(-MAX_AGE)).source,
+        );
 
         expect(result.ok && result.value.source).toEqual({
           freshness: FRESHNESS.Stale,
@@ -170,7 +221,11 @@ describe('loadWithCacheFallback', () => {
       it('makes the value a miss once it is older than that, and says so', async () => {
         const deps = setup();
 
-        const result = await loadWithCacheFallback(deps, offlineWith(at(-MAX_AGE - 1)).source);
+        const result = await loadWithCacheFallback(
+          deps,
+          OWNER,
+          offlineWith(at(-MAX_AGE - 1)).source,
+        );
 
         expect(result).toEqual(err(networkUnavailable()));
         expect(deps.monitoring.logs).toEqual([
@@ -183,55 +238,210 @@ describe('loadWithCacheFallback', () => {
       });
 
       it('makes a value dated in the future a miss, since the clock was set back', async () => {
-        const result = await loadWithCacheFallback(setup(), offlineWith(at(1)).source);
+        const result = await loadWithCacheFallback(setup(), OWNER, offlineWith(at(1)).source);
 
         expect(result).toEqual(err(networkUnavailable()));
       });
 
+      it('stamps the saved data with the instant of the call, which is not the instant it was cached', async () => {
+        const deps = setup();
+        deps.clock.advance(120_000);
+        const { source } = offlineWith(at(-60_000));
+
+        const result = await loadWithCacheFallback(deps, OWNER, source);
+
+        expect(result.ok && result.value.loadedAt).toBe(at(120_000));
+        expect(result.ok && result.value.source).toEqual({
+          freshness: FRESHNESS.Stale,
+          cachedAt: at(-60_000),
+        });
+      });
+
       it('is measured with the clock at the moment of the call', async () => {
         const deps = setup();
+        deps.auth.session = aSession({ expiresAt: at(2 * MAX_AGE) });
         const { source } = offlineWith(at(-60_000));
-        expect(await loadWithCacheFallback(deps, source)).toEqual(
+        expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(
           ok({
             data: CACHED.value,
             source: { freshness: FRESHNESS.Stale, cachedAt: at(-60_000) },
+            loadedAt: NOW,
           }),
         );
 
         deps.clock.advance(MAX_AGE);
 
-        expect(await loadWithCacheFallback(deps, source)).toEqual(err(networkUnavailable()));
+        expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(networkUnavailable()));
       });
     });
   });
 
+  describe('when the remote source refuses the session (unauthorized)', () => {
+    it('empties both caches for every owner, returns the error, and never reads the cache', async () => {
+      const deps = setup();
+      await deps.meetingCache.saveMeeting(OWNER, aMeeting(), NOW);
+      await deps.meetingCache.saveMeeting(aUserId('user-2'), aMeeting(), NOW);
+      await deps.documentCache.save(
+        OWNER,
+        { document: aDocument(), location: aDocumentLocation() },
+        NOW,
+      );
+      const { source, reads, removals, revocations } = scriptedSource({
+        fetch: Promise.resolve(err(unauthorized())),
+        read: Promise.resolve(ok(CACHED)),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(unauthorized()));
+
+      expect(deps.meetingCache.isEmpty()).toBe(true);
+      expect(deps.documentCache.isEmpty()).toBe(true);
+      expect(reads()).toBe(0);
+      expect(removals() + revocations()).toBe(0);
+    });
+
+    it('captures a purge that fails, and returns the error', async () => {
+      const deps = setup();
+      deps.meetingCache.purgeFailure = storageWriteFailed();
+      const { source } = scriptedSource({ fetch: Promise.resolve(err(unauthorized())) });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(unauthorized()));
+      expect(deps.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CachePurgeFailed]);
+    });
+  });
+
   describe.each([
-    ['unauthorized', unauthorized()],
+    ['forbidden', forbidden()],
     ['not found', notFound()],
-  ])('when the remote source answers %s', (_name, error) => {
-    it('evicts the cached entry and returns the error, never reading the cache', async () => {
-      const { source, reads, removals } = scriptedSource({
+  ])('when the remote source refuses the item (%s)', (_name, error) => {
+    it('revokes the entry and what hangs off it, and returns the error, never reading the cache', async () => {
+      const deps = setup();
+      await deps.meetingCache.saveMeeting(OWNER, aMeeting(), NOW);
+      const { source, reads, removals, revocations } = scriptedSource({
         fetch: Promise.resolve(err(error)),
         read: Promise.resolve(ok(CACHED)),
       });
 
-      expect(await loadWithCacheFallback(setup(), source)).toEqual(err(error));
-      expect(removals()).toBe(1);
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(error));
+
+      expect(revocations()).toBe(1);
+      expect(removals()).toBe(0);
       expect(reads()).toBe(0);
+      expect(deps.meetingCache.isEmpty()).toBe(false);
     });
 
-    it('returns the error, and captures the failure, when the entry cannot be evicted', async () => {
+    it('empties both caches, and captures the failure, when the entry cannot be revoked', async () => {
       const deps = setup();
+      await deps.meetingCache.saveMeeting(OWNER, aMeeting(), NOW);
+      await deps.documentCache.save(
+        OWNER,
+        { document: aDocument(), location: aDocumentLocation() },
+        NOW,
+      );
       const failure = storageWriteFailed();
       const { source } = scriptedSource({
         fetch: Promise.resolve(err(error)),
-        remove: Promise.resolve(err(failure)),
+        revoke: Promise.resolve(err(failure)),
       });
 
-      expect(await loadWithCacheFallback(deps, source)).toEqual(err(error));
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(error));
+
       expect(deps.monitoring.errors).toEqual([
         { event: MONITORING_EVENT.CacheRemoveFailed, error: failure, attributes: LOG_ATTRIBUTES },
       ]);
+      expect(deps.meetingCache.isEmpty()).toBe(true);
+      expect(deps.documentCache.isEmpty()).toBe(true);
+    });
+
+    it('captures the failure of the purge too when even that fails', async () => {
+      const deps = setup();
+      deps.documentCache.purgeFailure = storageWriteFailed();
+      const { source } = scriptedSource({
+        fetch: Promise.resolve(err(error)),
+        revoke: Promise.resolve(err(storageWriteFailed())),
+      });
+
+      await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(deps.monitoring.capturedEvents()).toEqual([
+        MONITORING_EVENT.CacheRemoveFailed,
+        MONITORING_EVENT.CachePurgeFailed,
+      ]);
+    });
+  });
+
+  describe('when the cache cannot be written', () => {
+    it('removes the entry, so that an older copy is not served afterwards as if it were current', async () => {
+      const deps = setup();
+      const { source, removals, revocations } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)),
+        save: Promise.resolve(err(storageWriteFailed())),
+      });
+
+      await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(removals()).toBe(1);
+      expect(revocations()).toBe(0);
+    });
+
+    it('empties both caches when the entry cannot be removed either', async () => {
+      const deps = setup();
+      await deps.meetingCache.saveMeeting(OWNER, aMeeting(), NOW);
+      const { source } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)),
+        save: Promise.resolve(err(storageWriteFailed())),
+        remove: Promise.resolve(err(storageWriteFailed())),
+      });
+
+      const result = await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(result.ok).toBe(true);
+      expect(deps.meetingCache.isEmpty()).toBe(true);
+      expect(deps.monitoring.capturedEvents()).toEqual([
+        MONITORING_EVENT.CacheWriteFailed,
+        MONITORING_EVENT.CacheRemoveFailed,
+      ]);
+    });
+  });
+
+  describe('when the user is not the one the call was made for', () => {
+    it('writes nothing and answers sessionChanged, after a slow call that spanned a sign-in', async () => {
+      const deps = setup();
+      const { source, saved } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)).then((result) => {
+          deps.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+          return result;
+        }),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(sessionChanged()));
+      expect(saved).toEqual([]);
+    });
+
+    it('does not read the cache of the previous owner either, nor evict anything', async () => {
+      const deps = setup();
+      const { source, reads, removals, revocations } = scriptedSource({
+        fetch: Promise.resolve(err(networkUnavailable())).then((result) => {
+          deps.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+          return result;
+        }),
+        read: Promise.resolve(ok(CACHED)),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(sessionChanged()));
+      expect(reads() + removals() + revocations()).toBe(0);
+    });
+
+    it('answers appLocked when the app was locked meanwhile, and writes nothing', async () => {
+      const deps = setup();
+      const { source, saved } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)).then((result) => {
+          deps.appLock.lock();
+          return result;
+        }),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(appLocked()));
+      expect(saved).toEqual([]);
     });
   });
 
@@ -243,7 +453,7 @@ describe('loadWithCacheFallback', () => {
         read: Promise.resolve(ok(CACHED)),
       });
 
-      expect(await loadWithCacheFallback(setup(), source)).toEqual(err(error));
+      expect(await loadWithCacheFallback(setup(), OWNER, source)).toEqual(err(error));
       expect(reads()).toBe(0);
       expect(removals()).toBe(0);
     });

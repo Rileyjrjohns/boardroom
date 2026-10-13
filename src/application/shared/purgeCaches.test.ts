@@ -4,7 +4,7 @@ import { NOW, aDocument, aDocumentLocation, aMeeting, aUserId } from '@domain/te
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '../ports/Monitoring';
 import { createFakes } from '../testing/createFakes';
 
-import { CACHE_RESOURCE } from './loadWithCacheFallback';
+import { CACHE_RESOURCE } from './CacheResource';
 import { purgeCaches } from './purgeCaches';
 
 async function fill(fakes: ReturnType<typeof createFakes>) {

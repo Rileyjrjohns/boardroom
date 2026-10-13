@@ -5,6 +5,7 @@ import type { AuthSession } from '../../ports/AuthSession';
 import type { DocumentCache } from '../../ports/DocumentCache';
 import type { MeetingCache } from '../../ports/MeetingCache';
 import type { Monitoring } from '../../ports/Monitoring';
+import type { AppLock } from '../../shared/AppLock';
 import { purgeCaches } from '../../shared/purgeCaches';
 
 export interface SignOutDeps {
@@ -12,21 +13,26 @@ export interface SignOutDeps {
   readonly meetingCache: MeetingCache;
   readonly documentCache: DocumentCache;
   readonly monitoring: Monitoring;
+  /** The instance shared by every use case: see `AppLock`. */
+  readonly appLock: AppLock;
 }
 
 /**
  * Signs the current user out, and empties the meeting and document caches first (the stored
  * content of the documents included), so that the next user of the device finds nothing of what
- * this one saw. Succeeds when nobody was signed in.
+ * this one saw. Succeeds when nobody was signed in. The app is locked first, and stays locked: the
+ * next sign-in opens it again.
  *
  * A cache that cannot be emptied is captured by the monitoring and does not make the sign-out
  * fail: the entries are kept per user (see `MeetingCache`), so the next user cannot read them
- * anyway. The vote outbox is not touched: the votes of this user wait for them to come back.
+ * anyway, and the next sign-in empties the caches again (see `SignIn`). The vote outbox is not
+ * touched: the votes of this user wait for them to come back.
  */
 export class SignOut {
   constructor(private readonly deps: SignOutDeps) {}
 
   async execute(): Promise<Result<void, StorageWriteFailedError>> {
+    this.deps.appLock.lock();
     await purgeCaches(this.deps);
     return this.deps.auth.signOut();
   }

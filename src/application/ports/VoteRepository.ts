@@ -24,7 +24,9 @@ export interface VoteRepository {
    *   second vote, and is rejected as `alreadyVoted`.
    * - If the voter of the vote is not the user the request is authenticated as, the adapter answers
    *   `unauthorized`, never a voting error: a vote is only ever recorded for the signed-in user,
-   *   whoever queued it.
+   *   whoever queued it. The user the request is authenticated as is the identity attached to the
+   *   request itself, read when it was created, never the one of a user who signed in while it was
+   *   in flight: a vote is not sent under the session of somebody else.
    * - The server must not trust `castAt`. It comes from the clock of the device, which the user
    *   controls: the server stamps the vote with its own time and applies the voting window to it.
    * - `networkUnavailable` and `unexpected` say nothing about the vote (the server may or may not

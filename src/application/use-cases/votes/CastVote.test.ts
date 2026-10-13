@@ -2,7 +2,12 @@ import { createMeeting, findResolution } from '@domain/entities/Meeting';
 import { OUTBOX_STATUS } from '@domain/entities/OutboxVote';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
 import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
-import { notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
+import {
+  appLocked,
+  notAuthenticated,
+  sessionChanged,
+  sessionExpired,
+} from '@domain/errors/AuthenticationError';
 import {
   biometricCancelled,
   biometricLockedOut,
@@ -30,6 +35,7 @@ import {
   aRejectedVote,
   aResolutionId,
   aSession,
+  aUser,
   aUserId,
   aVote,
   anAgendaItem,
@@ -328,6 +334,48 @@ describe('CastVote', () => {
 
       expect(await useCase.execute(INPUT)).toEqual(err(storageReadFailed()));
       expect(fakes.biometricGate.prompts).toEqual([]);
+    });
+  });
+
+  describe('the session after the biometric prompt', () => {
+    it('refuses the vote when another user signed in while the prompt was shown, and sends or queues nothing', async () => {
+      const { fakes, useCase } = setup();
+      fakes.biometricGate.onPrompt = () => {
+        fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+      };
+
+      expect(await useCase.execute(INPUT)).toEqual(err(sessionChanged()));
+      expect(fakes.votes.received).toEqual([]);
+      expect(fakes.outbox.snapshot()).toEqual([]);
+    });
+
+    it('refuses the vote when the app was locked while the prompt was shown', async () => {
+      const { fakes, useCase } = setup();
+      fakes.biometricGate.onPrompt = () => fakes.appLock.lock();
+
+      expect(await useCase.execute(INPUT)).toEqual(err(appLocked()));
+      expect(fakes.votes.received).toEqual([]);
+    });
+
+    it('refuses the vote when the session ended while the prompt was shown', async () => {
+      const { fakes, useCase } = setup();
+      fakes.biometricGate.onPrompt = () => {
+        fakes.auth.session = undefined;
+      };
+
+      expect(await useCase.execute(INPUT)).toEqual(err(notAuthenticated()));
+      expect(fakes.votes.received).toEqual([]);
+    });
+
+    it('goes on when the same user is still signed in', async () => {
+      const { fakes, useCase } = setup();
+      fakes.biometricGate.onPrompt = () => {
+        fakes.auth.session = aSession();
+      };
+
+      const result = await useCase.execute(INPUT);
+
+      expect(result.ok && result.value.status).toBe(CAST_VOTE_STATUS.Submitted);
     });
   });
 

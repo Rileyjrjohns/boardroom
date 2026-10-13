@@ -6,15 +6,11 @@ import { err, isErr, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 import type { ResolutionId } from '@domain/value-objects/ids';
 
-import type { AuthSession } from '../../ports/AuthSession';
-import type { Clock } from '../../ports/Clock';
 import type { VoteOutbox } from '../../ports/VoteOutbox';
 import { requireSession } from '../../shared/requireSession';
-import type { SessionRequiredError } from '../../shared/requireSession';
+import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 
-export interface AcknowledgeRejectedVoteDeps {
-  readonly auth: AuthSession;
-  readonly clock: Clock;
+export interface AcknowledgeRejectedVoteDeps extends RequireSessionDeps {
   readonly outbox: VoteOutbox;
 }
 

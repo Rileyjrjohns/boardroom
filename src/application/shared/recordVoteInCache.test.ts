@@ -7,7 +7,7 @@ import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '../ports/Monitoring';
 import { createFakes } from '../testing/createFakes';
 
-import { CACHE_RESOURCE } from './loadWithCacheFallback';
+import { CACHE_RESOURCE } from './CacheResource';
 import { recordVoteInCache } from './recordVoteInCache';
 
 const VOTE = aVote({ choice: VOTE_CHOICE.Abstain });

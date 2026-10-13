@@ -4,15 +4,11 @@ import type { StorageReadFailedError } from '@domain/errors/StorageError';
 import { isErr, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
-import type { AuthSession } from '../../ports/AuthSession';
-import type { Clock } from '../../ports/Clock';
 import type { VoteOutbox } from '../../ports/VoteOutbox';
 import { requireSession } from '../../shared/requireSession';
-import type { SessionRequiredError } from '../../shared/requireSession';
+import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 
-export interface ListPendingVotesDeps {
-  readonly auth: AuthSession;
-  readonly clock: Clock;
+export interface ListPendingVotesDeps extends RequireSessionDeps {
   readonly outbox: VoteOutbox;
 }
 

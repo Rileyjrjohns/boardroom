@@ -6,7 +6,7 @@ import type { MeetingCache } from '../ports/MeetingCache';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '../ports/Monitoring';
 import type { Monitoring } from '../ports/Monitoring';
 
-import { CACHE_RESOURCE } from './loadWithCacheFallback';
+import { CACHE_RESOURCE } from './CacheResource';
 
 export interface RecordVoteInCacheDeps {
   readonly meetingCache: MeetingCache;

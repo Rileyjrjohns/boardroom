@@ -31,7 +31,21 @@ export interface ViewableDocument {
  * - `save` replaces what is stored for the same owner and document. `remove` of an absent entry
  *   succeeds. Both are idempotent.
  * - `remove` and `purge` also delete the stored content, not only the entry: a confidential file
- *   must not outlive its entry. `purge` removes every entry of every owner.
+ *   must not outlive its entry. `purge` removes every entry of every owner. The content is deleted
+ *   first, then the entry: if the content cannot be deleted, the call returns a storage error and
+ *   reports nothing as deleted (the entry stays, so the call can be repeated); an entry is never
+ *   dropped while its file is left behind with nothing pointing at it. The files that no entry
+ *   points at (a download whose entry was never saved, a deletion that was interrupted) are swept
+ *   when the cache starts.
+ * - Several entries may point at the same location (two owners, one file). The file is deleted
+ *   only when the last entry that points at it is dropped, so that removing the entry of one owner
+ *   never takes the file from another. Adapters count the references, or keep one file per owner.
+ * - A `save` that fails must not leave an older entry readable as if it were current (see
+ *   `MeetingCache`).
+ * - The storage key is injective in (owner, document id): free text, encoded, never concatenated
+ *   and never normalised (see `MeetingCache`).
+ * - The content lives in app-private storage, excluded from backups (no iCloud, no Auto Backup),
+ *   and is encrypted at rest where the platform offers it.
  */
 export interface DocumentCache {
   save(

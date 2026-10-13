@@ -2,6 +2,7 @@ import { findResolution } from '@domain/entities/Meeting';
 import { OUTBOX_STATUS } from '@domain/entities/OutboxVote';
 import type { OutboxVote } from '@domain/entities/OutboxVote';
 import {
+  appLocked,
   notAuthenticated,
   sessionChanged,
   sessionExpired,
@@ -54,6 +55,9 @@ const THIRD = aPendingVote(
 
 const CLOSED: VotingError = { code: VOTING_ERROR_CODE.ResolutionClosed };
 
+/** The resolutions of some votes: what a report names. */
+const ids = (...entries: OutboxVote[]) => entries.map(({ vote }) => vote.resolutionId);
+
 function setup(...entries: OutboxVote[]) {
   const fakes = createFakes();
   fakes.outbox.seed(...entries);
@@ -77,7 +81,7 @@ describe('SyncPendingVotes', () => {
       expect(result).toEqual(
         ok({
           outcome: SYNC_OUTCOME.Completed,
-          synced: [FIRST, SECOND, THIRD],
+          synced: ids(FIRST, SECOND, THIRD),
           rejected: [],
           remaining: 0,
         }),
@@ -220,8 +224,8 @@ describe('SyncPendingVotes', () => {
       expect(result).toEqual(
         ok({
           outcome: SYNC_OUTCOME.Completed,
-          synced: [FIRST, THIRD],
-          rejected: [rejected],
+          synced: ids(FIRST, THIRD),
+          rejected: [{ resolutionId: SECOND.vote.resolutionId, reason: CLOSED }],
           remaining: 0,
         }),
       );
@@ -453,7 +457,7 @@ describe('SyncPendingVotes', () => {
       expect(result).toEqual(
         ok({
           outcome: SYNC_OUTCOME.Interrupted,
-          synced: [FIRST],
+          synced: ids(FIRST),
           rejected: [],
           remaining: 2,
           interruptedBy: networkUnavailable(),
@@ -473,7 +477,7 @@ describe('SyncPendingVotes', () => {
 
       expect(result.ok && result.value).toMatchObject({
         outcome: SYNC_OUTCOME.Completed,
-        synced: [FIRST, SECOND],
+        synced: ids(FIRST, SECOND),
       });
       expect(fakes.outbox.snapshot()).toEqual([]);
     });
@@ -526,7 +530,7 @@ describe('SyncPendingVotes', () => {
       expect(result).toEqual(
         ok({
           outcome: SYNC_OUTCOME.Completed,
-          synced: [SECOND, THIRD],
+          synced: ids(SECOND, THIRD),
           rejected: [],
           remaining: 1,
         }),
@@ -553,7 +557,7 @@ describe('SyncPendingVotes', () => {
 
       const result = await useCase.execute();
 
-      expect(result.ok && result.value).toMatchObject({ synced: [{ ...FIRST, attempts: 2 }] });
+      expect(result.ok && result.value).toMatchObject({ synced: ids(FIRST) });
     });
 
     it('gives the vote up after the maximum number of attempts, as undeliverable, for the user to see', async () => {
@@ -581,7 +585,7 @@ describe('SyncPendingVotes', () => {
         ok({
           outcome: SYNC_OUTCOME.Completed,
           synced: [],
-          rejected: [rejected],
+          rejected: [{ resolutionId: FIRST.vote.resolutionId, reason: voteUndeliverable(3) }],
           remaining: 0,
         }),
       );
@@ -654,7 +658,7 @@ describe('SyncPendingVotes', () => {
 
       expect(result.ok && result.value).toMatchObject({
         outcome: SYNC_OUTCOME.Completed,
-        synced: [FIRST],
+        synced: ids(FIRST),
       });
       expect(fakes.votes.received).toEqual([FIRST.vote, FIRST.vote]);
       expect(fakes.votes.recordedVotes()).toEqual([FIRST.vote]);
@@ -678,7 +682,7 @@ describe('SyncPendingVotes', () => {
 
       const result = await useCase.execute();
 
-      expect(result.ok && result.value).toMatchObject({ synced: [FIRST], remaining: 1 });
+      expect(result.ok && result.value).toMatchObject({ synced: ids(FIRST), remaining: 1 });
     });
 
     it('falls back on what the run knows, and captures the failure, when the outbox cannot be read again', async () => {
@@ -697,7 +701,7 @@ describe('SyncPendingVotes', () => {
 
       const result = await new SyncPendingVotes({ ...fakes, outbox }).execute();
 
-      expect(result.ok && result.value).toMatchObject({ synced: [FIRST], remaining: 1 });
+      expect(result.ok && result.value).toMatchObject({ synced: ids(FIRST), remaining: 1 });
       expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.OutboxReadFailed]);
     });
   });
@@ -713,7 +717,7 @@ describe('SyncPendingVotes', () => {
 
       expect(result.ok && result.value).toMatchObject({
         outcome: SYNC_OUTCOME.Completed,
-        synced: [FIRST, SECOND],
+        synced: ids(FIRST, SECOND),
         remaining: 0,
       });
       expect(fakes.votes.received).toEqual([FIRST.vote, SECOND.vote]);
@@ -749,6 +753,60 @@ describe('SyncPendingVotes', () => {
       expect(fakes.outbox.snapshot()).toEqual([FIRST]);
     });
 
+    describe('the lock of the app', () => {
+      it('does not run while the app is locked: nothing is sent, nothing changes in the outbox', async () => {
+        const { fakes, useCase } = setup(FIRST, SECOND);
+        fakes.appLock.lock();
+
+        expect(await useCase.execute()).toEqual(err(appLocked()));
+        expect(fakes.votes.received).toEqual([]);
+        expect(fakes.outbox.snapshot()).toEqual([FIRST, SECOND]);
+      });
+
+      it('runs again once the app is unlocked, and sends what waited', async () => {
+        const { fakes, useCase } = setup(FIRST);
+        fakes.appLock.lock();
+        await useCase.execute();
+        fakes.appLock.unlock();
+
+        const result = await useCase.execute();
+
+        expect(result.ok && result.value).toMatchObject({ synced: ids(FIRST) });
+      });
+
+      it('stops at the next vote when the app is locked in the middle of a run', async () => {
+        const { fakes, useCase } = setup(FIRST, SECOND, THIRD);
+        fakes.votes.answerNext(ok(undefined));
+        fakes.votes.onReceive = () => fakes.appLock.lock();
+
+        const result = await useCase.execute();
+
+        expect(result.ok && result.value).toMatchObject({
+          outcome: SYNC_OUTCOME.Interrupted,
+          interruptedBy: appLocked(),
+          synced: ids(FIRST),
+          remaining: 2,
+        });
+        expect(fakes.votes.received).toEqual([FIRST.vote]);
+      });
+    });
+
+    it('reports resolutions and reasons only: the choice of a vote is never in the report', async () => {
+      const { fakes, useCase } = setup(FIRST, SECOND);
+      fakes.votes.answerNext(ok(undefined));
+      fakes.votes.answerNext(err(CLOSED));
+
+      const result = await useCase.execute();
+
+      const text = JSON.stringify(result);
+      expect(text).not.toContain('choice');
+      for (const choice of Object.values(VOTE_CHOICE)) expect(text).not.toContain(`"${choice}"`);
+      expect(result.ok && result.value).toMatchObject({
+        synced: ids(FIRST),
+        rejected: [{ resolutionId: SECOND.vote.resolutionId, reason: CLOSED }],
+      });
+    });
+
     describe('is checked again before each vote', () => {
       it('stops the run when another user signs in meanwhile: the votes of A are not sent under B', async () => {
         const { fakes, useCase } = setup(FIRST, SECOND, THIRD);
@@ -764,7 +822,7 @@ describe('SyncPendingVotes', () => {
         expect(result).toEqual(
           ok({
             outcome: SYNC_OUTCOME.Interrupted,
-            synced: [FIRST],
+            synced: ids(FIRST),
             rejected: [],
             remaining: 2,
             interruptedBy: sessionChanged(),
@@ -859,7 +917,7 @@ describe('SyncPendingVotes', () => {
 
       expect(result.ok && result.value).toMatchObject({
         outcome: SYNC_OUTCOME.Completed,
-        synced: [SECOND],
+        synced: ids(SECOND),
       });
     });
 

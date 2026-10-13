@@ -15,7 +15,12 @@ export type SignInFailure =
  *
  * Contract: no method throws or rejects, and every method settles in bounded time (a sign-in
  * request that times out is `networkUnavailable`). The `cause` fields of the errors must never hold
- * personal data, a credential or a token.
+ * personal data, a credential, a token, a path or a URL.
+ *
+ * `signIn` replaces any session that exists atomically: there is no instant at which the adapter
+ * holds the tokens of two users, or none while a sign-in succeeds. A refused sign-in leaves the
+ * current session as it was. Every request the adapters of the remote ports make carries the
+ * identity that was read when the request was created, never that of a user who signs in later.
  *
  * `expiresAt` of a session is on the device clock (see `Session`): the adapter computes it at
  * sign-in from the `Clock` port and the lifetime the server grants.

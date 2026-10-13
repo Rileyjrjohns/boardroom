@@ -1,5 +1,5 @@
-import { isPending, recordAttempt, rejectVote } from '@domain/entities/OutboxVote';
-import type { PendingVote, RejectedVote } from '@domain/entities/OutboxVote';
+import { isPending, recordAttempt } from '@domain/entities/OutboxVote';
+import type { PendingVote } from '@domain/entities/OutboxVote';
 import { sessionChanged } from '@domain/errors/AuthenticationError';
 import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
@@ -14,26 +14,18 @@ import type { RejectionReason } from '@domain/errors/VoteDeliveryError';
 import { isVotingError } from '@domain/errors/VotingError';
 import { err, isErr, isOk, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
-import type { UserId } from '@domain/value-objects/ids';
+import type { ResolutionId, UserId } from '@domain/value-objects/ids';
 
-import type { AuthSession } from '../../ports/AuthSession';
-import type { Clock } from '../../ports/Clock';
-import type { MeetingCache } from '../../ports/MeetingCache';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
-import type { Monitoring } from '../../ports/Monitoring';
 import type { VoteOutbox } from '../../ports/VoteOutbox';
 import type { VoteRepository } from '../../ports/VoteRepository';
 import { recordVoteInCache } from '../../shared/recordVoteInCache';
 import { requireSession } from '../../shared/requireSession';
-import type { SessionRequiredError } from '../../shared/requireSession';
+import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 
-export interface SyncPendingVotesDeps {
-  readonly auth: AuthSession;
-  readonly clock: Clock;
+export interface SyncPendingVotesDeps extends RequireSessionDeps {
   readonly outbox: VoteOutbox;
   readonly votes: VoteRepository;
-  readonly meetingCache: MeetingCache;
-  readonly monitoring: Monitoring;
   /**
    * Configuration, set once by the composition root: after this many unexpected failures a vote is
    * given up (rejected as `voteUndeliverable`) instead of being retried for ever.
@@ -58,11 +50,22 @@ export type SyncInterruption =
   | SessionRequiredError
   | SessionChangedError;
 
+/** A vote that the server refused, as a run reports it: which resolution, and why. Never the choice. */
+export interface RejectedSync {
+  readonly resolutionId: ResolutionId;
+  readonly reason: RejectionReason;
+}
+
+/**
+ * What a run did. It names resolutions and reasons only: the choice of a vote is a secret ballot,
+ * and a report is built to be shown, logged and passed around. The votes themselves stay in the
+ * outbox, where they are read by the voter they belong to.
+ */
 export interface SyncProgress {
-  /** The votes the server recorded; they have left the outbox. */
-  readonly synced: readonly PendingVote[];
+  /** The resolutions of the votes the server recorded; they have left the outbox. */
+  readonly synced: readonly ResolutionId[];
   /** The votes moved to the rejected state during this run; they stay in the outbox. */
-  readonly rejected: readonly RejectedVote[];
+  readonly rejected: readonly RejectedSync[];
   /** The pending votes of the user still in the outbox, counted after the run. */
   readonly remaining: number;
 }
@@ -96,7 +99,7 @@ const SETTLEMENT = {
 /** What became of one pending vote. */
 type Settlement =
   | { readonly kind: typeof SETTLEMENT.Synced }
-  | { readonly kind: typeof SETTLEMENT.Rejected; readonly rejected: RejectedVote }
+  | { readonly kind: typeof SETTLEMENT.Rejected; readonly rejected: RejectedSync }
   | { readonly kind: typeof SETTLEMENT.Deferred }
   | { readonly kind: typeof SETTLEMENT.Interrupted; readonly cause: SyncInterruption };
 
@@ -122,6 +125,13 @@ type Settlement =
  *   the authenticated user.)
  * - A write to the outbox that fails stops the run too, and a vote is reported as settled only
  *   once it has really left its pending state.
+ *
+ * - It does not run while the app is locked (`appLocked`, from the session guard), and a run that
+ *   meets the lock stops there. A vote was confirmed by a biometric prompt when it was cast, but
+ *   the lock means that nobody has proven they are there since the app started or came back, and
+ *   a locked app does not talk to the server with the session of its user, nor does it report on
+ *   their votes. The presentation triggers a run when the app returns to the foreground, and that
+ *   run follows the unlock. The votes wait in the outbox, and the loss is a delay.
  *
  * Only the votes of the signed-in user are read (the port is scoped by voter).
  *
@@ -162,8 +172,8 @@ export class SyncPendingVotes {
     if (isErr(listed)) return listed;
     const queue = listed.value.filter(isPending);
 
-    const synced: PendingVote[] = [];
-    const rejected: RejectedVote[] = [];
+    const synced: ResolutionId[] = [];
+    const rejected: RejectedSync[] = [];
     let interruption: SyncInterruption | undefined;
 
     for (const pending of queue) {
@@ -178,7 +188,7 @@ export class SyncPendingVotes {
         interruption = settlement.cause;
         break;
       }
-      if (settlement.kind === SETTLEMENT.Synced) synced.push(pending);
+      if (settlement.kind === SETTLEMENT.Synced) synced.push(pending.vote.resolutionId);
       if (settlement.kind === SETTLEMENT.Rejected) rejected.push(settlement.rejected);
     }
 
@@ -264,7 +274,7 @@ export class SyncPendingVotes {
     });
     return {
       kind: SETTLEMENT.Rejected,
-      rejected: rejectVote(pending, reason, rejectedAt),
+      rejected: { resolutionId: pending.vote.resolutionId, reason },
     };
   }
 

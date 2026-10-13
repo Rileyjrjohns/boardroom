@@ -27,8 +27,11 @@ export type Unsubscribe = () => void;
  * (`ScreenProtectionCoordinator`), so that every adapter behaves the same.
  *
  * Contract: no method throws or rejects, and `enable` and `disable` settle in bounded time. They
- * are idempotent. A listener must not throw; the adapter calls it for each event until it is
- * unsubscribed.
+ * are idempotent. `enable` has taken effect when it resolves: a screen shown after it is protected
+ * (a capture started afterwards is blocked, and the app switcher shows no content). Calls are
+ * applied in the order they were issued, so a `disable` issued before an `enable` can never land
+ * after it; the application also serialises its own calls (`ScreenProtectionCoordinator`). A
+ * listener must not throw; the adapter calls it for each event until it is unsubscribed.
  */
 export interface ScreenProtection {
   /** Turns the protection on. Fails when the platform cannot provide it. */

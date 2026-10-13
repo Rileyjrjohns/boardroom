@@ -27,6 +27,12 @@ export type EnqueueResult =
  * NOT cleared when a user signs out: a vote is scoped by its voter and must be sent when they come
  * back.
  *
+ * It holds the choices of secret ballots, and it outlives the sign-out, so it needs protection at
+ * rest: an adapter stores it encrypted (the keystore / the secure storage of the device), in
+ * app-private storage excluded from backups. Its content is never logged. A vote is found by its
+ * whole idempotency key: two keys that share a prefix, or differ only in case, are two votes, and
+ * a lookup by prefix or substring would merge them.
+ *
  * It is read and written by `CastVote` (a vote that could not be delivered), `SyncPendingVotes`
  * (the presentation or the composition root triggers it when connectivity is regained and when the
  * app returns to the foreground; the application layer does not watch the network),

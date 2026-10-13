@@ -13,6 +13,7 @@ import type {
   RepositoryError,
   UnexpectedError,
 } from '@domain/errors/RepositoryError';
+import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import type { StorageError } from '@domain/errors/StorageError';
 import { voteInProgress, votePreviouslyRejected } from '@domain/errors/VoteDeliveryError';
 import type {
@@ -28,7 +29,6 @@ import type { ValueOf } from '@domain/shared/constants';
 import type { MeetingId, ResolutionId } from '@domain/value-objects/ids';
 import type { VoteChoice } from '@domain/value-objects/VoteChoice';
 
-import type { AuthSession } from '../../ports/AuthSession';
 import { BIOMETRIC_REASON } from '../../ports/BiometricGate';
 import type { BiometricGate } from '../../ports/BiometricGate';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
@@ -39,11 +39,10 @@ import { confirmWithBiometrics } from '../../shared/confirmWithBiometrics';
 import { loadMeeting } from '../../shared/loadMeeting';
 import type { LoadMeetingDeps } from '../../shared/loadMeeting';
 import { recordVoteInCache } from '../../shared/recordVoteInCache';
-import { requireSession } from '../../shared/requireSession';
+import { requireSameUser, requireSession } from '../../shared/requireSession';
 import type { SessionRequiredError } from '../../shared/requireSession';
 
 export interface CastVoteDeps extends LoadMeetingDeps {
-  readonly auth: AuthSession;
   readonly outbox: VoteOutbox;
   readonly votes: VoteRepository;
   readonly biometricGate: BiometricGate;
@@ -72,6 +71,7 @@ export interface CastVoteOutcome {
 
 export type CastVoteError =
   | SessionRequiredError
+  | SessionChangedError
   | RepositoryError
   | StorageError
   | VotingError
@@ -96,7 +96,10 @@ type Undelivered = NetworkUnavailableError | UnexpectedError;
  *    meeting may be a stale copy: the server has the last word;
  * 5. asks for the biometric confirmation, only now that the vote is allowed, so that nobody is
  *    prompted for a vote that cannot be cast;
- * 6. builds the vote with the clock and submits it.
+ * 6. checks again that the same user is still signed in and the app still unlocked, because the
+ *    prompt can take long: otherwise the answer is `sessionChanged` (or `appLocked`) and nothing
+ *    is submitted or queued;
+ * 7. builds the vote with the clock and submits it.
  *
  * Submitted: `status: 'submitted'`, and the cached copy of the meeting records the vote. The
  * network is down, or the server failed in a way that says nothing about the vote
@@ -155,6 +158,11 @@ export class CastVote {
 
     const confirmed = await confirmWithBiometrics(biometricGate, BIOMETRIC_REASON.ConfirmVote);
     if (isErr(confirmed)) return confirmed;
+
+    // The prompt waits for the user, as long as they like: the one who confirms is the one who
+    // voted only if the session and the lock are still what they were when the prompt was shown.
+    const stillSignedIn = await requireSameUser(this.deps, voterId);
+    if (isErr(stillSignedIn)) return stillSignedIn;
 
     return this.send(createVote({ resolutionId, meetingId, voterId, choice, castAt: clock.now() }));
   }

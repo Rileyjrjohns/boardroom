@@ -64,8 +64,10 @@ export type LogAttributes = { readonly [Key in LogAttribute]?: string | number |
 /**
  * Structured logs and error reports, sent to whatever tool the adapter wraps. Fire and forget: both
  * methods return nothing, return at once, wait for nothing and never throw, whatever happens to the
- * tool behind them. The `cause` of an error may reach the tool: it holds no personal data (see the
- * errors).
+ * tool behind them. The `cause` of an error may reach the tool, and it holds a status code or a
+ * kind of failure, nothing else: neither it nor any attribute is ever a file path, a URL, the
+ * location of a document or its title, a name, an email, nor the choice of a vote (the ballot is
+ * secret). Identifiers and codes only (see the errors).
  *
  * The convention in the use cases: an error that is returned to the caller is the caller's to
  * report; an error that a use case swallows (a cache that cannot be written, say) is captured here,

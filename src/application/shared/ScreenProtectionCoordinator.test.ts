@@ -5,9 +5,13 @@ import {
 import { err, ok } from '@domain/shared/Result';
 import { aDocumentId } from '@domain/testing/builders';
 
+import type { ScreenProtection } from '../ports/ScreenProtection';
 import { FakeScreenProtection } from '../testing/FakeScreenProtection';
 
 import { ScreenProtectionCoordinator } from './ScreenProtectionCoordinator';
+
+/** Lets the promises that are ready run. */
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 const A = aDocumentId('document-A');
 const B = aDocumentId('document-B');
@@ -84,14 +88,45 @@ describe('ScreenProtectionCoordinator', () => {
     expect(screenProtection.disableCalls).toBe(0);
   });
 
-  it('treats a document opened twice as one', async () => {
+  it('counts the views of a document: closing one of two leaves the other protected', async () => {
     const { screenProtection, coordinator } = setup();
     await coordinator.acquire(A);
     await coordinator.acquire(A);
 
     await coordinator.release(A);
 
+    expect(screenProtection.enabled).toBe(true);
+    expect(screenProtection.disableCalls).toBe(0);
+
+    await coordinator.release(A);
+
     expect(screenProtection.enabled).toBe(false);
+    expect(screenProtection.disableCalls).toBe(1);
+  });
+
+  it('counts the views of every document together: the last view of all turns the protection off', async () => {
+    const { screenProtection, coordinator } = setup();
+    await coordinator.acquire(A);
+    await coordinator.acquire(A);
+    await coordinator.acquire(B);
+
+    await coordinator.release(A);
+    await coordinator.release(B);
+    expect(screenProtection.enabled).toBe(true);
+
+    await coordinator.release(A);
+    expect(screenProtection.enabled).toBe(false);
+  });
+
+  it('does not count a view twice for one close: a document with no view left is ignored', async () => {
+    const { screenProtection, coordinator } = setup();
+    await coordinator.acquire(A);
+    await coordinator.acquire(B);
+
+    await coordinator.release(A);
+    await coordinator.release(A);
+
+    expect(screenProtection.enabled).toBe(true);
   });
 
   it('does not register a document whose protection could not be turned on', async () => {
@@ -131,5 +166,91 @@ describe('ScreenProtectionCoordinator', () => {
     await second.release(A);
 
     expect(screenProtection.enabled).toBe(true);
+  });
+
+  describe('the calls to the platform', () => {
+    /** A platform whose answers the test gives by hand, one call at a time. */
+    function manualPlatform() {
+      const calls: string[] = [];
+      const pending: (() => void)[] = [];
+      const screenProtection: ScreenProtection = {
+        enable: () => {
+          calls.push('enable');
+          return new Promise((resolve) => pending.push(() => resolve(ok(undefined))));
+        },
+        disable: () => {
+          calls.push('disable');
+          return new Promise((resolve) => pending.push(() => resolve(ok(undefined))));
+        },
+        subscribe: () => () => undefined,
+      };
+      // Lets the queue reach the platform, then answers the oldest call it is waiting for.
+      const settleNext = async () => {
+        await settle();
+        pending.shift()?.();
+        await settle();
+      };
+      return {
+        calls,
+        settleNext,
+        coordinator: new ScreenProtectionCoordinator({ screenProtection }),
+      };
+    }
+
+    it('are issued in the order they were asked for, each one after the previous has settled', async () => {
+      const { calls, settleNext, coordinator } = manualPlatform();
+
+      const opening = coordinator.acquire(A);
+      await settleNext();
+      await opening;
+      // A is closed while B is being opened: the slow disable of A must not land after the enable of B.
+      const closing = coordinator.release(A);
+      const nextOpening = coordinator.acquire(B);
+      await settle();
+
+      expect(calls).toEqual(['enable', 'disable']);
+
+      await settleNext();
+      await closing;
+      expect(calls).toEqual(['enable', 'disable', 'enable']);
+
+      await settleNext();
+      await nextOpening;
+    });
+
+    it('end with the protection on when the last call asked for it, whatever the speed of the platform', async () => {
+      const screenProtection = new FakeScreenProtection();
+      const coordinator = new ScreenProtectionCoordinator({ screenProtection });
+      await coordinator.acquire(A);
+
+      await Promise.all([coordinator.release(A), coordinator.acquire(B), coordinator.acquire(A)]);
+
+      expect(screenProtection.enabled).toBe(true);
+      expect(await coordinator.release(B)).toEqual(ok(undefined));
+      expect(screenProtection.enabled).toBe(true);
+    });
+
+    it('go on after a call that failed: one failure does not block the queue', async () => {
+      const answers = [err(screenProtectionFailed()), ok(undefined)];
+      const calls: string[] = [];
+      const screenProtection: ScreenProtection = {
+        enable: () => {
+          calls.push('enable');
+          return Promise.resolve(answers.shift() ?? ok(undefined));
+        },
+        disable: () => Promise.resolve(ok(undefined)),
+        subscribe: () => () => undefined,
+      };
+      const coordinator = new ScreenProtectionCoordinator({ screenProtection });
+
+      const [failing, succeeding] = await Promise.all([
+        coordinator.acquire(A),
+        coordinator.acquire(B),
+      ]);
+
+      expect(failing).toEqual(err(screenProtectionFailed()));
+      expect(succeeding).toEqual(ok(undefined));
+      expect(calls).toEqual(['enable', 'enable']);
+    });
   });
 });

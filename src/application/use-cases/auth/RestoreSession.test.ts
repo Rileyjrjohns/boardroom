@@ -6,6 +6,7 @@ import {
   aDocumentLocation,
   aMeeting,
   aSession,
+  aUser,
   aUserId,
   at,
 } from '@domain/testing/builders';
@@ -30,8 +31,28 @@ describe('RestoreSession', () => {
       const fakes = createFakes();
 
       expect(await new RestoreSession(fakes).execute()).toEqual(
-        ok({ status: SESSION_RESTORE.UnlockRequired, session: aSession() }),
+        ok({ status: SESSION_RESTORE.UnlockRequired }),
       );
+    });
+
+    it('says nothing of who the user is before the unlock: no name, no email, no id', async () => {
+      const fakes = createFakes();
+
+      const restored = await new RestoreSession(fakes).execute();
+
+      const text = JSON.stringify(restored);
+      expect(text).not.toContain(aUser().fullName);
+      expect(text).not.toContain(aUser().email);
+      expect(text).not.toContain(aUser().id);
+    });
+
+    it('locks the app, even one that was unlocked: no use case serves anything until the biometrics succeed', async () => {
+      const fakes = createFakes();
+      expect(fakes.appLock.isLocked()).toBe(false);
+
+      await new RestoreSession(fakes).execute();
+
+      expect(fakes.appLock.isLocked()).toBe(true);
     });
 
     it('is not signed out and leaves the caches alone', async () => {
@@ -62,6 +83,20 @@ describe('RestoreSession', () => {
 
     expect(await new RestoreSession(fakes).execute()).toEqual(ok({ status: SESSION_RESTORE.None }));
     expect(fakes.auth.signOutCalls).toBe(0);
+  });
+
+  it('locks the app whatever it finds: a cold start proves nothing', async () => {
+    const none = createFakes();
+    none.auth.session = undefined;
+    const expired = createFakes();
+    expired.auth.session = aSession({ expiresAt: at(-1) });
+    const unreadable = createFakes();
+    unreadable.auth.readFailure = storageReadFailed();
+
+    for (const fakes of [none, expired, unreadable]) {
+      await new RestoreSession(fakes).execute();
+      expect(fakes.appLock.isLocked()).toBe(true);
+    }
   });
 
   describe('an expired session', () => {
@@ -97,10 +132,7 @@ describe('RestoreSession', () => {
       const fakes = createFakes();
       fakes.auth.session = aSession({ expiresAt: at(1000) });
       expect(await new RestoreSession(fakes).execute()).toEqual(
-        ok({
-          status: SESSION_RESTORE.UnlockRequired,
-          session: aSession({ expiresAt: at(1000) }),
-        }),
+        ok({ status: SESSION_RESTORE.UnlockRequired }),
       );
       expect(fakes.auth.session).toEqual(aSession({ expiresAt: at(1000) }));
 

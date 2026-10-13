@@ -66,4 +66,52 @@ describe('EvaluateAppLock', () => {
 
     expect(await useCase.execute({ backgroundedAt: NOW })).toEqual(err(storageReadFailed()));
   });
+
+  describe('the lock it enforces', () => {
+    it('closes the AppLock when the unlock is required, so that nothing is served until it succeeds', async () => {
+      const { fakes, useCase } = setup();
+      fakes.clock.advance(30_000);
+
+      await useCase.execute({ backgroundedAt: NOW });
+
+      expect(fakes.appLock.isLocked()).toBe(true);
+    });
+
+    it('leaves the AppLock open when the app returns within the grace period', async () => {
+      const { fakes, useCase } = setup();
+      fakes.clock.advance(29_999);
+
+      await useCase.execute({ backgroundedAt: NOW });
+
+      expect(fakes.appLock.isLocked()).toBe(false);
+    });
+
+    it('closes the AppLock when the clock has been set back: the time away cannot be known', async () => {
+      const { fakes, useCase } = setup();
+      fakes.clock.set(at(-1000));
+
+      await useCase.execute({ backgroundedAt: NOW });
+
+      expect(fakes.appLock.isLocked()).toBe(true);
+    });
+
+    it('closes the AppLock when the session cannot be read: it fails closed', async () => {
+      const { fakes, useCase } = setup();
+      fakes.auth.readFailure = storageReadFailed();
+
+      await useCase.execute({ backgroundedAt: NOW });
+
+      expect(fakes.appLock.isLocked()).toBe(true);
+    });
+
+    it('does not touch the AppLock when there is nothing to protect', async () => {
+      const { fakes, useCase } = setup();
+      fakes.auth.session = undefined;
+      fakes.clock.advance(3_600_000);
+
+      await useCase.execute({ backgroundedAt: NOW });
+
+      expect(fakes.appLock.isLocked()).toBe(false);
+    });
+  });
 });

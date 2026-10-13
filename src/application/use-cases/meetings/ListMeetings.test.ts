@@ -21,7 +21,7 @@ import { createPageRequest } from '@domain/value-objects/PageRequest';
 
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import { FRESHNESS } from '../../shared/Loaded';
-import { CACHE_RESOURCE } from '../../shared/loadWithCacheFallback';
+import { CACHE_RESOURCE } from '../../shared/CacheResource';
 import { createFakes } from '../../testing/createFakes';
 
 import { ListMeetings } from './ListMeetings';
@@ -73,7 +73,9 @@ describe('ListMeetings', () => {
 
       const result = await useCase.execute(FIRST);
 
-      expect(result).toEqual(ok({ data: FIRST_PAGE, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: FIRST_PAGE, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
       expect(fakes.meetings.listCalls).toEqual([FIRST]);
     });
 
@@ -82,7 +84,9 @@ describe('ListMeetings', () => {
 
       const result = await useCase.execute(SECOND);
 
-      expect(result).toEqual(ok({ data: SECOND_PAGE, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: SECOND_PAGE, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
     });
 
     it('returns the past meetings latest first', async () => {
@@ -144,7 +148,11 @@ describe('ListMeetings', () => {
       const result = await useCase.execute(FIRST);
 
       expect(result).toEqual(
-        ok({ data: FIRST_PAGE, source: { freshness: FRESHNESS.Stale, cachedAt: NOW } }),
+        ok({
+          data: FIRST_PAGE,
+          source: { freshness: FRESHNESS.Stale, cachedAt: NOW },
+          loadedAt: at(1_800_000),
+        }),
       );
     });
 
@@ -236,7 +244,7 @@ describe('ListMeetings', () => {
       expect(await useCase.execute(FIRST)).toEqual(err(networkUnavailable()));
     });
 
-    it('evicts only the page that was refused', async () => {
+    it('empties every cached page when the session is refused, not only the one that was asked for', async () => {
       const { fakes, useCase } = setup();
       await useCase.execute(FIRST);
       await useCase.execute(SECOND);
@@ -249,7 +257,8 @@ describe('ListMeetings', () => {
           cursor: CURSOR,
           limit: 2,
         }),
-      ).toEqual(ok({ value: SECOND_PAGE, cachedAt: NOW }));
+      ).toEqual(ok(undefined));
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
     });
 
     it('leaves the cached page alone when the server fails unexpectedly', async () => {
@@ -276,7 +285,9 @@ describe('ListMeetings', () => {
 
       const result = await useCase.execute(FIRST);
 
-      expect(result).toEqual(ok({ data: FIRST_PAGE, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: FIRST_PAGE, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
       expect(fakes.monitoring.errors).toEqual([
         {
           event: MONITORING_EVENT.CacheWriteFailed,
@@ -295,27 +306,42 @@ describe('ListMeetings', () => {
 
       expect(fakes.monitoring.logs).toEqual([
         {
-          level: LOG_LEVEL.Warn,
+          level: LOG_LEVEL.Info,
           event: MONITORING_EVENT.ServedFromCache,
           attributes: PAGE_ATTRIBUTES,
         },
       ]);
     });
 
-    it('captures an eviction that failed, with the period and the resource', async () => {
+    it('captures a write-through that failed and a removal that failed, with the period and the resource', async () => {
       const { fakes, useCase } = setup();
-      fakes.meetings.failure = unauthorized();
+      fakes.meetingCache.writeFailure = storageWriteFailed();
       fakes.meetingCache.removeFailure = storageWriteFailed();
 
       await useCase.execute(FIRST);
 
       expect(fakes.monitoring.errors).toEqual([
         {
+          event: MONITORING_EVENT.CacheWriteFailed,
+          error: storageWriteFailed(),
+          attributes: PAGE_ATTRIBUTES,
+        },
+        {
           event: MONITORING_EVENT.CacheRemoveFailed,
           error: storageWriteFailed(),
           attributes: PAGE_ATTRIBUTES,
         },
       ]);
+    });
+
+    it('captures a purge that failed when the session is refused', async () => {
+      const { fakes, useCase } = setup();
+      fakes.meetings.failure = unauthorized();
+      fakes.meetingCache.purgeFailure = storageWriteFailed();
+
+      await useCase.execute(FIRST);
+
+      expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CachePurgeFailed]);
     });
   });
 });

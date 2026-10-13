@@ -1,9 +1,20 @@
 import { invalidCredentials } from '@domain/errors/AuthenticationError';
 import { networkUnavailable } from '@domain/errors/RepositoryError';
+import { storageWriteFailed } from '@domain/errors/StorageError';
 import { VALIDATION_FIELD, VALIDATION_RULE, validationError } from '@domain/errors/ValidationError';
 import { err, ok } from '@domain/shared/Result';
-import { aSession, aUser, aUserId, anEmail } from '@domain/testing/builders';
+import {
+  NOW,
+  aDocument,
+  aDocumentLocation,
+  aMeeting,
+  aSession,
+  aUser,
+  aUserId,
+  anEmail,
+} from '@domain/testing/builders';
 
+import { MONITORING_EVENT } from '../../ports/Monitoring';
 import { createFakes } from '../../testing/createFakes';
 import { DEFAULT_PASSWORD } from '../../testing/FakeAuthSession';
 
@@ -100,5 +111,103 @@ describe('SignIn', () => {
     expect(
       await new SignIn(fakes).execute({ email: 'alice@example.com', password: DEFAULT_PASSWORD }),
     ).toEqual(err(networkUnavailable()));
+  });
+
+  describe('the caches and the lock', () => {
+    const fill = async (fakes: ReturnType<typeof createFakes>) => {
+      await fakes.meetingCache.saveMeeting(aUserId('user-2'), aMeeting(), NOW);
+      await fakes.documentCache.save(
+        aUserId('user-2'),
+        { document: aDocument(), location: aDocumentLocation() },
+        NOW,
+      );
+    };
+    const credentials = { email: 'alice@example.com', password: DEFAULT_PASSWORD };
+
+    it('empties both caches once the credentials are accepted: the previous user leaves nothing behind', async () => {
+      const fakes = createFakes();
+      await fill(fakes);
+
+      await new SignIn(fakes).execute(credentials);
+
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
+      expect(fakes.documentCache.isEmpty()).toBe(true);
+    });
+
+    it('empties them for every owner, the signed-in user included', async () => {
+      const fakes = createFakes();
+      await fakes.meetingCache.saveMeeting(aUserId(), aMeeting(), NOW);
+
+      await new SignIn(fakes).execute(credentials);
+
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
+    });
+
+    it.each([
+      ['wrong credentials', { email: 'alice@example.com', password: 'wrong' }],
+      ['a badly formed email', { email: 'alice', password: DEFAULT_PASSWORD }],
+    ])('leaves the caches alone on %s', async (_name, input) => {
+      const fakes = createFakes();
+      await fill(fakes);
+
+      await new SignIn(fakes).execute(input);
+
+      expect(fakes.meetingCache.isEmpty()).toBe(false);
+      expect(fakes.documentCache.isEmpty()).toBe(false);
+    });
+
+    it('leaves the caches alone when the server cannot be reached', async () => {
+      const fakes = createFakes();
+      await fill(fakes);
+      fakes.auth.signInFailure = networkUnavailable();
+
+      await new SignIn(fakes).execute(credentials);
+
+      expect(fakes.meetingCache.isEmpty()).toBe(false);
+    });
+
+    it('signs in anyway, and captures the failure, when a cache cannot be emptied', async () => {
+      const fakes = createFakes();
+      await fill(fakes);
+      fakes.documentCache.purgeFailure = storageWriteFailed();
+
+      const result = await new SignIn(fakes).execute(credentials);
+
+      expect(result.ok).toBe(true);
+      expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CachePurgeFailed]);
+    });
+
+    it('leaves the app unlocked after a sign-in: the credentials just typed are the proof of presence', async () => {
+      const fakes = createFakes();
+      fakes.appLock.lock();
+
+      await new SignIn(fakes).execute(credentials);
+
+      expect(fakes.appLock.isLocked()).toBe(false);
+    });
+
+    it('keeps the app locked when the sign-in is refused', async () => {
+      const fakes = createFakes();
+      fakes.appLock.lock();
+
+      await new SignIn(fakes).execute({ email: 'alice@example.com', password: 'wrong' });
+
+      expect(fakes.appLock.isLocked()).toBe(true);
+    });
+
+    it('is locked while the caches are emptied, and opened only afterwards', async () => {
+      const fakes = createFakes();
+      const seen: boolean[] = [];
+      const purge = fakes.meetingCache.purge.bind(fakes.meetingCache);
+      fakes.meetingCache.purge = () => {
+        seen.push(fakes.appLock.isLocked());
+        return purge();
+      };
+
+      await new SignIn(fakes).execute(credentials);
+
+      expect(seen).toEqual([true]);
+      expect(fakes.appLock.isLocked()).toBe(false);
+    });
   });
 });

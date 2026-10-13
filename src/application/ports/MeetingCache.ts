@@ -37,7 +37,18 @@ export interface MeetingPageKey {
  *   result (a miss).
  * - `save` replaces what is stored under the same owner and key. `remove` of an absent entry
  *   succeeds. Both are idempotent.
+ * - A `save` that fails must not leave an older entry readable as if it were current: the older
+ *   entry is removed (or never left in place) before the error is returned, so the next read is a
+ *   miss. The application removes the entry itself after a failed write, and empties the caches
+ *   when it cannot; this is the rule for the adapter, which does not depend on that.
  * - `purge` removes every entry of every owner, and succeeds when there is none.
+ * - The storage key is injective in (owner, id): owners and ids are free text, so they are encoded
+ *   (JSON, length prefixes, a separate column), never concatenated with a separator and never
+ *   normalised (no trimming, no case folding, no Unicode normalisation). Two different pairs never
+ *   share an entry, whatever characters they contain. The same goes for the parts of a page key
+ *   (period, cursor, page size).
+ * - The data is at rest on the device: it lives in app-private storage, excluded from backups.
+ *   What is given to `save` and what is returned are copies, never shared with the store.
  */
 export interface MeetingCache {
   savePage(

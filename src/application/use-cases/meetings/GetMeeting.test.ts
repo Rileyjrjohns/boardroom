@@ -1,10 +1,17 @@
 import { notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
-import { networkUnavailable, notFound, unauthorized } from '@domain/errors/RepositoryError';
+import {
+  forbidden,
+  networkUnavailable,
+  notFound,
+  unauthorized,
+} from '@domain/errors/RepositoryError';
 import { storageReadFailed, storageWriteFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
 import {
   MILLIS_PER_DAY,
   NOW,
+  aDocument,
+  aDocumentLocation,
   aMeeting,
   aMeetingId,
   aSession,
@@ -16,7 +23,7 @@ import {
 
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import { FRESHNESS } from '../../shared/Loaded';
-import { CACHE_RESOURCE } from '../../shared/loadWithCacheFallback';
+import { CACHE_RESOURCE } from '../../shared/CacheResource';
 import { createFakes } from '../../testing/createFakes';
 import { SignOut } from '../auth/SignOut';
 
@@ -46,7 +53,9 @@ describe('GetMeeting', () => {
 
     const result = await useCase.execute({ meetingId: aMeetingId() });
 
-    expect(result).toEqual(ok({ data: MEETING, source: { freshness: FRESHNESS.Fresh } }));
+    expect(result).toEqual(
+      ok({ data: MEETING, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+    );
     expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(
       ok({ value: MEETING, cachedAt: NOW }),
     );
@@ -82,7 +91,7 @@ describe('GetMeeting', () => {
 
       expect(fakes.monitoring.logs).toEqual([
         {
-          level: LOG_LEVEL.Warn,
+          level: LOG_LEVEL.Info,
           event: MONITORING_EVENT.ServedFromCache,
           attributes: MEETING_ATTRIBUTES,
         },
@@ -98,7 +107,11 @@ describe('GetMeeting', () => {
       const result = await useCase.execute({ meetingId: aMeetingId() });
 
       expect(result).toEqual(
-        ok({ data: MEETING, source: { freshness: FRESHNESS.Stale, cachedAt: NOW } }),
+        ok({
+          data: MEETING,
+          source: { freshness: FRESHNESS.Stale, cachedAt: NOW },
+          loadedAt: at(1_800_000),
+        }),
       );
     });
 
@@ -115,7 +128,9 @@ describe('GetMeeting', () => {
 
       const result = await useCase.execute({ meetingId: aMeetingId() });
 
-      expect(result).toEqual(ok({ data: MEETING, source: { freshness: FRESHNESS.Fresh } }));
+      expect(result).toEqual(
+        ok({ data: MEETING, source: { freshness: FRESHNESS.Fresh }, loadedAt: NOW }),
+      );
       expect(fakes.monitoring.errors).toEqual([
         {
           event: MONITORING_EVENT.CacheWriteFailed,
@@ -148,7 +163,11 @@ describe('GetMeeting', () => {
 
       fakes.clock.advance(7 * MILLIS_PER_DAY);
       expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(
-        ok({ data: MEETING, source: { freshness: FRESHNESS.Stale, cachedAt: NOW } }),
+        ok({
+          data: MEETING,
+          source: { freshness: FRESHNESS.Stale, cachedAt: NOW },
+          loadedAt: at(7 * MILLIS_PER_DAY),
+        }),
       );
       fakes.clock.advance(1);
       expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(networkUnavailable()));
@@ -173,22 +192,21 @@ describe('GetMeeting', () => {
       await useCase.execute({ meetingId: aMeetingId() });
       await new SignOut(fakes).execute();
       signInAsB(fakes);
+      fakes.appLock.unlock();
       fakes.network.goOffline();
 
       expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(networkUnavailable()));
       expect(fakes.meetingCache.isEmpty()).toBe(true);
     });
 
-    it('does not take away the copy of A when B is refused by the server', async () => {
+    it('empties the copy of A too when B is refused by the server: the refusal of a session empties the caches of every owner', async () => {
       const { fakes, useCase } = setup();
       await useCase.execute({ meetingId: aMeetingId() });
       signInAsB(fakes);
       fakes.meetings.failure = unauthorized();
       await useCase.execute({ meetingId: aMeetingId() });
 
-      expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(
-        ok({ value: MEETING, cachedAt: NOW }),
-      );
+      expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(ok(undefined));
     });
   });
 
@@ -215,13 +233,28 @@ describe('GetMeeting', () => {
       expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(ok(undefined));
     });
 
-    it('still returns the error, and captures the failure, when the copy cannot be evicted', async () => {
+    it('evicts the cached copy when the meeting is forbidden to the user, the documents it lists with it', async () => {
       const { fakes, useCase } = setup();
       await useCase.execute({ meetingId: aMeetingId() });
-      fakes.meetings.failure = unauthorized();
+      await fakes.documentCache.save(
+        aUserId(),
+        { document: MEETING.documents[0] ?? aDocument(), location: aDocumentLocation() },
+        NOW,
+      );
+      fakes.meetings.forbid(aMeetingId());
+
+      expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(forbidden()));
+      expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(ok(undefined));
+      expect(fakes.documentCache.isEmpty()).toBe(true);
+    });
+
+    it('empties both caches, and captures the failure, when the copy cannot be evicted', async () => {
+      const { fakes, useCase } = setup();
+      await useCase.execute({ meetingId: aMeetingId() });
+      fakes.meetings.forbid(aMeetingId());
       fakes.meetingCache.removeFailure = storageWriteFailed();
 
-      expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(unauthorized()));
+      expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(forbidden()));
       expect(fakes.monitoring.errors).toEqual([
         {
           event: MONITORING_EVENT.CacheRemoveFailed,
@@ -229,6 +262,17 @@ describe('GetMeeting', () => {
           attributes: MEETING_ATTRIBUTES,
         },
       ]);
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
+    });
+
+    it('captures the failure of the purge when the session is refused and the caches cannot be emptied', async () => {
+      const { fakes, useCase } = setup();
+      await useCase.execute({ meetingId: aMeetingId() });
+      fakes.meetings.failure = unauthorized();
+      fakes.meetingCache.purgeFailure = storageWriteFailed();
+
+      expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(unauthorized()));
+      expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CachePurgeFailed]);
     });
   });
 });

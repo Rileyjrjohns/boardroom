@@ -14,8 +14,14 @@ export type DataSource =
   | { readonly freshness: typeof FRESHNESS.Fresh }
   | { readonly freshness: typeof FRESHNESS.Stale; readonly cachedAt: Instant };
 
-/** Data and where it comes from. */
+/**
+ * Data, where it comes from, and the instant it was produced at. The instant is the one of the
+ * clock when the use case answered, for saved data as well as for fresh data: it is the "now" that
+ * a screen needs to judge what depends on time (is a voting window over?) without reading a clock
+ * itself. For saved data it is not `cachedAt`, which says how old the copy is.
+ */
 export interface Loaded<T> {
   readonly data: T;
   readonly source: DataSource;
+  readonly loadedAt: Instant;
 }

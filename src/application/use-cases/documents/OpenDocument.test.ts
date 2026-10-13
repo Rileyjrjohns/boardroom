@@ -1,6 +1,11 @@
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
-import { networkUnavailable, notFound, unauthorized } from '@domain/errors/RepositoryError';
+import {
+  forbidden,
+  networkUnavailable,
+  notFound,
+  unauthorized,
+} from '@domain/errors/RepositoryError';
 import {
   screenProtectionFailed,
   screenProtectionUnsupported,
@@ -23,7 +28,7 @@ import {
 
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import { FRESHNESS } from '../../shared/Loaded';
-import { CACHE_RESOURCE } from '../../shared/loadWithCacheFallback';
+import { CACHE_RESOURCE } from '../../shared/CacheResource';
 import { createFakes } from '../../testing/createFakes';
 import { SignOut } from '../auth/SignOut';
 
@@ -71,6 +76,7 @@ describe('OpenDocument', () => {
       await useCase.execute({ documentId: CONFIDENTIAL.id });
       await new SignOut(fakes).execute();
       fakes.auth.session = aSession();
+      fakes.appLock.unlock();
       fakes.network.goOffline();
 
       expect(await useCase.execute({ documentId: CONFIDENTIAL.id })).toEqual(
@@ -389,13 +395,14 @@ describe('OpenDocument', () => {
       expect(fakes.screenProtection.enabled).toBe(false);
     });
 
-    it('captures an eviction that failed, and still returns the refusal', async () => {
+    it('captures an eviction that failed, empties the caches, and still returns the refusal', async () => {
       const { fakes, useCase } = setup();
       await useCase.execute({ documentId: CONFIDENTIAL.id });
-      fakes.documents.failure = unauthorized();
+      fakes.documents.forbid(CONFIDENTIAL.id);
       fakes.documentCache.removeFailure = storageWriteFailed();
 
-      expect(await useCase.execute({ documentId: CONFIDENTIAL.id })).toEqual(err(unauthorized()));
+      expect(await useCase.execute({ documentId: CONFIDENTIAL.id })).toEqual(err(forbidden()));
+      expect(fakes.documentCache.isEmpty()).toBe(true);
       expect(fakes.monitoring.errors).toEqual([
         {
           event: MONITORING_EVENT.CacheRemoveFailed,
@@ -414,7 +421,7 @@ describe('OpenDocument', () => {
       await useCase.execute({ documentId: CONFIDENTIAL.id });
 
       expect(fakes.monitoring.logs[0]).toEqual({
-        level: LOG_LEVEL.Warn,
+        level: LOG_LEVEL.Info,
         event: MONITORING_EVENT.ServedFromCache,
         attributes: DOCUMENT_ATTRIBUTES,
       });
