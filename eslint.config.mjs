@@ -16,7 +16,8 @@ import boundaries from 'eslint-plugin-boundaries';
  *   di              -> domain, application, infrastructure, di
  *
  * domain, application and di import no external module at all. app, infrastructure and
- * presentation may import external modules, except `zod`, which only infrastructure may use.
+ * presentation may import external modules, except `zod`, which only infrastructure may use, and
+ * TanStack Query and Zustand, which only presentation may use.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
  * `@domain/*`-style aliases are classified like relative imports.
  *
@@ -77,6 +78,9 @@ const element = (...types) => ({ element: { type: types.length === 1 ? types[0] 
 /** Selector matching any module that lives in node_modules (or is flagged as external). */
 const externalModule = { module: { origin: 'external' } };
 
+/** The packages that hold state, with their subpaths: reserved to the presentation layer. */
+const STATE_LIBRARIES = ['@tanstack/**', 'zustand', 'zustand/**'];
+
 const dependencyPolicies = [
   {
     from: element('app'),
@@ -107,6 +111,14 @@ const dependencyPolicies = [
     from: element('app', 'domain', 'application', 'presentation', 'di'),
     disallow: { to: { module: { origin: 'external', source: 'zod' } } },
     message: 'The "zod" package may only be imported from src/infrastructure.',
+  },
+  // Server state (TanStack Query) and interface state (Zustand) are presentation concerns: the
+  // other layers hold no framework state, and a route file only mounts what the presentation gives it.
+  {
+    from: element('app', 'domain', 'application', 'infrastructure', 'di'),
+    disallow: { to: { module: { origin: 'external', source: STATE_LIBRARIES } } },
+    message:
+      'TanStack Query and Zustand may only be imported from src/presentation: server state and UI state belong to it.',
   },
   // A layer alias that fails to resolve would be classified as an external module and slip through
   // the external-module allowances above. Never accept that.
@@ -687,7 +699,7 @@ export default defineConfig([
 
   {
     // Every imported package must be declared in package.json. Development dependencies are for
-    // tooling and tests only, never for code that ships in the app.
+    // tooling, tests and test support only, never for code that ships in the app.
     rules: {
       'import/no-extraneous-dependencies': [
         'error',
@@ -696,8 +708,10 @@ export default defineConfig([
     },
   },
   {
+    // Production code cannot use a development dependency. Test files and test support (fakes,
+    // fixtures, render helpers) are test code, and can.
     files: APPLICATION_CODE,
-    ignores: TEST_FILES,
+    ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
     rules: {
       'import/no-extraneous-dependencies': [
         'error',

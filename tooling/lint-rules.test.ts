@@ -23,6 +23,12 @@ const APPLICATION_TEST = 'src/application/use-cases/Sample.test.ts';
 const TEST_SUPPORT = 'src/application/testing/FakeSample.ts';
 const INFRASTRUCTURE = 'src/infrastructure/http/sample.ts';
 
+const DI = 'src/di/sample.ts';
+const PRESENTATION_HOOK = 'src/presentation/hooks/useSample.ts';
+
+/** The rule of the dependency policies of the architecture (the layers, the reserved packages). */
+const BOUNDARY_RULES = new Set(['boundaries/dependencies']);
+
 const CONVENTION_RULES = new Set([
   'no-restricted-syntax',
   'no-restricted-imports',
@@ -475,6 +481,45 @@ const throwAndClock = register(
   ].join('\n'),
 );
 
+/** Imports of the two packages that hold state, which only the presentation layer may use. */
+const stateLibraryImports = {
+  'TanStack Query':
+    "import { useQuery } from '@tanstack/react-query';\nexport const hook = useQuery;",
+  'a type of TanStack Query':
+    "import type { QueryClient } from '@tanstack/react-query';\nexport type Client = QueryClient;",
+  Zustand: "import { createStore } from 'zustand';\nexport const make = createStore;",
+  'a subpath of Zustand':
+    "import { createStore } from 'zustand/vanilla';\nexport const make = createStore;",
+  'a type of Zustand':
+    "import type { StoreApi } from 'zustand';\nexport type Api = StoreApi<unknown>;",
+} as const;
+
+const stateLibraryFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'infrastructure code': INFRASTRUCTURE,
+  'the composition root': DI,
+  'a route': ROUTE,
+} as const;
+
+const rejectedStateLibraries = Object.fromEntries(
+  Object.entries(stateLibraryFiles).map(([where, filePath]) => [
+    where,
+    registerAll(stateLibraryImports, asWritten, filePath),
+  ]),
+);
+const presentationFiles = {
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+} as const;
+
+const acceptedStateLibraries = Object.fromEntries(
+  Object.entries(presentationFiles).map(([where, filePath]) => [
+    where,
+    registerAll(stateLibraryImports, asWritten, filePath),
+  ]),
+);
+
 let findings: Finding[][] = [];
 
 beforeAll(() => {
@@ -493,6 +538,15 @@ function reported(snippet: Snippet): Finding[] {
   expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
   return messages.filter(
     (message) => message.ruleId !== null && CONVENTION_RULES.has(message.ruleId),
+  );
+}
+
+/** What the dependency policies report for a snippet, after checking that it parsed. */
+function reportedBoundaries(snippet: Snippet): Finding[] {
+  const messages = findings[snippets.indexOf(snippet)] ?? [];
+  expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
+  return messages.filter(
+    (message) => message.ruleId !== null && BOUNDARY_RULES.has(message.ruleId),
   );
 }
 
@@ -662,6 +716,24 @@ describe('Domain, application and test support lint rules', () => {
           message: expect.stringContaining('not by a path inside node_modules'),
         }),
       ]);
+    });
+  });
+});
+
+describe('State libraries lint rules', () => {
+  describe.each(Object.entries(rejectedStateLibraries))('in %s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s', (_name, snippet) => {
+      const messages = reportedBoundaries(snippet).map(({ message }) => message);
+
+      expect(messages).toContainEqual(
+        expect.stringContaining('only be imported from src/presentation'),
+      );
+    });
+  });
+
+  describe.each(Object.entries(acceptedStateLibraries))('in %s', (_where, cases) => {
+    it.each(cases)('accepts the import of %s', (_name, snippet) => {
+      expect(reportedBoundaries(snippet)).toEqual([]);
     });
   });
 });
