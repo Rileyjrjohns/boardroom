@@ -36,9 +36,20 @@ export interface MockControls {
   readonly screenProtection: InMemoryScreenProtection;
 }
 
+/**
+ * An account of the simulated server, as the sign-in screen of the demo offers it: the demo
+ * password protects nothing, the accounts exist only in the simulation.
+ */
+export interface DemoAccountHint {
+  readonly fullName: string;
+  readonly email: string;
+  readonly password: string;
+}
+
 interface MockWiring {
   readonly ports: Ports;
   readonly controls: MockControls;
+  readonly demoAccounts: readonly DemoAccountHint[];
 }
 
 /**
@@ -96,5 +107,10 @@ export function createMockPorts(
       outbox: new InMemoryVoteOutbox(),
     },
     controls: { network: backend.network, screenProtection },
+    demoAccounts: seed.value.accounts.map(({ user, password }) => ({
+      fullName: user.fullName,
+      email: user.email,
+      password,
+    })),
   });
 }

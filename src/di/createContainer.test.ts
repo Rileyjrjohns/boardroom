@@ -112,6 +112,7 @@ describe('createContainer, mock configuration', () => {
         'castVote',
         'closeDocument',
         'evaluateAppLock',
+        'getCurrentUser',
         'getMeeting',
         'listMeetings',
         'listPendingVotes',
@@ -127,6 +128,32 @@ describe('createContainer, mock configuration', () => {
     );
     expect(container.settings).toEqual({ meetingsPageSize: MEETINGS_PAGE_SIZE });
     expect(container.controls.network.online).toBe(true);
+  });
+
+  it('hands the clock the use cases read to the screens, so that one instant is not read twice from two clocks', async () => {
+    const { container, clock } = await aContainer();
+
+    expect(container.clock).toBe(clock);
+  });
+
+  it('hands the accounts of the simulation to the demo, with their shared password and nothing of the sessions', async () => {
+    const { container } = await aContainer();
+
+    expect(container.demoControls.accounts).toEqual([
+      { fullName: 'Alice Martin', email: ALICE, password: DEMO_PASSWORD },
+      { fullName: 'Bruno Durand', email: BRUNO, password: DEMO_PASSWORD },
+    ]);
+  });
+
+  it('tells who is signed in, once the app is unlocked and not before', async () => {
+    const { container } = await aContainer(mock({ startSignedIn: false }));
+
+    await container.useCases.signIn.execute({ email: ALICE, password: DEMO_PASSWORD });
+    const user = valueOf(await container.useCases.getCurrentUser.execute());
+
+    expect(user.email).toBe(ALICE);
+    await container.useCases.signOut.execute();
+    expect((await container.useCases.getCurrentUser.execute()).ok).toBe(false);
   });
 
   it('serves meetings from the first use case to the detail, using only the container', async () => {
@@ -529,12 +556,12 @@ describe('createContainer, mock configuration', () => {
         statuses.push(status);
       });
 
-      container.demoControls.setOnline(false);
-      container.demoControls.setOnline(true);
+      container.demoControls.network.setOnline(false);
+      container.demoControls.network.setOnline(true);
 
       expect(observation.status).toBe(CONNECTIVITY_STATUS.Online);
       expect(statuses).toEqual([CONNECTIVITY_STATUS.Offline, CONNECTIVITY_STATUS.Online]);
-      expect(container.demoControls).toBe(container.controls.network);
+      expect(container.demoControls.network).toBe(container.controls.network);
       observation.unsubscribe();
     });
 
@@ -543,7 +570,7 @@ describe('createContainer, mock configuration', () => {
       const observation = await container.useCases.observeConnectivity.execute(() => undefined);
       await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
 
-      container.demoControls.setOnline(false);
+      container.demoControls.network.setOnline(false);
       const offline = await container.useCases.listMeetings.execute({
         period: MEETING_PERIOD.Upcoming,
         request: page,

@@ -1,3 +1,4 @@
+import type { Clock } from '@application/ports/Clock';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
@@ -20,7 +21,7 @@ import type { ContainerRuntime } from './ContainerRuntime';
 import type { ContainerError } from './errors';
 import { createHttpPorts } from './httpPorts';
 import { createMockPorts } from './mockPorts';
-import type { MockControls } from './mockPorts';
+import type { DemoAccountHint, MockControls } from './mockPorts';
 import type { UseCaseSettings } from './Ports';
 import { wireUseCases } from './wireUseCases';
 import type { UseCases } from './wireUseCases';
@@ -31,17 +32,26 @@ interface ContainerSettings {
   readonly meetingsPageSize: number;
 }
 
+/**
+ * What the demo drives in the mock configuration: the connection of the simulated server, off and
+ * on, and the accounts of the simulation, so that the sign-in screen can offer them. A real device
+ * has no switch to cut its own network and no account to hand out, so the http configuration has
+ * none of it.
+ */
+export interface DemoControls {
+  readonly network: MockControls['network'];
+  readonly accounts: readonly DemoAccountHint[];
+}
+
 /** The app wired against the in-memory adapters. */
 export interface MockContainer {
   readonly kind: typeof ADAPTERS.Mock;
   readonly useCases: UseCases;
   readonly settings: ContainerSettings;
+  /** The clock the use cases read, for the screen that has to record an instant (the background). */
+  readonly clock: Clock;
   readonly controls: MockControls;
-  /**
-   * What the demo drives: the connection of the simulated server, off and on. Only the mock
-   * configuration has it: a real device has no switch to cut its own network.
-   */
-  readonly demoControls: MockControls['network'];
+  readonly demoControls: DemoControls;
 }
 
 /** The app wired against the API, SQLite, the secure storage and the device. */
@@ -49,6 +59,8 @@ export interface HttpContainer {
   readonly kind: typeof ADAPTERS.Http;
   readonly useCases: UseCases;
   readonly settings: ContainerSettings;
+  /** The clock the use cases read, for the screen that has to record an instant (the background). */
+  readonly clock: Clock;
 }
 
 /**
@@ -82,8 +94,9 @@ function createMockContainer(
     // it is unlocked. Without one, the app starts locked, as a cold start does.
     useCases: wireUseCases(wiring.value.ports, settingsOfUseCases(!config.startSignedIn)),
     settings: SETTINGS,
+    clock: wiring.value.ports.clock,
     controls: wiring.value.controls,
-    demoControls: wiring.value.controls.network,
+    demoControls: { network: wiring.value.controls.network, accounts: wiring.value.demoAccounts },
   });
 }
 
@@ -99,6 +112,7 @@ async function createHttpContainer(
     // A real start is a cold start: whoever the stored session belongs to unlocks the app first.
     useCases: wireUseCases(ports.value, settingsOfUseCases(true)),
     settings: SETTINGS,
+    clock: ports.value.clock,
   });
 }
 

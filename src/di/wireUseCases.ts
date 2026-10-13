@@ -3,6 +3,7 @@ import { CastVote } from '@application/use-cases/votes/CastVote';
 import { CloseDocument } from '@application/use-cases/documents/CloseDocument';
 import { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
 import { EvaluateAppLock } from '@application/use-cases/auth/EvaluateAppLock';
+import { GetCurrentUser } from '@application/use-cases/auth/GetCurrentUser';
 import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 import { ListPendingVotes } from '@application/use-cases/votes/ListPendingVotes';
@@ -23,6 +24,7 @@ export interface UseCases {
   readonly signIn: SignIn;
   readonly signOut: SignOut;
   readonly restoreSession: RestoreSession;
+  readonly getCurrentUser: GetCurrentUser;
   readonly evaluateAppLock: EvaluateAppLock;
   readonly unlockApp: UnlockApp;
   readonly listMeetings: ListMeetings;
@@ -84,6 +86,7 @@ export function wireUseCases(ports: Ports, settings: UseCaseSettings): UseCases 
     signIn: new SignIn({ auth, meetingCache, documentCache, monitoring, appLock }),
     signOut: new SignOut({ auth, meetingCache, documentCache, monitoring, appLock }),
     restoreSession: new RestoreSession({ ...guard }),
+    getCurrentUser: new GetCurrentUser({ ...guard }),
     evaluateAppLock: new EvaluateAppLock({ auth, clock, gracePeriod, appLock }),
     unlockApp: new UnlockApp({ biometricGate, appLock }),
     listMeetings: new ListMeetings({ ...cacheFallback, meetings }),

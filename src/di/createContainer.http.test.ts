@@ -150,6 +150,7 @@ describe('createContainer, http configuration, end to end', () => {
     expect(Object.keys(container.useCases)).toContain('observeConnectivity');
     expect(container.settings.meetingsPageSize).toBeGreaterThan(0);
     expect('demoControls' in container).toBe(false);
+    expect(container.clock.now()).toBeGreaterThan(0);
   });
 
   it('runs the whole journey: sign in, list, detail, vote, offline, queued vote, back online, sync, restart', async () => {

@@ -29,8 +29,8 @@ export const MOCK_SESSION_LIFETIME = valid(durationFromMillis(8 * MILLIS_PER_HOU
 
 /**
  * The mock configuration starts signed out, like the real one: the user signs in with an account
- * of the simulated server. A test, or the root layout until the sign-in screen exists, asks for the
- * demo user to be signed in at start through the `mockStartsSignedIn` setting.
+ * of the simulated server. A test that wants the demo user signed in at start asks for it through
+ * the `mockStartsSignedIn` setting.
  */
 export const MOCK_STARTS_SIGNED_IN = false;
 
