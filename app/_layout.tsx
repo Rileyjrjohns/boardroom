@@ -1,14 +1,29 @@
-import { Stack } from 'expo-router';
+import { useState } from 'react';
 
+import { startContainer } from '@di/createContainer';
 import { I18nProvider } from '@presentation/i18n/I18nProvider';
+import { AppNavigator } from '@presentation/navigation/AppNavigator';
+import { StartupFailureScreen } from '@presentation/screens/StartupFailureScreen';
+import { AppProviders } from '@presentation/services/AppProviders';
 
-// Root layout. It mounts the providers exposed by the presentation layer, and is where the
-// composition root exposed by `@di` will be handed to them once it exists. The `app/` folder
-// itself stays free of business logic.
+// Root layout. It builds the composition root once and hands it to the providers of the
+// presentation layer, which is the only link between the two: the layer never imports `@di`. The
+// `app/` folder stays free of business logic.
 export default function RootLayout() {
+  // The one place that reads the environment. Metro replaces this exact expression with the value
+  // at build time, so it cannot be moved behind a variable name, and `EXPO_PUBLIC_` is what makes
+  // Expo expose the variable to the app. It is parsed and validated by the composition root.
+  const [started] = useState(() => startContainer(process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS));
+
   return (
     <I18nProvider>
-      <Stack screenOptions={{ headerShown: false }} />
+      {started.ok ? (
+        <AppProviders services={started.value}>
+          <AppNavigator />
+        </AppProviders>
+      ) : (
+        <StartupFailureScreen code={started.error.code} />
+      )}
     </I18nProvider>
   );
 }

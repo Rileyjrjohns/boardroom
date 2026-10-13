@@ -1,5 +1,7 @@
-import { PlaceholderScreen } from '@presentation/screens/PlaceholderScreen';
+import { useOpenMeeting } from '@presentation/navigation/useOpenMeeting';
+import { MeetingsListScreen } from '@presentation/screens/MeetingsListScreen';
 
 export default function IndexRoute() {
-  return <PlaceholderScreen />;
+  const openMeeting = useOpenMeeting();
+  return <MeetingsListScreen onOpenMeeting={openMeeting} />;
 }
