@@ -2,11 +2,13 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Slot } from 'expo-router';
 import type { ReactElement } from 'react';
 import { renderRouter } from 'expo-router/testing-library';
+import { StatusBar } from 'react-native';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { createI18n } from '../i18n/createI18n';
 import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
 import { TEST_IDS } from '../testIds';
+import { statusBarStyle } from '../theme/tokens';
 
 import { AppErrorBoundary } from './AppErrorBoundary';
 
@@ -42,6 +44,12 @@ describe('AppErrorBoundary', () => {
     },
   );
 
+  it('asks for dark system bar content, as every screen does', () => {
+    render(<AppErrorBoundary error={new Error('boom')} retry={jest.fn()} />);
+
+    expect(screen.UNSAFE_getByType(StatusBar).props.barStyle).toBe(statusBarStyle);
+  });
+
   it('does not show the error itself to the user', () => {
     render(<AppErrorBoundary error={new Error('secret detail')} retry={jest.fn()} />);
 
@@ -61,6 +69,7 @@ describe('AppErrorBoundary', () => {
 
       expect(screen.getByTestId(TEST_IDS.errorBoundary)).toBeTruthy();
       expect(screen.getByText(t('errors.unexpected'))).toBeTruthy();
+      expect(screen.UNSAFE_getByType(StatusBar).props.barStyle).toBe(statusBarStyle);
     });
   });
 });

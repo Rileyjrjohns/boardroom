@@ -59,5 +59,12 @@ export const touchTarget = {
   min: 44,
 } as const;
 
+/**
+ * The style of the content of the system bars (clock, signal, battery). The theme is light only, so
+ * the content is dark, on both platforms: left to the system it follows the dark mode of the device
+ * on Android, and is light on a white header, which hides it.
+ */
+export const statusBarStyle = 'dark-content' as const;
+
 /** How faded a pressed element is. */
 export const pressedOpacity = 0.6;

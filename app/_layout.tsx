@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { startContainer } from '@di/createContainer';
+import { AppStatusBar } from '@presentation/components/AppStatusBar';
 import { I18nProvider } from '@presentation/i18n/I18nProvider';
 import { AppNavigator } from '@presentation/navigation/AppNavigator';
 import { StartupFailureScreen } from '@presentation/screens/StartupFailureScreen';
@@ -22,14 +23,17 @@ export default function RootLayout() {
   );
 
   return (
-    <I18nProvider>
-      {started.ok ? (
-        <AppProviders services={started.value}>
-          <AppNavigator />
-        </AppProviders>
-      ) : (
-        <StartupFailureScreen code={started.error.code} />
-      )}
-    </I18nProvider>
+    <>
+      <AppStatusBar />
+      <I18nProvider>
+        {started.ok ? (
+          <AppProviders services={started.value}>
+            <AppNavigator />
+          </AppProviders>
+        ) : (
+          <StartupFailureScreen code={started.error.code} />
+        )}
+      </I18nProvider>
+    </>
   );
 }

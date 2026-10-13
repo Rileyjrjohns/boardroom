@@ -1,5 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { router } from 'expo-router';
+import { StatusBar } from 'react-native';
 import { renderRouter } from 'expo-router/testing-library';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
@@ -7,6 +8,7 @@ import { createI18n } from '../i18n/createI18n';
 import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
 import { TEST_IDS } from '../testIds';
 import { MEETING_ROW_TEST_ID_PATTERN } from '../testing/meetingFixtures';
+import { statusBarStyle } from '../theme/tokens';
 
 // Renders the real route tree, app/_layout.tsx and its routes included, the way expo-router does on
 // a device, with the real composition root behind it (the in-memory adapters, and a simulated
@@ -35,6 +37,11 @@ afterEach(() => {
   if (initial === undefined) delete process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
   else process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = initial;
 });
+
+/** The style of the system bar content that the screen on display asks for, one entry for each. */
+function statusBarStyles(): unknown[] {
+  return screen.UNSAFE_queryAllByType(StatusBar).map((bar) => bar.props.barStyle);
+}
 
 /** What the test renderer gives back for a host component. */
 interface RenderedNode {
@@ -141,6 +148,35 @@ describe('root layout', () => {
       },
     );
 
+    it('asks for dark system bar content on the list and on the detail of a meeting', async () => {
+      setDeviceLanguages('en');
+      renderRouter();
+      const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
+
+      fireEvent.press(row!);
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
+    });
+
+    it('asks for dark system bar content once the session has ended', async () => {
+      setDeviceLanguages('en');
+      renderRouter();
+      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      // A working day later the session of the simulated server has expired.
+      act(() => {
+        jest.setSystemTime(Date.now() + 9 * 3_600_000);
+      });
+
+      await act(async () => {
+        screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
+      });
+
+      await screen.findByTestId(TEST_IDS.sessionEnded);
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
+    });
+
     it('opens a meeting that does not exist as not found', async () => {
       setDeviceLanguages('en');
       const { t } = createI18n('en');
@@ -171,6 +207,7 @@ describe('root layout', () => {
         screen.getByText(t('startup.code', { code: 'configurationNotAvailable' })),
       ).toBeTruthy();
       expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
 
     it('says a setting it does not know is invalid, in the language of the device', () => {
