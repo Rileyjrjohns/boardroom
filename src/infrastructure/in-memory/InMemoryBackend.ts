@@ -53,13 +53,20 @@ export interface ServerContent {
   readonly recordedVotes: readonly Vote[];
 }
 
+/**
+ * Where the server learns who is calling: a session, as a real server would learn it from the token
+ * a request carries. A session whose expiry has passed is refused.
+ */
+export type Caller = Pick<AuthSession, 'current'>;
+
 export interface InMemoryBackendOptions {
   readonly clock: Clock;
   /**
-   * Where the server learns who is calling: the session stored on the device, as a real server
-   * would learn it from the token the device sends. A session whose expiry has passed is refused.
+   * The caller of the requests that do not name one: the session stored on the device, which is
+   * how the in-memory repositories reach the server. The HTTP API names the caller of each request
+   * (see `MockApi`).
    */
-  readonly auth: Pick<AuthSession, 'current'>;
+  readonly auth: Caller;
   /** The connectivity of the server. Exposed as `network`. */
   readonly network: SimulatedNetwork;
   readonly content: ServerContent;
@@ -189,18 +196,20 @@ export class InMemoryBackend {
   listMeetings(
     period: MeetingPeriod,
     request: PageRequest,
+    caller: Caller = this.options.auth,
   ): Promise<
     Result<Page<MeetingSummary>, NetworkUnavailableError | UnauthorizedError | UnexpectedError>
   > {
-    return this.serve((userId) => this.pageOf(userId, period, request));
+    return this.serve(caller, (userId) => this.pageOf(userId, period, request));
   }
 
   getMeeting(
     id: MeetingId,
+    caller: Caller = this.options.auth,
   ): Promise<
     Result<Meeting, NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError>
   > {
-    return this.serve<Meeting, NotFoundError | ForbiddenError>((userId) => {
+    return this.serve<Meeting, NotFoundError | ForbiddenError>(caller, (userId) => {
       const meeting = this.meetings.get(id);
       if (meeting === undefined) return err(notFound());
       if (findParticipant(meeting, userId) === undefined) return err(forbidden());
@@ -210,10 +219,11 @@ export class InMemoryBackend {
 
   getDocument(
     id: DocumentId,
+    caller: Caller = this.options.auth,
   ): Promise<
     Result<Document, NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError>
   > {
-    return this.serve<Document, NotFoundError | ForbiddenError>((userId) => {
+    return this.serve<Document, NotFoundError | ForbiddenError>(caller, (userId) => {
       const found = this.findDocument(id, userId);
       if (found === undefined) return err(notFound());
       return found.allowed ? ok(clonePlain(found.document)) : err(forbidden());
@@ -227,6 +237,7 @@ export class InMemoryBackend {
    */
   fetchDocumentContent(
     id: DocumentId,
+    caller: Caller = this.options.auth,
   ): Promise<
     Result<
       DocumentLocation,
@@ -234,6 +245,7 @@ export class InMemoryBackend {
     >
   > {
     return this.serve<DocumentLocation, NotFoundError | ForbiddenError | UnexpectedError>(
+      caller,
       (userId) => {
         const found = this.findDocument(id, userId);
         if (found === undefined) return err(notFound());
@@ -250,21 +262,23 @@ export class InMemoryBackend {
 
   submitVote(
     vote: Vote,
+    caller: Caller = this.options.auth,
   ): Promise<Result<void, NetworkUnavailableError | UnauthorizedError | VotingError>> {
-    return this.serve((userId) => this.record(vote, userId));
+    return this.serve(caller, (userId) => this.record(vote, userId));
   }
 
   /**
-   * The request pipeline. The identity is read when the request is created, from the session
-   * stored on the device at that moment, like a client that attaches its token before sending:
-   * nobody signed in is `unauthorized`, whatever the network. Then the request goes through the
-   * network, and the handler answers for the identity of the request, never for a user who signed
-   * in while it was on its way.
+   * The request pipeline. The identity is read when the request is created, from the session of
+   * the caller at that moment, like a client that attaches its token before sending: nobody signed
+   * in is `unauthorized`, whatever the network. Then the request goes through the network, and the
+   * handler answers for the identity of the request, never for a user who signed in while it was
+   * on its way.
    */
   private async serve<T, E>(
+    caller: Caller,
     handle: (userId: UserId) => Result<T, E>,
   ): Promise<Result<T, E | NetworkUnavailableError | UnauthorizedError>> {
-    const userId = await this.authenticatedUser();
+    const userId = await this.authenticatedUser(caller);
     if (userId === undefined) return err(unauthorized());
 
     const reached = await this.network.enter();
@@ -272,8 +286,8 @@ export class InMemoryBackend {
     return handle(userId);
   }
 
-  private async authenticatedUser(): Promise<UserId | undefined> {
-    const current = await this.options.auth.current();
+  private async authenticatedUser(caller: Caller): Promise<UserId | undefined> {
+    const current = await caller.current();
     if (isErr(current) || current.value === undefined) return undefined;
     return isSessionExpired(current.value, this.options.clock.now())
       ? undefined

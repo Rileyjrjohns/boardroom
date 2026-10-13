@@ -20,6 +20,8 @@ export interface NetworkControl {
   readonly latency: Duration;
   setOnline(online: boolean): void;
   setLatency(latency: Duration): void;
+  /** Calls the listener each time the connection goes off or comes back. Returns the function that stops it. */
+  subscribe(listener: (online: boolean) => void): () => void;
 }
 
 export interface SimulatedNetworkOptions {
@@ -42,6 +44,7 @@ export interface SimulatedNetworkOptions {
 export class SimulatedNetwork implements NetworkControl {
   private isOnline = true;
   private currentLatency: Duration;
+  private readonly listeners = new Set<(online: boolean) => void>();
   private readonly sleep: Sleep;
 
   constructor(options: SimulatedNetworkOptions) {
@@ -58,7 +61,16 @@ export class SimulatedNetwork implements NetworkControl {
   }
 
   setOnline(online: boolean): void {
+    if (online === this.isOnline) return;
     this.isOnline = online;
+    for (const listener of [...this.listeners]) listener(online);
+  }
+
+  subscribe(listener: (online: boolean) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   setLatency(latency: Duration): void {

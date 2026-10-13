@@ -1,13 +1,18 @@
 import { describeMeetingCacheContract } from '@application/testing/contracts/meetingCacheContract';
+import { IN_MEMORY_STORE } from '@application/testing/contracts/support';
 import { storageWriteFailed } from '@domain/errors/StorageError';
 
 import { InMemoryMeetingCache } from './InMemoryMeetingCache';
 
-describeMeetingCacheContract('InMemoryMeetingCache', () => {
-  const cache = new InMemoryMeetingCache();
-  return {
-    cache,
-    breakWrites: () => cache.failWritesWith(storageWriteFailed()),
-    repairWrites: () => cache.failWritesWith(undefined),
-  };
-});
+describeMeetingCacheContract(
+  'InMemoryMeetingCache',
+  () => {
+    const cache = new InMemoryMeetingCache();
+    return {
+      cache,
+      breakWrites: () => cache.failWritesWith(storageWriteFailed()),
+      repairWrites: () => cache.failWritesWith(undefined),
+    };
+  },
+  IN_MEMORY_STORE,
+);
