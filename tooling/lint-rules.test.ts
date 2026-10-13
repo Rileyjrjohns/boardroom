@@ -1,13 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-// Checks what the ESLint configuration accepts and rejects in UI code: no hardcoded user-facing
-// text, no raw colour, no raw test ID. Each snippet is linted with the real configuration, through
-// tooling/lint-snippets.mjs, in a single ESLint process.
+// Checks what the ESLint configuration accepts and rejects: in UI code, no hardcoded user-facing
+// text, no raw colour, no raw test ID; in domain and application code, no `throw` and no read of the
+// system clock; in production code, no import of test support. Each snippet is linted with the real
+// configuration, through tooling/lint-snippets.mjs, in a single ESLint process.
 //
-// Only the rules that enforce the "no magic string" convention are looked at, so that an unrelated
-// finding (an unused import in a snippet) cannot hide a regression. A snippet that does not parse
-// always fails.
+// Only the rules that enforce these conventions are looked at, so that an unrelated finding (an
+// unused import in a snippet) cannot hide a regression. A snippet that does not parse always fails.
 
 const SCRIPT = path.resolve(__dirname, 'lint-snippets.mjs');
 
@@ -16,7 +16,18 @@ const ROUTE = 'app/sample.tsx';
 const THEME = 'src/presentation/theme/sample.ts';
 const RESOURCES = 'src/presentation/i18n/resources/sample.ts';
 
-const CONVENTION_RULES = new Set(['no-restricted-syntax', 'react/jsx-no-literals']);
+const DOMAIN = 'src/domain/entities/Sample.ts';
+const APPLICATION = 'src/application/use-cases/Sample.ts';
+const DOMAIN_TEST = 'src/domain/entities/Sample.test.ts';
+const APPLICATION_TEST = 'src/application/use-cases/Sample.test.ts';
+const TEST_SUPPORT = 'src/application/testing/FakeSample.ts';
+const INFRASTRUCTURE = 'src/infrastructure/http/sample.ts';
+
+const CONVENTION_RULES = new Set([
+  'no-restricted-syntax',
+  'no-restricted-imports',
+  'react/jsx-no-literals',
+]);
 
 interface Snippet {
   readonly filePath: string;
@@ -297,6 +308,173 @@ const routeSnippets = {
   'a translation key': register(ROUTE, component("<Text>{t('app.name')}</Text>")),
 };
 
+/** Syntax that domain and application code cannot use: errors are Results, time is a port. */
+const rejectedCoreCode = {
+  'a throw statement': "export function fail(): never { throw new Error('boom'); }",
+  'a throw of a value that is not an Error': "export const fail = () => { throw 'boom'; };",
+  'a throw in a method': "export class Sample { run(): void { throw new Error('boom'); } }",
+  'a throw in a catch block':
+    'export function run(): void { try { run(); } catch (error) { throw error; } }',
+  'Date.now()': 'export const now = Date.now();',
+  'a reference to Date.now': 'export const read = Date.now;',
+  'Date.now() written with a string key': "export const now = Date['now']();",
+  'Date.now() behind an optional chain': 'export const now = Date?.now();',
+  'new Date() without argument': 'export const now = new Date();',
+  'new Date() with a call on it': 'export const millis = new Date().getTime();',
+  'Date() called as a function': 'export const text = Date();',
+  'performance.now()': 'export const now = performance.now();',
+  'a reference to performance.now': 'export const read = performance.now;',
+} as const;
+
+const acceptedCoreCode = {
+  'new Date with a timestamp': 'export const date = (millis: number) => new Date(millis);',
+  'new Date with several arguments': 'export const date = new Date(2030, 0, 1);',
+  'Date.UTC': 'export const millis = Date.UTC(2030, 0, 1);',
+  'Date.parse': "export const millis = Date.parse('2030-01-01T00:00:00Z');",
+  'the now method of a clock': [
+    'declare const clock: { now(): number };',
+    'export const now = clock.now();',
+  ].join('\n'),
+  'a property called now': 'export const clock = { now: 1 };',
+  'an error returned as a value': 'export const failure = { ok: false, error: { code: 1 } };',
+} as const;
+
+/** Imports of test support. */
+const rejectedTestingImports = {
+  'a relative import': "import { aMeeting } from '../testing/builders';",
+  'a relative import of the folder': "import { aMeeting } from '../testing';",
+  'a sibling import': "import { aMeeting } from './testing/builders';",
+  'an aliased import': "import { aMeeting } from '@domain/testing/builders';",
+  'an aliased import of another layer':
+    "import { createFakes } from '@application/testing/createFakes';",
+  'a type import': "import type { Fakes } from '@application/testing/createFakes';",
+  'a default import': "import fakes from '../../testing/fakes';",
+  'a side effect import': "import '../testing/setup';",
+  'a re-export': "export { aMeeting } from '../testing/builders';",
+  'a re-export of everything': "export * from '../testing/builders';",
+} as const;
+
+const acceptedTestingImports = {
+  'a folder whose name only contains testing': "import { a } from './latesting/builders';",
+  'a file whose name starts with testing': "import { a } from './testing-tools';",
+  'a path that ends with testing': "import { a } from './protesting';",
+  'a regular import': "import { a } from './builders';",
+} as const;
+
+const productionFiles = {
+  domain: DOMAIN,
+  application: APPLICATION,
+  presentation: SCREEN,
+  infrastructure: INFRASTRUCTURE,
+  app: ROUTE,
+} as const;
+
+const elsewhereCore = {
+  'a throw in a domain test': {
+    filePath: DOMAIN_TEST,
+    code: "export const fail = () => { throw new Error('boom'); };",
+  },
+  'a throw in an application test': {
+    filePath: APPLICATION_TEST,
+    code: "export const fail = () => { throw new Error('boom'); };",
+  },
+  'Date.now() in a test': { filePath: DOMAIN_TEST, code: 'export const now = Date.now();' },
+  'a throw in test support': {
+    filePath: TEST_SUPPORT,
+    code: "export const fail = () => { throw new Error('boom'); };",
+  },
+  'new Date() in test support': { filePath: TEST_SUPPORT, code: 'export const now = new Date();' },
+  'a throw in the infrastructure': {
+    filePath: INFRASTRUCTURE,
+    code: "export const fail = () => { throw new Error('boom'); };",
+  },
+  'Date.now() in the infrastructure': {
+    filePath: INFRASTRUCTURE,
+    code: 'export const now = Date.now();',
+  },
+  'a throw in the presentation': {
+    filePath: SCREEN,
+    code: "export const fail = () => { throw new Error('boom'); };",
+  },
+  'new Date() in the presentation': { filePath: SCREEN, code: 'export const now = new Date();' },
+  'a test importing test support': {
+    filePath: DOMAIN_TEST,
+    code: "import { aMeeting } from '../testing/builders';\nexport const meeting = aMeeting;",
+  },
+  'a presentation test importing test support': {
+    filePath: 'src/presentation/screens/Sample.test.tsx',
+    code: "import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';\nexport const set = setDeviceLanguages;",
+  },
+  'test support importing test support': {
+    filePath: TEST_SUPPORT,
+    code: "import { aMeeting } from '@domain/testing/builders';\nimport { FakeClock } from './FakeClock';\nexport const both = [aMeeting, FakeClock];",
+  },
+  'test support in a folder importing from its parent': {
+    filePath: 'src/domain/testing/builders.ts',
+    code: "import { createFakes } from '../../application/testing/createFakes';\nexport const fakes = createFakes;",
+  },
+  'a tooling file importing test support': {
+    filePath: 'tooling/sample.ts',
+    code: "import { aMeeting } from '../src/domain/testing/builders';\nexport const meeting = aMeeting;",
+  },
+} as const;
+
+const asWritten = (code: string): string => code;
+
+const rejectedCore = {
+  domain: registerAll(rejectedCoreCode, asWritten, DOMAIN),
+  application: registerAll(rejectedCoreCode, asWritten, APPLICATION),
+};
+const acceptedCore = {
+  domain: registerAll(acceptedCoreCode, asWritten, DOMAIN),
+  application: registerAll(acceptedCoreCode, asWritten, APPLICATION),
+};
+
+/** The rules that every set of files keeps, whatever else was added for it. */
+const keptEverywhere = Object.entries({
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'presentation code': SCREEN,
+  'a route': ROUTE,
+  'the design tokens': THEME,
+  'the translation resources': RESOURCES,
+  'production code in a testing folder': 'src/application/testing/FakeSample.ts',
+  'a domain test': DOMAIN_TEST,
+}).map(
+  ([name, filePath]) =>
+    [
+      name,
+      register(filePath, 'declare const name: string;\nexport const load = () => import(name);'),
+    ] as const,
+);
+
+const rejectedTesting = Object.fromEntries(
+  Object.entries(productionFiles).map(([where, filePath]) => [
+    where,
+    registerAll(rejectedTestingImports, asWritten, filePath),
+  ]),
+);
+const acceptedTesting = Object.fromEntries(
+  Object.entries(productionFiles).map(([where, filePath]) => [
+    where,
+    registerAll(acceptedTestingImports, asWritten, filePath),
+  ]),
+);
+const elsewhereCoreSnippets = Object.entries(elsewhereCore).map(
+  ([name, { filePath, code }]): [string, Snippet] => [name, register(filePath, code)],
+);
+const nodeModulesImport = register(
+  DOMAIN,
+  "import { sample } from '../../node_modules/some-package/index';\nexport const value = sample;",
+);
+const throwAndClock = register(
+  DOMAIN,
+  [
+    "export function fail(): never { throw new Error('boom'); }",
+    'export const now = Date.now();',
+  ].join('\n'),
+);
+
 let findings: Finding[][] = [];
 
 beforeAll(() => {
@@ -401,6 +579,89 @@ describe('UI code lint rules', () => {
   describe('where the rules do not apply', () => {
     it.each(elsewhereSnippets)('accepts %s', (_name, snippet) => {
       expect(reported(snippet)).toEqual([]);
+    });
+  });
+});
+
+describe('Domain, application and test support lint rules', () => {
+  describe('in domain and application code', () => {
+    describe.each(Object.entries(rejectedCore))('in src/%s', (_layer, cases) => {
+      it.each(cases)('rejects %s', (_name, snippet) => {
+        expect(reported(snippet).length).toBeGreaterThan(0);
+      });
+    });
+
+    describe.each(Object.entries(acceptedCore))('in src/%s', (_layer, cases) => {
+      it.each(cases)('accepts %s', (_name, snippet) => {
+        expect(reported(snippet)).toEqual([]);
+      });
+    });
+
+    it('explains how to fail without throwing', () => {
+      const cases = rejectedCore.domain;
+
+      expect(reported(named(cases, 'a throw statement')).map(({ message }) => message)).toEqual([
+        expect.stringContaining('return an error Result'),
+      ]);
+    });
+
+    it('explains where the time comes from', () => {
+      const cases = rejectedCore.domain;
+
+      expect(reported(named(cases, 'Date.now()')).map(({ message }) => message)).toEqual([
+        expect.stringContaining('Clock port'),
+      ]);
+    });
+
+    it('reports each forbidden construct once', () => {
+      const cases = rejectedCore.domain;
+
+      expect(reported(named(cases, 'a throw statement'))).toHaveLength(1);
+      expect(reported(named(cases, 'Date.now()'))).toHaveLength(1);
+      expect(reported(named(cases, 'new Date() without argument'))).toHaveLength(1);
+      expect(reported(named(cases, 'performance.now()'))).toHaveLength(1);
+      expect(reported(throwAndClock)).toHaveLength(2);
+    });
+  });
+
+  describe('where the rules do not apply', () => {
+    it.each(elsewhereCoreSnippets)('accepts %s', (_name, snippet) => {
+      expect(reported(snippet)).toEqual([]);
+    });
+  });
+
+  describe('the restrictions that apply to every set of files', () => {
+    it.each(keptEverywhere)(
+      'still rejects a module specifier computed at runtime in %s',
+      (_name, snippet) => {
+        expect(reported(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringContaining('string literal as module specifier'),
+        );
+      },
+    );
+  });
+
+  describe('imports of test support', () => {
+    describe.each(Object.entries(rejectedTesting))('in production code of %s', (_where, cases) => {
+      it.each(cases)('rejects %s', (_name, snippet) => {
+        const messages = reported(snippet).map(({ message }) => message);
+
+        expect(messages).toEqual([expect.stringContaining('Only tests and other test support')]);
+      });
+    });
+
+    describe.each(Object.entries(acceptedTesting))('in production code of %s', (_where, cases) => {
+      it.each(cases)('accepts %s', (_name, snippet) => {
+        expect(reported(snippet)).toEqual([]);
+      });
+    });
+
+    it('still rejects a path inside node_modules', () => {
+      expect(reported(nodeModulesImport)).toEqual([
+        expect.objectContaining({
+          message: expect.stringContaining('not by a path inside node_modules'),
+        }),
+      ]);
     });
   });
 });

@@ -28,6 +28,11 @@ import boundaries from 'eslint-plugin-boundaries';
  *
  * No hardcoded user-facing text and no magic value, enforced under app/ and src/presentation (see
  * "UI code" below): text is translated, colours are theme tokens, test IDs are constants.
+ *
+ * domain and application are also pure, which makes two more claims checkable (see "Core code"
+ * below): no `throw` (every failure is an error `Result`) and no read of the system clock (time
+ * comes from the `Clock` port). Test support under a `testing` folder can be imported by tests and
+ * by other test support only.
  */
 
 const LAYERS = ['domain', 'application', 'infrastructure', 'presentation', 'di'];
@@ -52,6 +57,16 @@ const COLOR_EXEMPT_FILES = [
 
 /** Test files, which may use development dependencies. */
 const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}', '**/__tests__/**'];
+
+/**
+ * Test support that is not a test file: the fakes and the fixtures that tests share. It lives in a
+ * `testing` folder. It is test code, not production code, so a fixture that breaks an invariant may
+ * throw to fail the test that uses it. Only tests and other test support may import it.
+ */
+const TEST_SUPPORT_FILES = ['src/**/testing/**'];
+
+/** The two layers that hold the business rules and must stay pure. */
+const CORE_CODE = ['src/domain/**/*', 'src/application/**/*'];
 
 /**
  * Element selector matching one or several architecture elements.
@@ -163,6 +178,42 @@ const nonLiteralSpecifierRestrictions = [
     selector: `${REQUIRE_RESOLVE_CALL}[arguments.0.type!="Literal"]`,
     message: NON_LITERAL_SPECIFIER_MESSAGE,
   },
+];
+
+/**
+ * Options of `no-restricted-syntax` for a set of files. In flat config the options of a rule are
+ * replaced, not merged, by a later block that matches the same files, so every block must carry
+ * every restriction that applies to its files. Building them here puts the restrictions that apply
+ * everywhere (the module specifiers, which the architecture rules rely on) in each one of them, and
+ * a block cannot lose them by forgetting to repeat them. `tooling/lint-rules.test.ts` checks each
+ * set of files.
+ * @param {...readonly object[]} lists
+ * @returns {['error', ...object[]]}
+ */
+const restrictSyntax = (...lists) => ['error', ...nonLiteralSpecifierRestrictions, ...lists.flat()];
+
+/** Pattern of `no-restricted-imports` that forbids a path inside node_modules. */
+const NODE_MODULES_IMPORT_PATTERN = {
+  group: ['**/node_modules/**'],
+  message: 'Import a package by its name, not by a path inside node_modules.',
+};
+
+/** Pattern of `no-restricted-imports` that forbids the content of a `testing` folder. */
+const TESTING_IMPORT_PATTERN = {
+  group: ['**/testing', '**/testing/**'],
+  message:
+    'A testing folder holds test support (fakes, fixtures). Only tests and other test support may import it.',
+};
+
+/**
+ * Options of `no-restricted-imports` for a set of files, in addition to the patterns that apply to
+ * all of them. Replaced, not merged, like the syntax restrictions: see `restrictSyntax`.
+ * @param {...{ group: string[], message: string }} patterns
+ * @returns {['error', { patterns: { group: string[], message: string }[] }]}
+ */
+const restrictImports = (...patterns) => [
+  'error',
+  { patterns: [NODE_MODULES_IMPORT_PATTERN, ...patterns] },
 ];
 
 /**
@@ -502,6 +553,34 @@ const AMBIENT_GLOBALS = [
   'cancelAnimationFrame',
 ];
 
+/**
+ * Core code: domain and application. Errors are values and time is a port, so that the business
+ * rules are deterministic and testable without a clock or a try/catch.
+ */
+const THROW_MESSAGE =
+  'Do not throw: return an error Result (err(...)). No exception crosses a layer.';
+const CLOCK_MESSAGE =
+  'Do not read the system clock. Time comes from the Clock port: inject it and call clock.now().';
+
+/**
+ * A read of the property `now` of a global object, called or not: `Date.now()`, `const read =
+ * Date.now`, `Date['now']()`.
+ * @param {string} object
+ */
+const nowOf = (object) =>
+  `:matches(MemberExpression[computed=false][property.name="now"], MemberExpression[computed=true][property.value="now"])[object.name="${object}"]`;
+
+const noThrowRestrictions = [{ selector: 'ThrowStatement', message: THROW_MESSAGE }];
+
+const noSystemClockRestrictions = [
+  { selector: nowOf('Date'), message: CLOCK_MESSAGE },
+  { selector: nowOf('performance'), message: CLOCK_MESSAGE },
+  // `new Date()` with no argument is the current time; `new Date(millis)` is a conversion.
+  { selector: 'NewExpression[callee.name="Date"][arguments.length=0]', message: CLOCK_MESSAGE },
+  // `Date()` called as a function returns the current time as a string.
+  { selector: 'CallExpression[callee.name="Date"]', message: CLOCK_MESSAGE },
+];
+
 /** Parser and plugin of the TypeScript files, as configured by eslint-config-expo. */
 const typescriptConfig = expoConfig.find((config) => config.plugins?.['@typescript-eslint']);
 const typescriptParser = typescriptConfig?.languageOptions?.parser;
@@ -579,19 +658,19 @@ export default defineConfig([
           policies: dependencyPolicies,
         },
       ],
-      'no-restricted-syntax': ['error', ...nonLiteralSpecifierRestrictions],
+      'no-restricted-syntax': restrictSyntax(),
       // Packages are imported by name, never by their location in node_modules.
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              group: ['**/node_modules/**'],
-              message: 'Import a package by its name, not by a path inside node_modules.',
-            },
-          ],
-        },
-      ],
+      'no-restricted-imports': restrictImports(),
+    },
+  },
+
+  {
+    // Production code cannot import test support (the options of `no-restricted-imports` are
+    // replaced, not merged: `restrictImports` carries the pattern of the block above).
+    files: APPLICATION_CODE,
+    ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
+    rules: {
+      'no-restricted-imports': restrictImports(TESTING_IMPORT_PATTERN),
     },
   },
 
@@ -628,37 +707,38 @@ export default defineConfig([
   },
 
   {
-    // UI code renders no hardcoded text and holds no magic value. Options of
-    // `no-restricted-syntax` are replaced, not merged, by a later block for the same files: the
-    // module specifier restrictions of the block above are repeated here on purpose.
+    // UI code renders no hardcoded text and holds no magic value (see `restrictSyntax` for why
+    // each block lists its restrictions in full).
     files: UI_CODE,
     rules: {
       'react/jsx-no-literals': ['error', { noStrings: true, ignoreProps: true }],
-      'no-restricted-syntax': [
-        'error',
-        ...nonLiteralSpecifierRestrictions,
-        ...untranslatedTextRestrictions,
-        ...testIdRestrictions,
-        ...colorRestrictions,
-      ],
+      'no-restricted-syntax': restrictSyntax(
+        untranslatedTextRestrictions,
+        testIdRestrictions,
+        colorRestrictions,
+      ),
     },
   },
   {
     // The design tokens are where raw colours are written.
     files: COLOR_EXEMPT_FILES,
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        ...nonLiteralSpecifierRestrictions,
-        ...untranslatedTextRestrictions,
-        ...testIdRestrictions,
-      ],
+      'no-restricted-syntax': restrictSyntax(untranslatedTextRestrictions, testIdRestrictions),
+    },
+  },
+
+  {
+    // domain and application are pure: no `throw`, no read of the system clock.
+    files: CORE_CODE,
+    ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
+    rules: {
+      'no-restricted-syntax': restrictSyntax(noThrowRestrictions, noSystemClockRestrictions),
     },
   },
 
   {
     // domain and application are pure: no ambient global that reaches the runtime environment.
-    files: ['src/domain/**/*', 'src/application/**/*'],
+    files: CORE_CODE,
     ignores: TEST_FILES,
     rules: {
       'no-restricted-globals': [
