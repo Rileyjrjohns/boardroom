@@ -7,14 +7,17 @@ import type { MeetingId } from '@domain/value-objects/ids';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
 import { describeAuthSessionContract } from './contracts/authSessionContract';
+import { describeConnectivityContract } from './contracts/connectivityContract';
 import { describeDocumentCacheContract } from './contracts/documentCacheContract';
 import { describeDocumentRepositoryContract } from './contracts/documentRepositoryContract';
 import { describeMeetingCacheContract } from './contracts/meetingCacheContract';
 import { describeMeetingRepositoryContract } from './contracts/meetingRepositoryContract';
 import { describeScreenProtectionContract } from './contracts/screenProtectionContract';
+import { IN_MEMORY_STORE } from './contracts/support';
 import { describeVoteOutboxContract } from './contracts/voteOutboxContract';
 import { describeVoteRepositoryContract } from './contracts/voteRepositoryContract';
 import { createFakes } from './createFakes';
+import { FakeConnectivity } from './FakeConnectivity';
 import { FakeDocumentCache } from './FakeDocumentCache';
 import { FakeMeetingCache } from './FakeMeetingCache';
 import { FakeScreenProtection } from './FakeScreenProtection';
@@ -24,18 +27,22 @@ import { FakeVoteOutbox } from './FakeVoteOutbox';
 // contract written in the ports. The suites that check it are the ones the real adapters run too
 // (src/application/testing/contracts).
 
-describeMeetingCacheContract('FakeMeetingCache', () => {
-  const cache = new FakeMeetingCache();
-  return {
-    cache,
-    breakWrites: () => {
-      cache.writeFailure = storageWriteFailed();
-    },
-    repairWrites: () => {
-      cache.writeFailure = undefined;
-    },
-  };
-});
+describeMeetingCacheContract(
+  'FakeMeetingCache',
+  () => {
+    const cache = new FakeMeetingCache();
+    return {
+      cache,
+      breakWrites: () => {
+        cache.writeFailure = storageWriteFailed();
+      },
+      repairWrites: () => {
+        cache.writeFailure = undefined;
+      },
+    };
+  },
+  IN_MEMORY_STORE,
+);
 
 describeDocumentCacheContract(
   'FakeDocumentCache',
@@ -54,7 +61,11 @@ describeDocumentCacheContract(
   { keepsFiles: false },
 );
 
-describeVoteOutboxContract('FakeVoteOutbox', () => new FakeVoteOutbox());
+describeVoteOutboxContract(
+  'FakeVoteOutbox',
+  () => ({ outbox: new FakeVoteOutbox() }),
+  IN_MEMORY_STORE,
+);
 
 describeMeetingRepositoryContract(
   'FakeMeetingRepository',
@@ -195,4 +206,9 @@ describeScreenProtectionContract('FakeScreenProtection', () => {
     isEnabled: () => protection.enabled,
     emit: (event) => protection.emit(event),
   };
+});
+
+describeConnectivityContract('FakeConnectivity', () => {
+  const connectivity = new FakeConnectivity();
+  return { connectivity, report: (status) => connectivity.emit(status) };
 });

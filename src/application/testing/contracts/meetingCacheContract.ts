@@ -20,6 +20,7 @@ import type { MeetingCache, MeetingPageKey } from '../../ports/MeetingCache';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 
 import { TRICKY_IDS, mutable, mutableArray } from './support';
+import type { StoreContractOptions } from './support';
 
 /**
  * What the suite needs besides the port: a way to make the store refuse writes (a full disk, a
@@ -30,6 +31,17 @@ export interface MeetingCacheHarness {
   /** From now on every `savePage` and `saveMeeting` fails with a storage error. */
   breakWrites(): void;
   repairWrites(): void;
+  /**
+   * Makes the next statement the store sends to its storage fail, once. Only a store that has a
+   * storage to fail provides it (`StoreContractOptions.failsStatements`).
+   */
+  failNextStatement?(): void;
+  /**
+   * Closes the store and opens it again on the same storage, as a new start of the app would, and
+   * returns the new one. Only a store whose content survives provides it
+   * (`StoreContractOptions.survivesReopen`).
+   */
+  reopen?(): Promise<MeetingCache>;
 }
 
 export type MeetingCacheFactory = () => MeetingCacheHarness | Promise<MeetingCacheHarness>;
@@ -68,7 +80,11 @@ function deface(meeting: Meeting): void {
  * `purge` succeed when there is nothing to remove, and the store keeps no reference to the objects
  * that go in or out. The factory returns a fresh, empty cache.
  */
-export function describeMeetingCacheContract(name: string, createCache: MeetingCacheFactory): void {
+export function describeMeetingCacheContract(
+  name: string,
+  createCache: MeetingCacheFactory,
+  options: StoreContractOptions,
+): void {
   describe(`${name} honours the MeetingCache contract`, () => {
     let harness: MeetingCacheHarness;
     let cache: MeetingCache;
@@ -327,6 +343,221 @@ export function describeMeetingCacheContract(name: string, createCache: MeetingC
         const read = await cache.readMeeting(aUserId('owner'), aMeetingId('meeting'));
 
         expect(read.ok && read.value?.value.title).toBe('short');
+      });
+    });
+
+    // A store without a storage to fail, or with nothing to reopen, skips these: they show as skipped.
+    (options.failsStatements ? describe : describe.skip)('a statement that fails', () => {
+      const failNext = () => {
+        if (harness.failNextStatement === undefined)
+          throw new Error('The harness cannot fail a statement.');
+        harness.failNextStatement();
+      };
+
+      it('turns a read that fails into a storage error, and finds the entry again afterwards', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+
+        failNext();
+        const failedMeeting = await cache.readMeeting(OWNER, MEETING.id);
+        failNext();
+        const failedPage = await cache.readPage(OWNER, PAGE_KEY);
+
+        expect(!failedMeeting.ok && failedMeeting.error.code).toBe(STORAGE_ERROR_CODE.ReadFailed);
+        expect(!failedPage.ok && failedPage.error.code).toBe(STORAGE_ERROR_CODE.ReadFailed);
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(10) }),
+        );
+        expect(await cache.readPage(OWNER, PAGE_KEY)).toStrictEqual(
+          ok({ value: PAGE, cachedAt: at(20) }),
+        );
+      });
+
+      it('turns a save that fails into a storage error, and leaves no older entry readable', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+        await cache.saveMeeting(OWNER, OTHER_MEETING, at(11));
+
+        failNext();
+        const failedMeeting = await cache.saveMeeting(
+          OWNER,
+          { ...MEETING, title: 'Newer' },
+          at(12),
+        );
+        failNext();
+        const failedPage = await cache.savePage(OWNER, PAGE_KEY, OTHER_PAGE, at(21));
+
+        expect(!failedMeeting.ok && failedMeeting.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(!failedPage.ok && failedPage.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(ok(undefined));
+        expect(await cache.readPage(OWNER, PAGE_KEY)).toStrictEqual(ok(undefined));
+        expect(await cache.readMeeting(OWNER, OTHER_MEETING.id)).toStrictEqual(
+          ok({ value: OTHER_MEETING, cachedAt: at(11) }),
+        );
+      });
+
+      it('turns a removal that fails into a storage error, and keeps the entry', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+
+        failNext();
+        const failedMeeting = await cache.removeMeeting(OWNER, MEETING.id);
+        failNext();
+        const failedPage = await cache.removePage(OWNER, PAGE_KEY);
+
+        expect(!failedMeeting.ok && failedMeeting.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(!failedPage.ok && failedPage.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(10) }),
+        );
+        expect(await cache.readPage(OWNER, PAGE_KEY)).toStrictEqual(
+          ok({ value: PAGE, cachedAt: at(20) }),
+        );
+      });
+
+      it('turns a purge that fails into a storage error, and keeps every entry, none half removed', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.savePage(OTHER_OWNER, PAGE_KEY, PAGE, at(20));
+
+        failNext();
+        const failed = await cache.purge();
+
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(10) }),
+        );
+        expect(await cache.readPage(OTHER_OWNER, PAGE_KEY)).toStrictEqual(
+          ok({ value: PAGE, cachedAt: at(20) }),
+        );
+        expect(await cache.purge()).toStrictEqual(ok(undefined));
+      });
+
+      it('fails once and no more: the next call works', async () => {
+        failNext();
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+
+        expect(await cache.saveMeeting(OWNER, MEETING, at(11))).toStrictEqual(ok(undefined));
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(11) }),
+        );
+      });
+    });
+
+    (options.survivesReopen ? describe : describe.skip)('closed and opened again', () => {
+      const reopen = async (): Promise<MeetingCache> => {
+        if (harness.reopen === undefined) throw new Error('The harness cannot reopen the store.');
+        return harness.reopen();
+      };
+
+      it('gives back the meetings and the pages of every owner as they were, with their instants', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.saveMeeting(OTHER_OWNER, OTHER_MEETING, at(11));
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+        await cache.savePage(
+          OTHER_OWNER,
+          { ...PAGE_KEY, period: MEETING_PERIOD.Past },
+          OTHER_PAGE,
+          at(21),
+        );
+
+        const reopened = await reopen();
+
+        expect(await reopened.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(10) }),
+        );
+        expect(await reopened.readMeeting(OTHER_OWNER, OTHER_MEETING.id)).toStrictEqual(
+          ok({ value: OTHER_MEETING, cachedAt: at(11) }),
+        );
+        expect(await reopened.readPage(OWNER, PAGE_KEY)).toStrictEqual(
+          ok({ value: PAGE, cachedAt: at(20) }),
+        );
+        expect(
+          await reopened.readPage(OTHER_OWNER, { ...PAGE_KEY, period: MEETING_PERIOD.Past }),
+        ).toStrictEqual(ok({ value: OTHER_PAGE, cachedAt: at(21) }));
+        expect(await reopened.readMeeting(OTHER_OWNER, MEETING.id)).toStrictEqual(ok(undefined));
+      });
+
+      it('does not give back what was removed before it was closed', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.saveMeeting(OWNER, OTHER_MEETING, at(11));
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+        await cache.removeMeeting(OWNER, MEETING.id);
+        await cache.removePage(OWNER, PAGE_KEY);
+
+        const reopened = await reopen();
+
+        expect(await reopened.readMeeting(OWNER, MEETING.id)).toStrictEqual(ok(undefined));
+        expect(await reopened.readPage(OWNER, PAGE_KEY)).toStrictEqual(ok(undefined));
+        expect(await reopened.readMeeting(OWNER, OTHER_MEETING.id)).toStrictEqual(
+          ok({ value: OTHER_MEETING, cachedAt: at(11) }),
+        );
+      });
+
+      it('does not give back what was purged before it was closed', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        await cache.savePage(OTHER_OWNER, PAGE_KEY, PAGE, at(20));
+        await cache.purge();
+
+        const reopened = await reopen();
+
+        expect(await reopened.readMeeting(OWNER, MEETING.id)).toStrictEqual(ok(undefined));
+        expect(await reopened.readPage(OTHER_OWNER, PAGE_KEY)).toStrictEqual(ok(undefined));
+      });
+    });
+
+    describe('writers at the same time', () => {
+      it('leaves one complete version of an entry when several saves of it run together', async () => {
+        const versions = [1, 2, 3, 4, 5, 6].map((number) => ({
+          meeting: { ...MEETING, title: `Version ${number}` },
+          cachedAt: at(number),
+        }));
+
+        await Promise.all(
+          versions.map(({ meeting, cachedAt }) => cache.saveMeeting(OWNER, meeting, cachedAt)),
+        );
+
+        const read = await cache.readMeeting(OWNER, MEETING.id);
+        const held = read.ok ? read.value : undefined;
+        expect(versions).toContainEqual({ meeting: held?.value, cachedAt: held?.cachedAt });
+      });
+
+      it('keeps every entry when saves of different keys run together', async () => {
+        const meetings = [1, 2, 3, 4, 5].map((number) =>
+          aMeeting({ summary: aMeetingSummary({ id: aMeetingId(`m-${number}`) }) }),
+        );
+        const keys = [5, 10, 15].map((limit) => ({ ...PAGE_KEY, limit }));
+
+        await Promise.all([
+          ...meetings.map((meeting, number) => cache.saveMeeting(OWNER, meeting, at(number))),
+          ...keys.map((key) => cache.savePage(OWNER, key, PAGE, at(30))),
+        ]);
+
+        for (const [number, meeting] of meetings.entries()) {
+          expect(await cache.readMeeting(OWNER, meeting.id)).toStrictEqual(
+            ok({ value: meeting, cachedAt: at(number) }),
+          );
+        }
+        for (const key of keys) {
+          expect(await cache.readPage(OWNER, key)).toStrictEqual(
+            ok({ value: PAGE, cachedAt: at(30) }),
+          );
+        }
+      });
+
+      it('leaves nothing, or one complete version, when a save, a removal and reads run together', async () => {
+        const answers = await Promise.all([
+          cache.saveMeeting(OWNER, MEETING, at(1)),
+          cache.readMeeting(OWNER, MEETING.id),
+          cache.removeMeeting(OWNER, MEETING.id),
+          cache.saveMeeting(OWNER, { ...MEETING, title: 'Newer' }, at(2)),
+          cache.readMeeting(OWNER, MEETING.id),
+          cache.purge(),
+        ]);
+
+        expect(answers.every((answer) => answer.ok)).toBe(true);
+        const read = await cache.readMeeting(OWNER, MEETING.id);
+        const held = read.ok ? read.value : undefined;
+        expect([undefined, 'Newer', MEETING.title]).toContain(held?.value.title);
       });
     });
 

@@ -56,3 +56,27 @@ export const TRICKY_IDS = [
   'caf\u00e9',
   'cafe\u0301',
 ] as const;
+
+/**
+ * What a store (a cache, the outbox) can be asked in its contract suite beyond what any store can.
+ * A suite that cannot run a group because the implementation has nothing to fail or nothing to
+ * reopen shows it as skipped, not as passed.
+ */
+export interface StoreContractOptions {
+  /**
+   * Whether the store sends statements to a storage that can fail (a database), and the harness
+   * can make the next one fail (`failNextStatement`). A store in memory has no storage to fail.
+   */
+  readonly failsStatements: boolean;
+  /**
+   * Whether what was stored survives the store being closed and opened again on the same storage
+   * (`reopen`). A store in memory has nothing to reopen.
+   */
+  readonly survivesReopen: boolean;
+}
+
+/** A store in memory: it has no storage that can fail, and nothing that survives being closed. */
+export const IN_MEMORY_STORE: StoreContractOptions = {
+  failsStatements: false,
+  survivesReopen: false,
+};

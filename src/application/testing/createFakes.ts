@@ -6,6 +6,7 @@ import { ScreenProtectionCoordinator } from '../shared/ScreenProtectionCoordinat
 import { FakeAuthSession } from './FakeAuthSession';
 import { FakeBiometricGate } from './FakeBiometricGate';
 import { FakeClock } from './FakeClock';
+import { FakeConnectivity } from './FakeConnectivity';
 import { FakeDocumentCache } from './FakeDocumentCache';
 import { FakeDocumentRepository } from './FakeDocumentRepository';
 import { FakeMeetingCache } from './FakeMeetingCache';
@@ -35,6 +36,7 @@ export function createFakes() {
     monitoring: new FakeMonitoring(),
     auth,
     biometricGate: new FakeBiometricGate(),
+    connectivity: new FakeConnectivity(),
     screenProtection,
     screenProtectionCoordinator: new ScreenProtectionCoordinator({ screenProtection }),
     maxCacheAge: aDuration(7 * MILLIS_PER_DAY),
