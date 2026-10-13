@@ -11,9 +11,12 @@ import type { Instant } from '@domain/value-objects/Instant';
 import { ENQUEUE_OUTCOME } from '../ports/VoteOutbox';
 import type { EnqueueResult, VoteOutbox } from '../ports/VoteOutbox';
 
+import { copyPlain } from './copyPlain';
+
 /**
  * An in-memory queue that honours the contract of the port: FIFO, reads scoped by voter, the
- * idempotent writes, and `markAttempt` that is not.
+ * idempotent writes, and `markAttempt` that is not. It keeps copies of what it is given and hands
+ * back copies of what it holds.
  */
 export class FakeVoteOutbox implements VoteOutbox {
   /** Makes `list` fail while set. */
@@ -33,12 +36,12 @@ export class FakeVoteOutbox implements VoteOutbox {
 
   /** Puts votes in the queue without going through the port. */
   seed(...entries: OutboxVote[]): void {
-    this.entries.push(...entries);
+    this.entries.push(...copyPlain(entries));
   }
 
   /** The whole queue, of every voter, oldest first. */
   snapshot(): OutboxVote[] {
-    return [...this.entries];
+    return copyPlain(this.entries);
   }
 
   enqueue(pending: PendingVote): Promise<Result<EnqueueResult, StorageWriteFailedError>> {
@@ -47,15 +50,19 @@ export class FakeVoteOutbox implements VoteOutbox {
       ({ vote }) => vote.idempotencyKey === pending.vote.idempotencyKey,
     );
     if (existing !== undefined) {
-      return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing }));
+      return Promise.resolve(
+        ok({ outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing: copyPlain(existing) }),
+      );
     }
-    this.entries.push(pending);
+    this.entries.push(copyPlain(pending));
     return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.Enqueued }));
   }
 
   list(voterId: UserId): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
     if (this.listFailure !== undefined) return Promise.resolve(err(this.listFailure));
-    return Promise.resolve(ok(this.entries.filter(({ vote }) => vote.voterId === voterId)));
+    return Promise.resolve(
+      ok(copyPlain(this.entries.filter(({ vote }) => vote.voterId === voterId))),
+    );
   }
 
   findByResolution(
@@ -65,8 +72,10 @@ export class FakeVoteOutbox implements VoteOutbox {
     if (this.findFailure !== undefined) return Promise.resolve(err(this.findFailure));
     return Promise.resolve(
       ok(
-        this.entries.filter(
-          ({ vote }) => vote.resolutionId === resolutionId && vote.voterId === voterId,
+        copyPlain(
+          this.entries.filter(
+            ({ vote }) => vote.resolutionId === resolutionId && vote.voterId === voterId,
+          ),
         ),
       ),
     );
@@ -90,7 +99,7 @@ export class FakeVoteOutbox implements VoteOutbox {
     if (this.rejectFailure !== undefined) return Promise.resolve(err(this.rejectFailure));
     this.entries = this.entries.map((entry) =>
       entry.vote.idempotencyKey === key && isPending(entry)
-        ? rejectVote(entry, reason, rejectedAt)
+        ? rejectVote(entry, copyPlain(reason), rejectedAt)
         : entry,
     );
     return Promise.resolve(ok(undefined));

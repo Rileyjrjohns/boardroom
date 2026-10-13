@@ -10,9 +10,11 @@ import type { Page } from '@domain/value-objects/Page';
 import type { CacheEntry } from '../ports/CacheEntry';
 import type { MeetingCache, MeetingPageKey } from '../ports/MeetingCache';
 
+import { copyPlain } from './copyPlain';
+
 /**
  * An in-memory cache that keeps the entries of each owner apart, like the contract says. A miss
- * is `ok(undefined)`.
+ * is `ok(undefined)`. It keeps copies of what it is given and hands back copies of what it holds.
  */
 export class FakeMeetingCache implements MeetingCache {
   /** Makes the reads fail while set. */
@@ -41,7 +43,7 @@ export class FakeMeetingCache implements MeetingCache {
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
     if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
-    this.pages.set(pageKey(owner, key), { value: page, cachedAt });
+    this.pages.set(pageKey(owner, key), copyPlain({ value: page, cachedAt }));
     return Promise.resolve(ok(undefined));
   }
 
@@ -50,7 +52,7 @@ export class FakeMeetingCache implements MeetingCache {
     key: MeetingPageKey,
   ): Promise<Result<CacheEntry<Page<MeetingSummary>> | undefined, StorageReadFailedError>> {
     if (this.readFailure !== undefined) return Promise.resolve(err(this.readFailure));
-    return Promise.resolve(ok(this.pages.get(pageKey(owner, key))));
+    return Promise.resolve(ok(copyPlain(this.pages.get(pageKey(owner, key)))));
   }
 
   removePage(owner: UserId, key: MeetingPageKey): Promise<Result<void, StorageWriteFailedError>> {
@@ -65,7 +67,7 @@ export class FakeMeetingCache implements MeetingCache {
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
     if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
-    this.meetings.set(meetingKey(owner, meeting.id), { value: meeting, cachedAt });
+    this.meetings.set(meetingKey(owner, meeting.id), copyPlain({ value: meeting, cachedAt }));
     return Promise.resolve(ok(undefined));
   }
 
@@ -74,7 +76,7 @@ export class FakeMeetingCache implements MeetingCache {
     id: MeetingId,
   ): Promise<Result<CacheEntry<Meeting> | undefined, StorageReadFailedError>> {
     if (this.readFailure !== undefined) return Promise.resolve(err(this.readFailure));
-    return Promise.resolve(ok(this.meetings.get(meetingKey(owner, id))));
+    return Promise.resolve(ok(copyPlain(this.meetings.get(meetingKey(owner, id)))));
   }
 
   removeMeeting(owner: UserId, id: MeetingId): Promise<Result<void, StorageWriteFailedError>> {

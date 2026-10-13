@@ -7,9 +7,12 @@ import type { Instant } from '@domain/value-objects/Instant';
 import type { CacheEntry } from '../ports/CacheEntry';
 import type { DocumentCache, ViewableDocument } from '../ports/DocumentCache';
 
+import { copyPlain } from './copyPlain';
+
 /**
  * An in-memory cache that keeps the entries of each owner apart, like the contract says. A miss
- * is `ok(undefined)`.
+ * is `ok(undefined)`. It keeps copies of what it is given and hands back copies of what it holds.
+ * It keeps no files: it cannot lose a content, nor delete one.
  */
 export class FakeDocumentCache implements DocumentCache {
   /** Makes the reads fail while set. */
@@ -36,7 +39,10 @@ export class FakeDocumentCache implements DocumentCache {
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
     if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
-    this.entries.set(entryKey(owner, viewable.document.id), { value: viewable, cachedAt });
+    this.entries.set(
+      entryKey(owner, viewable.document.id),
+      copyPlain({ value: viewable, cachedAt }),
+    );
     return Promise.resolve(ok(undefined));
   }
 
@@ -45,7 +51,7 @@ export class FakeDocumentCache implements DocumentCache {
     id: DocumentId,
   ): Promise<Result<CacheEntry<ViewableDocument> | undefined, StorageReadFailedError>> {
     if (this.readFailure !== undefined) return Promise.resolve(err(this.readFailure));
-    return Promise.resolve(ok(this.entries.get(entryKey(owner, id))));
+    return Promise.resolve(ok(copyPlain(this.entries.get(entryKey(owner, id)))));
   }
 
   remove(owner: UserId, id: DocumentId): Promise<Result<void, StorageWriteFailedError>> {
