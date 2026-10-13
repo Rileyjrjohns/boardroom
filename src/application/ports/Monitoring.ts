@@ -32,6 +32,12 @@ export const MONITORING_EVENT = {
   VoteSyncCompleted: 'voteSyncCompleted',
   VoteSyncInterrupted: 'voteSyncInterrupted',
   OutboxReadFailed: 'outboxReadFailed',
+  /** A row of the local database no longer reads back as what was stored: it is dropped. */
+  StoredRowDiscarded: 'storedRowDiscarded',
+  /** The server answered something that does not have the shape of the API. */
+  ResponseInvalid: 'responseInvalid',
+  /** The local database could not be opened with its key and was created again, empty. */
+  DatabaseRecreated: 'databaseRecreated',
 } as const;
 
 export type MonitoringEvent = ValueOf<typeof MONITORING_EVENT>;
@@ -55,6 +61,10 @@ export const LOG_ATTRIBUTE = {
   Synced: 'synced',
   Rejected: 'rejected',
   Remaining: 'remaining',
+  /** The places a payload broke the schema (`agenda.0.status`), never what it held. */
+  IssuePaths: 'issuePaths',
+  /** Why something happened, as one of the const sets of the code that reports it. */
+  Reason: 'reason',
 } as const;
 
 export type LogAttribute = ValueOf<typeof LOG_ATTRIBUTE>;

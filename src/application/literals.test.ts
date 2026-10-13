@@ -1,4 +1,5 @@
 import { BIOMETRIC_REASON } from './ports/BiometricGate';
+import { CONNECTIVITY_STATUS } from './ports/Connectivity';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from './ports/Monitoring';
 import { SCREEN_CAPTURE_KIND } from './ports/ScreenProtection';
 import { ENQUEUE_OUTCOME } from './ports/VoteOutbox';
@@ -26,6 +27,7 @@ describe('the values of the application', () => {
 
   it('are those of the reasons and kinds that cross the ports', () => {
     expect(BIOMETRIC_REASON).toEqual({ UnlockApp: 'unlockApp', ConfirmVote: 'confirmVote' });
+    expect(CONNECTIVITY_STATUS).toEqual({ Online: 'online', Offline: 'offline' });
     expect(SCREEN_CAPTURE_KIND).toEqual({
       ScreenshotTaken: 'screenshotTaken',
       RecordingStarted: 'recordingStarted',
@@ -60,6 +62,9 @@ describe('the values of the application', () => {
       VoteSyncCompleted: 'voteSyncCompleted',
       VoteSyncInterrupted: 'voteSyncInterrupted',
       OutboxReadFailed: 'outboxReadFailed',
+      StoredRowDiscarded: 'storedRowDiscarded',
+      ResponseInvalid: 'responseInvalid',
+      DatabaseRecreated: 'databaseRecreated',
     });
     expect(LOG_ATTRIBUTE).toEqual({
       UserId: 'userId',
@@ -76,6 +81,8 @@ describe('the values of the application', () => {
       Synced: 'synced',
       Rejected: 'rejected',
       Remaining: 'remaining',
+      IssuePaths: 'issuePaths',
+      Reason: 'reason',
     });
   });
 });
