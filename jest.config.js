@@ -95,6 +95,8 @@ const config = {
     '!**/*.d.ts',
     '!**/*.{test,spec}.{ts,tsx}',
     '!**/__tests__/**',
+    // Test support (fakes of the ports, builders of fixtures), not production code.
+    ...CORE_LAYERS.map((dir) => `!${dir}/testing/**`),
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'text-summary', 'lcov'],
