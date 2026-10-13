@@ -16,6 +16,7 @@ import { InMemoryVoteRepository } from '@infrastructure/in-memory/InMemoryVoteRe
 import { buildSeed } from '@infrastructure/in-memory/seed';
 import { SimulatedNetwork } from '@infrastructure/in-memory/SimulatedNetwork';
 import type { NetworkControl } from '@infrastructure/in-memory/SimulatedNetwork';
+import { SimulatedConnectivity } from '@infrastructure/connectivity/SimulatedConnectivity';
 import { ConsoleMonitoring } from '@infrastructure/monitoring/ConsoleMonitoring';
 
 import type { MockConfiguration } from './configuration';
@@ -45,6 +46,7 @@ interface MockWiring {
  * windows on one simulated server (`InMemoryBackend`), which learns who is calling from the
  * session store (`InMemoryAuthSession`) and shares its network with it; the caches and the outbox
  * are in memory; the biometrics always succeed and the screen protection records what it is asked.
+ * The connectivity is that of the simulated network, so that its offline switch drives the app.
  * The seed is generated from the clock, so there are always upcoming and past meetings.
  */
 export function createMockPorts(
@@ -84,6 +86,7 @@ export function createMockPorts(
       monitoring,
       auth,
       biometricGate: new InMemoryBiometricGate(),
+      connectivity: new SimulatedConnectivity(backend.network),
       screenProtection,
       meetings: new InMemoryMeetingRepository(backend),
       meetingCache: new InMemoryMeetingCache(),

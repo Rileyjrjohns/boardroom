@@ -2,8 +2,14 @@ import { MAX_PAGE_LIMIT, createPageRequest } from '@domain/value-objects/PageReq
 import { MAX_SIMULATED_LATENCY_MILLIS } from '@infrastructure/in-memory/SimulatedNetwork';
 
 import {
+  ALLOW_DEVICE_PASSCODE_FALLBACK,
   APP_LOCK_GRACE_PERIOD,
+  DATABASE_NAME,
+  HTTP_REQUEST_TIMEOUT,
   MAX_CACHE_AGE,
+  MAX_HTTP_REQUEST_TIMEOUT,
+  MIN_HTTP_REQUEST_TIMEOUT,
+  MOCK_STARTS_SIGNED_IN,
   MAX_VOTE_DELIVERY_ATTEMPTS,
   MEETINGS_PAGE_SIZE,
   MOCK_SESSION_LIFETIME,
@@ -24,6 +30,19 @@ describe('the configuration values', () => {
     expect(MEETINGS_PAGE_SIZE).toBe(10);
     expect(SIMULATED_LATENCY).toBe(400);
     expect(MOCK_SESSION_LIFETIME).toBe(8 * MILLIS_PER_HOUR);
+    expect(MOCK_STARTS_SIGNED_IN).toBe(false);
+    expect(HTTP_REQUEST_TIMEOUT).toBe(15 * MILLIS_PER_SECOND);
+    expect(ALLOW_DEVICE_PASSCODE_FALLBACK).toBe(false);
+  });
+
+  it('keep the request timeout of the API within the bounds the configuration accepts', () => {
+    expect(MIN_HTTP_REQUEST_TIMEOUT).toBeLessThanOrEqual(HTTP_REQUEST_TIMEOUT);
+    expect(HTTP_REQUEST_TIMEOUT).toBeLessThanOrEqual(MAX_HTTP_REQUEST_TIMEOUT);
+  });
+
+  it('name the file of the database the way the devices already have it', () => {
+    // Stored on the device: changing it would leave every installed app with an orphan file.
+    expect(DATABASE_NAME).toBe('boardroom.db');
   });
 
   it('give a page size that the domain accepts in a page request, below its maximum', () => {

@@ -1,6 +1,7 @@
 import type { AuthSession } from '@application/ports/AuthSession';
 import type { BiometricGate } from '@application/ports/BiometricGate';
 import type { Clock } from '@application/ports/Clock';
+import type { Connectivity } from '@application/ports/Connectivity';
 import type { DocumentCache } from '@application/ports/DocumentCache';
 import type { DocumentRepository } from '@application/ports/DocumentRepository';
 import type { MeetingCache } from '@application/ports/MeetingCache';
@@ -20,6 +21,7 @@ export interface Ports {
   readonly monitoring: Monitoring;
   readonly auth: AuthSession;
   readonly biometricGate: BiometricGate;
+  readonly connectivity: Connectivity;
   readonly screenProtection: ScreenProtection;
   readonly meetings: MeetingRepository;
   readonly meetingCache: MeetingCache;

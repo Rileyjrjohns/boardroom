@@ -1,6 +1,7 @@
 import { AcknowledgeRejectedVote } from '@application/use-cases/votes/AcknowledgeRejectedVote';
 import { CastVote } from '@application/use-cases/votes/CastVote';
 import { CloseDocument } from '@application/use-cases/documents/CloseDocument';
+import { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
 import { EvaluateAppLock } from '@application/use-cases/auth/EvaluateAppLock';
 import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
@@ -29,6 +30,7 @@ export interface UseCases {
   readonly openDocument: OpenDocument;
   readonly closeDocument: CloseDocument;
   readonly observeScreenCapture: ObserveScreenCapture;
+  readonly observeConnectivity: ObserveConnectivity;
   readonly castVote: CastVote;
   readonly syncPendingVotes: SyncPendingVotes;
   readonly listPendingVotes: ListPendingVotes;
@@ -60,6 +62,7 @@ export function wireUseCases(ports: Ports, settings: UseCaseSettings): UseCases 
     monitoring,
     auth,
     biometricGate,
+    connectivity,
     screenProtection,
     meetings,
     meetingCache,
@@ -92,6 +95,7 @@ export function wireUseCases(ports: Ports, settings: UseCaseSettings): UseCases 
     }),
     closeDocument: new CloseDocument({ screenProtectionCoordinator }),
     observeScreenCapture: new ObserveScreenCapture({ ...guard, screenProtection }),
+    observeConnectivity: new ObserveConnectivity({ connectivity }),
     castVote: new CastVote({ ...cacheFallback, meetings, outbox, votes, biometricGate }),
     syncPendingVotes: new SyncPendingVotes({ ...guard, outbox, votes, maxAttempts }),
     listPendingVotes: new ListPendingVotes({ ...guard, outbox }),

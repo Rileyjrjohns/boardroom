@@ -60,11 +60,14 @@ describe('the environment', () => {
     ).toEqual([ROOT_LAYOUT]);
   });
 
-  it('is read once in the root layout, as a static expression Metro can replace', () => {
+  it('is read once per variable in the root layout, as static expressions Metro can replace', () => {
     const reads = read(ROOT_LAYOUT).match(PUBLIC_VARIABLE) ?? [];
 
-    expect(reads).toEqual(['process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS']);
-    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READS)).toHaveLength(1);
+    expect(reads).toEqual([
+      'process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS',
+      'process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL',
+    ]);
+    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READS)).toHaveLength(2);
   });
 
   it('has every variable the app reads documented in .env.example, with a default', () => {

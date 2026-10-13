@@ -27,5 +27,33 @@ export const SIMULATED_LATENCY = valid(durationFromMillis(400));
 /** A working day, so that a session left open overnight expires by itself. */
 export const MOCK_SESSION_LIFETIME = valid(durationFromMillis(8 * MILLIS_PER_HOUR));
 
-/** The sign-in screen arrives in step 4; until then this is the only way to get a session there. */
-export const MOCK_STARTS_SIGNED_IN = true;
+/**
+ * The mock configuration starts signed out, like the real one: the user signs in with an account
+ * of the simulated server. A test, or the root layout until the sign-in screen exists, asks for the
+ * demo user to be signed in at start through the `mockStartsSignedIn` setting.
+ */
+export const MOCK_STARTS_SIGNED_IN = false;
+
+/**
+ * How long a request to the API may take, the answer included, before it counts as a network
+ * failure. Long enough for a mobile network on a bad day, short enough that the user is not left
+ * staring at a spinner: an offline board member gets the saved copy within the quarter of a minute.
+ */
+export const HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(15 * MILLIS_PER_SECOND));
+
+/** The bounds of a request timeout that the configuration accepts. */
+export const MIN_HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(MILLIS_PER_SECOND));
+export const MAX_HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(60 * MILLIS_PER_SECOND));
+
+/**
+ * Whether the passcode of the device is accepted when the biometrics do not recognise the user.
+ * No. The biometrics unlock the app and confirm a vote, which is secret and final: a passcode is
+ * something a colleague or a relative may have seen being typed, a fingerprint or a face is not.
+ * The price is a user who is locked out of the biometrics (too many failed attempts, which the
+ * system clears with its own passcode) waiting for them to come back, or signing out and in again;
+ * a board that prefers the other trade-off turns this on, and nothing else changes.
+ */
+export const ALLOW_DEVICE_PASSCODE_FALLBACK = false;
+
+/** The name of the local database file. It is part of what is stored on the device: do not rename it. */
+export const DATABASE_NAME = 'boardroom.db';
