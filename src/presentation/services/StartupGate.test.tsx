@@ -10,20 +10,14 @@ import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { createI18n } from '../i18n/createI18n';
 import { I18nProvider } from '../i18n/I18nProvider';
 import { TEST_IDS } from '../testIds';
+import { unusedServices } from '../testing/unusedServices';
 
 import { useAppServices } from './AppServices';
 import type { AppServices } from './AppServices';
 import { STARTUP_ABORTED, StartupGate } from './StartupGate';
 import type { BiometricPromptText, StartApp } from './StartupGate';
 
-const SERVICES: AppServices = {
-  useCases: {
-    listMeetings: { execute: () => Promise.reject(new Error('unused')) },
-    getMeeting: { execute: () => Promise.reject(new Error('unused')) },
-    observeConnectivity: { execute: () => Promise.reject(new Error('unused')) },
-  },
-  settings: { meetingsPageSize: 12 },
-};
+const SERVICES: AppServices = unusedServices(12);
 
 type Outcome = Result<AppServices, { readonly code: string }>;
 

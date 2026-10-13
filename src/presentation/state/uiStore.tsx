@@ -3,43 +3,170 @@ import type { ReactNode } from 'react';
 import { createStore, useStore } from 'zustand';
 import type { StoreApi } from 'zustand';
 
+import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
+import type { ValueOf } from '@domain/shared/constants';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
+import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
+import type { ConnectivityStatus } from '@application/ports/Connectivity';
+import { SESSION_RESTORE } from '@application/use-cases/auth/RestoreSession';
+import type { RestoredSession } from '@application/use-cases/auth/RestoreSession';
 
-import type { MeetingsErrorCode } from '../i18n/translationKeys';
+import type { SessionEndingCode } from '../query/createQueryClient';
+
+/**
+ * Where the user stands, which decides the screens they can reach (see `AppNavigator`). The
+ * application layer holds the truth about the lock (`AppLock`) and the session, but no use case
+ * reports it, and the stack has to know it to show the right screen: this is the presentation's
+ * mirror of it, moved by the outcome of the use cases and by the failures that end a session.
+ */
+export const ACCESS = {
+  /** `RestoreSession` has not answered yet: nothing is shown but the loading state. */
+  Starting: 'starting',
+  /** Nobody is signed in. The sign-in screen. */
+  SignedOut: 'signedOut',
+  /** Somebody is signed in and the app is locked. The lock screen. */
+  Locked: 'locked',
+  /** The app is open: the meetings, the votes. */
+  Unlocked: 'unlocked',
+} as const;
+
+export type Access = ValueOf<typeof ACCESS>;
+
+/** What a run of the synchronisation did that is worth telling the user. */
+export interface SyncSummary {
+  readonly synced: number;
+  readonly rejected: number;
+}
 
 /**
  * The state of the interface, and nothing else. Server data is not here (it is in the query cache)
- * and neither is state that belongs to one component (it is in `useState`). Two things:
+ * and neither is state that belongs to one component (it is in `useState`). Every field below is
+ * state that no query holds, that more than one place reads, and that is written from outside any
+ * component (the query cache, the system's events), which is what a store is for:
  *
- * - which period of the meetings list is selected. Today only the list reads it, so a `useState`
- *   would do (the list stays mounted below the detail, so nothing needs the store to survive
- *   opening a meeting). It is here because it is the first piece of interface state, and the store
- *   is the pattern the stack mandates for it;
- * - why the session ended, once it has. It is written by the query cache when a failure ends the
- *   session, outside of any component, and read by the root of the app: the cache has just been
- *   emptied, so it cannot remember it, and the component that would is the one being left.
+ * - `meetingsPeriod`: which period of the meetings list is selected. Today only the list reads it,
+ *   so a `useState` would do (the list stays mounted below the detail); it is here because it is
+ *   the first piece of interface state, and the store is the pattern the stack mandates for it;
+ * - `access`: where the user stands (see `ACCESS`). It is not derivable: no use case reports the
+ *   lock, and the navigator, the lifecycle of the app and the failures that end a session all read
+ *   or write it. A failure writes it from the query cache, outside any component;
+ * - `sessionEndedBy`: why the user was sent back to the sign-in or the lock screen, so that the
+ *   screen can explain it. The cache that saw the failure has just been emptied and the screen that
+ *   showed it has just been left, so neither can remember it;
+ * - `connectivity`: what the device says about its connection. It is an event, not a request: the
+ *   offline banner of every screen and the trigger of the synchronisation both follow it, and
+ *   there is no query to cache it in;
+ * - `privacyCover`: whether the content must be hidden, because the app is inactive or in the
+ *   background (the app switcher takes its snapshot then), or because the lock has not yet been
+ *   evaluated on the way back. Written by the events of the system, read by the root and by the
+ *   dialogs, which are not inside the root's view;
+ * - `syncSummary`: what the last synchronisation sent or rejected, until the user dismisses it.
+ *   A result that has to outlive the screen that happened to be showing when it came.
+ *
+ * Everything that belongs to a session (`syncSummary`, `sessionEndedBy`) is forgotten when the
+ * user leaves `Unlocked`, and the interface store never holds a name, an email or a vote.
  */
 export interface UiState {
   readonly meetingsPeriod: MeetingPeriod;
   selectMeetingsPeriod(period: MeetingPeriod): void;
-  /** The code of the failure that ended the session, or `undefined` while it goes on. */
-  readonly sessionEndedBy: MeetingsErrorCode | undefined;
-  endSession(code: MeetingsErrorCode): void;
+
+  readonly access: Access;
+  /** `RestoreSession` answered: somebody is signed in (locked), or nobody is. Only from `Starting`. */
+  sessionRestored(status: RestoredSession['status']): void;
+  /** A sign-in succeeded: the app is open (the credentials just typed prove presence). */
+  signedIn(): void;
+  /** The biometric unlock succeeded. */
+  unlocked(): void;
+  /** The lock was evaluated on the way back and is required. */
+  locked(): void;
+  /** The user signed out. */
+  signedOut(): void;
+  /**
+   * A failure said the session is over (see `isSessionEndingCode`). `appLocked` sends the user to
+   * the lock screen, every other code to the sign-in screen, with the reason. Only an open app has
+   * a session to end: a failure that arrives after the user left it (a request that was still on
+   * its way when they signed out) is ignored.
+   */
+  endSession(code: SessionEndingCode): void;
+  /** The code of the failure that sent the user to the sign-in or lock screen, if one did. */
+  readonly sessionEndedBy: SessionEndingCode | undefined;
+
+  readonly connectivity: ConnectivityStatus;
+  setConnectivity(status: ConnectivityStatus): void;
+
+  readonly privacyCover: boolean;
+  setPrivacyCover(covered: boolean): void;
+
+  readonly syncSummary: SyncSummary | undefined;
+  showSyncSummary(summary: SyncSummary): void;
+  dismissSyncSummary(): void;
 }
 
 export type UiStore = StoreApi<UiState>;
 
+export interface UiStoreOptions {
+  /** Where the user stands at the start. `Starting` for the app; a screen under test may skip it. */
+  readonly access?: Access;
+}
+
+/** What leaving the open app forgets. */
+const SESSION_FORGOTTEN = { syncSummary: undefined, sessionEndedBy: undefined } as const;
+
 /** A new store. Created per app instance and provided through context: no module-level store. */
-export function createUiStore(): UiStore {
-  return createStore<UiState>()((set) => ({
+export function createUiStore(options: UiStoreOptions = {}): UiStore {
+  return createStore<UiState>()((set, get) => ({
     meetingsPeriod: MEETING_PERIOD.Upcoming,
     selectMeetingsPeriod: (period) => {
       set({ meetingsPeriod: period });
     },
-    sessionEndedBy: undefined,
+
+    access: options.access ?? ACCESS.Starting,
+    sessionRestored: (status) => {
+      if (get().access !== ACCESS.Starting) return;
+      set({
+        access: status === SESSION_RESTORE.None ? ACCESS.SignedOut : ACCESS.Locked,
+      });
+    },
+    signedIn: () => {
+      set({ access: ACCESS.Unlocked, ...SESSION_FORGOTTEN });
+    },
+    unlocked: () => {
+      set({ access: ACCESS.Unlocked, ...SESSION_FORGOTTEN });
+    },
+    locked: () => {
+      set({ access: ACCESS.Locked, ...SESSION_FORGOTTEN });
+    },
+    signedOut: () => {
+      set({ access: ACCESS.SignedOut, ...SESSION_FORGOTTEN });
+    },
     endSession: (code) => {
-      set({ sessionEndedBy: code });
+      if (get().access !== ACCESS.Unlocked) return;
+      set({
+        access: code === AUTHENTICATION_ERROR_CODE.AppLocked ? ACCESS.Locked : ACCESS.SignedOut,
+        syncSummary: undefined,
+        sessionEndedBy: code,
+      });
+    },
+    sessionEndedBy: undefined,
+
+    connectivity: CONNECTIVITY_STATUS.Online,
+    setConnectivity: (status) => {
+      set({ connectivity: status });
+    },
+
+    privacyCover: false,
+    setPrivacyCover: (covered) => {
+      set({ privacyCover: covered });
+    },
+
+    syncSummary: undefined,
+    showSyncSummary: (summary) => {
+      // A result that comes after the user left the open app is not theirs to read any more.
+      if (get().access === ACCESS.Unlocked) set({ syncSummary: summary });
+    },
+    dismissSyncSummary: () => {
+      set({ syncSummary: undefined });
     },
   }));
 }
@@ -65,4 +192,16 @@ export function useUiStore<Selected>(selector: (state: UiState) => Selected): Se
     throw new Error('useUiStore must be used inside a UiStoreProvider.');
   }
   return useStore(store, selector);
+}
+
+/**
+ * The store itself, for code that reads the state at the moment an event fires instead of when it
+ * renders (the system's events, a callback that outlives a render).
+ */
+export function useUiStoreApi(): UiStore {
+  const store = useContext(UiStoreContext);
+  if (store === undefined) {
+    throw new Error('useUiStoreApi must be used inside a UiStoreProvider.');
+  }
+  return store;
 }

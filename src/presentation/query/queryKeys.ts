@@ -3,11 +3,15 @@ import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 
 const SCOPE = {
   Meetings: 'meetings',
+  Votes: 'votes',
+  Session: 'session',
 } as const;
 
 const KIND = {
   List: 'list',
   Detail: 'detail',
+  Pending: 'pending',
+  User: 'user',
 } as const;
 
 /**
@@ -17,9 +21,9 @@ const KIND = {
  * The key holds what the data depends on. The user is not in it: the query client is created per
  * app instance and holds the data of one session at a time. What keeps it so is that the cache is
  * emptied when the session ends: by the client itself when a failure says the session is over
- * (see `createQueryClient`), and by `discardSessionData`, which the sign-out of step 4 must call
- * (nothing signs a user out yet). Without that call, a second user would be shown the rows of the
- * first until their own request answers (`failures.test.tsx` shows it).
+ * (see `createQueryClient`), and by `discardSessionData`, which `createAppState` calls whenever the
+ * user leaves the open app (a sign-out, a lock). Without that call, a second user would be shown
+ * the rows of the first until their own request answers (`failures.test.tsx` shows it).
  */
 export const queryKeys = {
   meetings: {
@@ -27,5 +31,15 @@ export const queryKeys = {
     list: (period: MeetingPeriod, pageSize: number) =>
       [SCOPE.Meetings, KIND.List, period, pageSize] as const,
     detail: (meetingId: MeetingId) => [SCOPE.Meetings, KIND.Detail, meetingId] as const,
+    /** Every meeting held, whichever it is: what a synchronisation refreshes. */
+    details: () => [SCOPE.Meetings, KIND.Detail] as const,
+  },
+  votes: {
+    /** The outbox of the signed-in user: the votes waiting to be sent, and the rejected ones. */
+    pending: () => [SCOPE.Votes, KIND.Pending] as const,
+  },
+  session: {
+    /** Who is signed in, once the app is unlocked. */
+    user: () => [SCOPE.Session, KIND.User] as const,
   },
 } as const;

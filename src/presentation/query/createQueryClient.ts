@@ -1,9 +1,7 @@
-import { QueryCache, QueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
-
-import type { MeetingsErrorCode } from '../i18n/translationKeys';
 
 import { errorCodeOf } from './errorCode';
 import { isQueryFailure } from './QueryFailure';
@@ -39,35 +37,41 @@ export const QUERY_GC_TIME_MILLIS = 300_000;
  * refused the session, there is none, it has expired or is another one, or the app is locked. They
  * end the session for every screen, and the cache is emptied (see `createQueryClient`).
  */
-const SESSION_ENDING_CODES: ReadonlySet<MeetingsErrorCode> = new Set([
+const SESSION_ENDING_CODES = [
   REPOSITORY_ERROR_CODE.Unauthorized,
   AUTHENTICATION_ERROR_CODE.NotAuthenticated,
   AUTHENTICATION_ERROR_CODE.SessionExpired,
   AUTHENTICATION_ERROR_CODE.SessionChanged,
   AUTHENTICATION_ERROR_CODE.AppLocked,
-]);
+] as const;
 
-export function isSessionEndingCode(code: MeetingsErrorCode): boolean {
-  return SESSION_ENDING_CODES.has(code);
+export type SessionEndingCode = (typeof SESSION_ENDING_CODES)[number];
+
+const SESSION_ENDING_SET: ReadonlySet<string> = new Set(SESSION_ENDING_CODES);
+
+/** Any code, not only those of the meetings: a synchronisation and an action meet them too. */
+export function isSessionEndingCode(code: string): code is SessionEndingCode {
+  return SESSION_ENDING_SET.has(code);
 }
 
 export interface QueryClientOptions {
   /** The wait before a retry. A test gives a function that answers zero. */
   readonly retryDelay?: (failureCount: number) => number;
   /**
-   * Told why, before the cache is emptied, when a failure ends the session. The app uses it to
-   * show that the session is over (see `AppProviders`): once the cache is empty a screen would
-   * ask again, which the answer would end again.
+   * Told why, before the cache is emptied, when a failure ends the session, whether a query or a
+   * mutation met it. The app uses it to send the user to the sign-in or the lock screen (see
+   * `createAppState`): once the cache is empty a screen would ask again, which the answer would
+   * end again.
    */
-  readonly onSessionEnded?: (code: MeetingsErrorCode) => void;
+  readonly onSessionEnded?: (code: SessionEndingCode) => void;
 }
 
 /**
- * Empties the cache: everything the previous session of the user left in memory. It is what a
- * sign-out calls (step 4), and what a failure that ends the session triggers by itself. A screen
- * that still shows data when it is called does not notice, since nothing tells it: the screens
- * that show the data of a user must be left first, which is what the sign-out and
- * `onSessionEnded` do.
+ * Empties the cache, the queries and the mutations: everything the previous session of the user
+ * left in memory. A sign-out, a lock and a failure that ends the session all trigger it (see
+ * `createAppState`). A screen that still shows data when it is called does not notice, since
+ * nothing tells it: the screens that show the data of a user must be left first, which the
+ * navigator does by removing them when the user leaves the open app.
  */
 export function discardSessionData(client: QueryClient): void {
   client.clear();
@@ -87,25 +91,34 @@ export function discardSessionData(client: QueryClient): void {
  *   state in this app, and the screens refresh on demand (pull to refresh, "Try again");
  * - `networkMode: 'always'` runs every query, because whether the server is reachable is for the
  *   adapters to say, with a `networkUnavailable` error, and not for the library to guess;
- * - a failure that ends the session empties the whole cache from here, whichever query it came
- *   from, so that nothing of the previous session stays in memory.
+ * - a failure that ends the session empties the whole cache from here, whichever query or
+ *   mutation it came from, so that nothing of the previous session stays in memory;
+ * - mutations are never retried (see `useResultMutation`): they act (sign in, vote, acknowledge),
+ *   and doing it again is for the user to decide. Nothing reads the result of a mutation once its
+ *   screen is gone, and it may hold the choice of a vote, so it is dropped from memory as soon as
+ *   nothing observes it (`gcTime: 0`) instead of lingering for five minutes.
  */
 export function createQueryClient(options: QueryClientOptions = {}): QueryClient {
+  const endSession = (error: unknown): void => {
+    if (!isQueryFailure(error)) return;
+    const code = errorCodeOf(error);
+    if (!isSessionEndingCode(code)) return;
+    options.onSessionEnded?.(code);
+    // Once the failing query has finished with its own error: it schedules its collection
+    // after this handler, which would put back a timer on a query that is no longer there.
+    void Promise.resolve().then(() => {
+      discardSessionData(client);
+    });
+  };
   const client: QueryClient = new QueryClient({
-    queryCache: new QueryCache({
-      onError: (error) => {
-        if (!isQueryFailure(error)) return;
-        const code = errorCodeOf(error);
-        if (!isSessionEndingCode(code)) return;
-        options.onSessionEnded?.(code);
-        // Once the failing query has finished with its own error: it schedules its collection
-        // after this handler, which would put back a timer on a query that is no longer there.
-        void Promise.resolve().then(() => {
-          discardSessionData(client);
-        });
-      },
-    }),
+    queryCache: new QueryCache({ onError: endSession }),
+    mutationCache: new MutationCache({ onError: endSession }),
     defaultOptions: {
+      mutations: {
+        retry: false,
+        networkMode: 'always',
+        gcTime: 0,
+      },
       queries: {
         retry: shouldRetry,
         retryDelay: options.retryDelay ?? retryDelay,

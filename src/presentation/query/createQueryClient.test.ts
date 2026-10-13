@@ -179,3 +179,86 @@ describe('discardSessionData', () => {
     expect(client.getQueryCache().getAll()).toEqual([]);
   });
 });
+
+describe('createQueryClient, mutations', () => {
+  it('never retries a mutation: an action is repeated by the user, not by the library', () => {
+    const { mutations } = newClient().getDefaultOptions();
+
+    expect(mutations?.retry).toBe(false);
+    expect(mutations?.networkMode).toBe('always');
+  });
+
+  it('drops a mutation as soon as nothing observes it: its result may hold the choice of a vote', async () => {
+    const client = newClient();
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.resolve('a vote') })
+      .execute(undefined);
+    await Promise.resolve();
+
+    expect(client.getDefaultOptions().mutations?.gcTime).toBe(0);
+  });
+
+  it.each([
+    REPOSITORY_ERROR_CODE.Unauthorized,
+    AUTHENTICATION_ERROR_CODE.NotAuthenticated,
+    AUTHENTICATION_ERROR_CODE.SessionExpired,
+    AUTHENTICATION_ERROR_CODE.SessionChanged,
+    AUTHENTICATION_ERROR_CODE.AppLocked,
+  ])('ends the session, as a query does, when a mutation fails with %s', async (code) => {
+    const ended: string[] = [];
+    const client = newClient({ onSessionEnded: (reason) => ended.push(reason) });
+    client.setQueryData(['rows'], 'the rows of the user');
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(new QueryFailure({ code })) })
+      .execute(undefined)
+      .catch(() => undefined);
+    await Promise.resolve();
+
+    expect(ended).toEqual([code]);
+    expect(client.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it.each([
+    REPOSITORY_ERROR_CODE.NotFound,
+    REPOSITORY_ERROR_CODE.NetworkUnavailable,
+    'biometricCancelled',
+    'alreadyVoted',
+  ])('does not end the session when a mutation fails with %s', async (code) => {
+    const ended: string[] = [];
+    const client = newClient({ onSessionEnded: (reason) => ended.push(reason) });
+    client.setQueryData(['rows'], 'the rows of the user');
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(new QueryFailure({ code })) })
+      .execute(undefined)
+      .catch(() => undefined);
+    await Promise.resolve();
+
+    expect(ended).toEqual([]);
+    expect(client.getQueryData(['rows'])).toBe('the rows of the user');
+  });
+
+  it('does not end the session when a mutation rejects with something that is not the failure of a use case', async () => {
+    const ended: string[] = [];
+    const client = newClient({ onSessionEnded: (reason) => ended.push(reason) });
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(new Error('boom')) })
+      .execute(undefined)
+      .catch(() => undefined);
+
+    expect(ended).toEqual([]);
+  });
+
+  it('knows a code that ends the session whatever the screen, and the ones that do not', () => {
+    expect(isSessionEndingCode('unauthorized')).toBe(true);
+    expect(isSessionEndingCode('storageWriteFailed')).toBe(false);
+    expect(isSessionEndingCode('anything')).toBe(false);
+  });
+});

@@ -1,3 +1,5 @@
+import { unexpected } from '@domain/errors/RepositoryError';
+import type { UnexpectedError } from '@domain/errors/RepositoryError';
 import { isErr } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
@@ -25,6 +27,14 @@ export interface CodedError {
  *
  * `unwrapResult` is the only place where a `Result` is thrown, and `isQueryFailure` the only place
  * where it is recognised again. No exception leaves the presentation: TanStack Query catches it.
+ *
+ * MUTATIONS follow the same convention, through `useResultMutation` (sign in, unlock, sign out,
+ * vote, acknowledge): the mutation function awaits the use case and unwraps its `Result`, so a
+ * failure is a thrown `QueryFailure` and the mutation goes to its error state, whose `error` is
+ * typed with the errors of that use case. Business errors are not retried (a mutation acts, and
+ * doing it again is for the user to decide), and a failure that ends the session ends it from the
+ * mutation cache exactly as from the query cache (see `createQueryClient`). `failureOf` reads the
+ * typed error back, and any rejection that is not a `QueryFailure` is `unexpected`.
  */
 export class QueryFailure<E extends CodedError> extends Error {
   constructor(readonly error: E) {
@@ -42,4 +52,13 @@ export function unwrapResult<T, E extends CodedError>(result: Result<T, E>): T {
 
 export function isQueryFailure(value: unknown): value is QueryFailure<CodedError> {
   return value instanceof QueryFailure;
+}
+
+/**
+ * The typed failure a mutation ended with. `E` is the union of errors of the use case the mutation
+ * calls: it is what the hook declared, not something that can be checked here, so a rejection that
+ * is not a `QueryFailure` (a bug) is `unexpected` instead of being trusted.
+ */
+export function failureOf<E extends CodedError>(error: unknown): E | UnexpectedError {
+  return isQueryFailure(error) ? (error.error as E) : unexpected();
 }

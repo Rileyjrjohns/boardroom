@@ -3,11 +3,10 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { createQueryClient } from '../query/createQueryClient';
+import { createQueryClient, discardSessionData } from '../query/createQueryClient';
 import type { QueryClientOptions } from '../query/createQueryClient';
-import { SessionEndedScreen } from '../screens/SessionEndedScreen';
-import { UiStoreProvider, createUiStore, useUiStore } from '../state/uiStore';
-import type { UiStore } from '../state/uiStore';
+import { ACCESS, UiStoreProvider, createUiStore } from '../state/uiStore';
+import type { Access, UiStore } from '../state/uiStore';
 
 import { AppServicesProvider } from './AppServices';
 import type { AppServices } from './AppServices';
@@ -18,20 +17,39 @@ export interface AppState {
   readonly uiStore: UiStore;
 }
 
+export interface AppStateOptions extends Pick<QueryClientOptions, 'retryDelay'> {
+  /** Where the user stands at the start. A test that renders a screen of the open app skips ahead. */
+  readonly access?: Access;
+}
+
 /**
- * The query client and the interface store of one app instance, wired to each other: when a
- * failure ends the session, the query client empties its cache and tells the store why, and the
- * root of the app shows it (see `SessionEnded`). `AppProviders` calls this once per instance; a
- * test calls it to hold on to the client, and may give the delay of the retries, which is the
- * only thing it changes.
+ * The query client and the interface store of one app instance, wired to each other so that no
+ * data of a session outlives it:
+ *
+ * - when a failure ends the session, the query client tells the store why (the user is sent to the
+ *   sign-in or the lock screen) and empties its cache;
+ * - whenever the user leaves the open app by any other way (they sign out, the lock is required on
+ *   the way back from the background), the cache is emptied as well. It happens as the store
+ *   changes, before the screens that show data are gone: they are removed by the navigator in the
+ *   same update, and a query that is built again on the empty cache is answered with the lock or
+ *   the missing session, which the store ignores since the user has already left.
+ *
+ * `AppProviders` calls this once per instance; a test calls it to hold on to the client, and may
+ * give the delay of the retries and where the user stands.
  */
-export function createAppState(options: Pick<QueryClientOptions, 'retryDelay'> = {}): AppState {
-  const uiStore = createUiStore();
+export function createAppState(options: AppStateOptions = {}): AppState {
+  const { access, ...clientOptions } = options;
+  const uiStore = createUiStore(access === undefined ? {} : { access });
   const queryClient = createQueryClient({
-    ...options,
+    ...clientOptions,
     onSessionEnded: (code) => {
       uiStore.getState().endSession(code);
     },
+  });
+  uiStore.subscribe((state, previous) => {
+    if (previous.access === ACCESS.Unlocked && state.access !== ACCESS.Unlocked) {
+      discardSessionData(queryClient);
+    }
   });
   return { queryClient, uiStore };
 }
@@ -48,7 +66,8 @@ interface AppProvidersProps {
  * Everything a screen needs above it, in one place: the use cases, the query client of this app
  * instance and the store of the interface state. The query client and the store are created here,
  * once, on the first render, so each instance of the app has its own. The root layout mounts this
- * and nothing else of the layer's state.
+ * and nothing else of the layer's state; what decides which screens the user can reach is the
+ * navigator (`AppNavigator`) and the session controller (`SessionController`), inside it.
  */
 export function AppProviders({ services, state, children }: AppProvidersProps) {
   const [{ queryClient, uiStore }] = useState(() => state ?? createAppState());
@@ -56,21 +75,8 @@ export function AppProviders({ services, state, children }: AppProvidersProps) {
   return (
     <AppServicesProvider services={services}>
       <QueryClientProvider client={queryClient}>
-        <UiStoreProvider store={uiStore}>
-          <SessionEnded>{children}</SessionEnded>
-        </UiStoreProvider>
+        <UiStoreProvider store={uiStore}>{children}</UiStoreProvider>
       </QueryClientProvider>
     </AppServicesProvider>
   );
-}
-
-/**
- * Shows the screens while the session goes on and `SessionEndedScreen` once it is over. A failure
- * that ends the session empties the cache; screens that stayed would ask again and be refused
- * again, so they are replaced instead, which also leaves no query running.
- */
-function SessionEnded({ children }: { readonly children: ReactNode }) {
-  const endedBy = useUiStore((state) => state.sessionEndedBy);
-
-  return endedBy === undefined ? children : <SessionEndedScreen code={endedBy} />;
 }

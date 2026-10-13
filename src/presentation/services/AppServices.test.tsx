@@ -1,17 +1,12 @@
 import { render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
+import { unusedServices } from '../testing/unusedServices';
+
 import { AppServicesProvider, useAppServices } from './AppServices';
 import type { AppServices } from './AppServices';
 
-const SERVICES: AppServices = {
-  useCases: {
-    listMeetings: { execute: () => Promise.reject(new Error('unused')) },
-    getMeeting: { execute: () => Promise.reject(new Error('unused')) },
-    observeConnectivity: { execute: () => Promise.reject(new Error('unused')) },
-  },
-  settings: { meetingsPageSize: 7 },
-};
+const SERVICES: AppServices = unusedServices(7);
 
 function PageSize() {
   return <Text>{String(useAppServices().settings.meetingsPageSize)}</Text>;

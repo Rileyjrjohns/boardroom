@@ -10,7 +10,7 @@ import type { Result } from '@domain/shared/Result';
 import { trackClient } from '../testing/queryClients';
 
 import { createQueryClient } from './createQueryClient';
-import { QueryFailure, isQueryFailure, unwrapResult } from './QueryFailure';
+import { QueryFailure, failureOf, isQueryFailure, unwrapResult } from './QueryFailure';
 
 describe('unwrapResult', () => {
   it('gives the value of a success', () => {
@@ -98,4 +98,19 @@ describe('the Result to query state convention', () => {
     await screen.findByText(/false true - notFound/);
     expect(answers).toHaveLength(1);
   });
+});
+
+describe('failureOf', () => {
+  it('gives back the error of a QueryFailure, as the use case returned it', () => {
+    const error = { code: 'alreadyVoted', source: 'recorded' } as const;
+
+    expect(failureOf(new QueryFailure(error))).toBe(error);
+  });
+
+  it.each([new Error('boom'), 'a string', undefined, null, { code: 'notAFailure' }])(
+    'reads %p, which is no failure of a use case, as unexpected',
+    (rejection) => {
+      expect(failureOf(rejection)).toEqual(unexpected());
+    },
+  );
 });
