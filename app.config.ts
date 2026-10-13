@@ -6,6 +6,14 @@ import type { ExpoConfig } from 'expo/config';
 // tooling/app-config.test.ts fails when it drifts from SUPPORTED_LANGUAGES.
 const SUPPORTED_LOCALES = ['en', 'fr'];
 
+// What the system asks the user when the app first uses Face ID, in English, which is also the
+// default of the other languages. The French text is in locales/fr.json, which Expo turns into the
+// localised Info.plist strings of the iOS project (see `locales` below). Android has no such
+// prompt text: the text of its biometric prompt is the one the app passes at run time, translated.
+// It is the same for both plugins that write it, so that neither can overwrite the other's.
+const FACE_ID_USAGE_DESCRIPTION =
+  'Allow Boardroom to use Face ID to unlock the app and to confirm your vote.';
+
 // The New Architecture is always enabled from Expo SDK 55 onwards (React Native 0.82 removed
 // the opt-out), so there is intentionally no `newArchEnabled` flag in this config.
 const config: ExpoConfig = {
@@ -46,11 +54,27 @@ const config: ExpoConfig = {
     },
     predictiveBackGestureEnabled: false,
   },
+  // The strings of the iOS Info.plist (the Face ID usage description) in the languages other than
+  // English. Each file maps the plist key to its text, no secret in it: it is shipped in the app.
+  locales: {
+    fr: './locales/fr.json',
+  },
   plugins: [
     'expo-router',
     // Makes the supported languages selectable in the per-app language settings of the device
     // (iOS and Android 13+). Written to CFBundleLocalizations and to Android's locales_config.xml.
     ['expo-localization', { supportedLocales: SUPPORTED_LOCALES }],
+    // The local database (the cache of meetings and the outbox of votes) is encrypted: SQLCipher
+    // replaces the SQLite of the system in both native projects. Without it the app refuses to open
+    // the database (see "Persistence" in the README), it never stores the data in clear.
+    ['expo-sqlite', { useSQLCipher: true }],
+    // The session token and the key of the database live in the keychain (iOS) and the keystore
+    // (Android). The plugin keeps them out of the automatic backups of Android.
+    ['expo-secure-store', { faceIDPermission: FACE_ID_USAGE_DESCRIPTION }],
+    // Face ID and the biometric permissions of Android, for the unlock of the app and the
+    // confirmation of a vote.
+    ['expo-local-authentication', { faceIDPermission: FACE_ID_USAGE_DESCRIPTION }],
+    // expo-network has no plugin: its permission (ACCESS_NETWORK_STATE) comes with the module.
   ],
   experiments: {
     typedRoutes: true,

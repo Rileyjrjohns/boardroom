@@ -24,6 +24,7 @@ export const TEST_IDS = {
   agendaSection: 'agenda-section',
   documentsSection: 'documents-section',
   participantsSection: 'participants-section',
+  startupLoading: 'startup-loading',
   startupFailure: 'startup-failure',
   sessionEnded: 'session-ended',
   errorBoundary: 'error-boundary',

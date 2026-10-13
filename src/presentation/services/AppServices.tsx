@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 
+import type { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
 import type { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import type { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 
@@ -14,6 +15,16 @@ import type { ListMeetings } from '@application/use-cases/meetings/ListMeetings'
 export interface UseCases {
   readonly listMeetings: Pick<ListMeetings, 'execute'>;
   readonly getMeeting: Pick<GetMeeting, 'execute'>;
+  readonly observeConnectivity: Pick<ObserveConnectivity, 'execute'>;
+}
+
+/**
+ * The switch of the simulated server, for the demo: the connection of the mock configuration, off
+ * and on. A real device has no such switch, so it is absent from every other configuration.
+ */
+export interface DemoControls {
+  readonly online: boolean;
+  setOnline(online: boolean): void;
 }
 
 /** Values of the configuration that the screens depend on. */
@@ -26,6 +37,8 @@ export interface AppSettings {
 export interface AppServices {
   readonly useCases: UseCases;
   readonly settings: AppSettings;
+  /** Only the mock configuration has demo controls. */
+  readonly demoControls?: DemoControls;
 }
 
 const AppServicesContext = createContext<AppServices | undefined>(undefined);

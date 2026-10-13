@@ -17,6 +17,7 @@ const SERVICES: AppServices = {
   useCases: {
     listMeetings: { execute: () => Promise.reject(new Error('unused')) },
     getMeeting: { execute: () => Promise.reject(new Error('unused')) },
+    observeConnectivity: { execute: () => Promise.reject(new Error('unused')) },
   },
   settings: { meetingsPageSize: 12 },
 };

@@ -86,9 +86,14 @@ export const fr: TranslationResource = {
     validation: 'La requête n’était pas valide.',
   },
   startup: {
+    loading: 'Démarrage de Boardroom',
     title: 'Boardroom ne peut pas démarrer',
     message:
-      'L’application n’est pas configurée correctement. Vérifiez le réglage EXPO_PUBLIC_BOARDROOM_ADAPTERS\u00a0: il accepte mock ou http, qui n’est pas encore disponible. Une version de développement utilise mock quand le réglage manque\u00a0; toute autre version l’exige.',
-    code: 'Code technique : {{code}}',
+      'L’application n’est pas configurée correctement, ou les données enregistrées sur cet appareil ne peuvent pas être ouvertes. Vérifiez le réglage EXPO_PUBLIC_BOARDROOM_ADAPTERS, qui accepte mock ou http, et pour http le réglage EXPO_PUBLIC_BOARDROOM_API_BASE_URL\u00a0: une adresse https, ou http pour cet ordinateur seulement. Une version de développement utilise mock quand le premier manque\u00a0; toute autre version l’exige.',
+    code: 'Code technique\u00a0: {{code}}',
+  },
+  biometric: {
+    unlockApp: 'Déverrouiller Boardroom',
+    confirmVote: 'Confirmer votre vote',
   },
 };

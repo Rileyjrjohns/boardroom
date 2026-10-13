@@ -1,5 +1,7 @@
 import type { ParseKeys } from 'i18next';
 
+import type { BiometricReason } from '@application/ports/BiometricGate';
+import { BIOMETRIC_REASON } from '@application/ports/BiometricGate';
 import type { ConfidentialityLevel } from '@domain/entities/Document';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import type { ParticipantRole } from '@domain/entities/Participant';
@@ -90,3 +92,9 @@ export const MEETINGS_ERROR_KEYS = {
   [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
   [VALIDATION_ERROR_CODE.Validation]: 'errors.validation',
 } as const satisfies Record<MeetingsErrorCode, TranslationKey>;
+
+/** The text of the system prompt that asks for a biometric proof, for each reason. */
+export const BIOMETRIC_PROMPT_KEYS = {
+  [BIOMETRIC_REASON.UnlockApp]: 'biometric.unlockApp',
+  [BIOMETRIC_REASON.ConfirmVote]: 'biometric.confirmVote',
+} as const satisfies Record<BiometricReason, TranslationKey>;

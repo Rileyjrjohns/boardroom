@@ -11,8 +11,9 @@ interface StartupFailureScreenProps {
 
 /**
  * Shown instead of the app when the composition root could not be built: a setting that names a
- * way of wiring that does not exist, or one that is not available yet. It is an error for the
- * person who runs the app, not for a user, so it says what to check and gives the technical code.
+ * way of wiring that does not exist, an address of the API that cannot be used, or the local
+ * database that cannot be opened. It is an error for the person who runs the app, not for a user,
+ * so it says what to check and gives the technical code.
  */
 export function StartupFailureScreen({ code }: StartupFailureScreenProps) {
   const { t } = useTranslation();

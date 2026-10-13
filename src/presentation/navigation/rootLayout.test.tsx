@@ -22,6 +22,7 @@ import { statusBarStyle } from '../theme/tokens';
 const HEADER_CONFIGURATION = 'RNSScreenStackHeaderConfig';
 
 const initial = process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
+const initialBaseUrl = process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL;
 const initialDevelopment = __DEV__;
 
 // The bundler defines the flag as a global, which TypeScript only knows as a constant.
@@ -36,6 +37,8 @@ afterEach(() => {
   jest.restoreAllMocks();
   if (initial === undefined) delete process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
   else process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = initial;
+  if (initialBaseUrl === undefined) delete process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL;
+  else process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL = initialBaseUrl;
 });
 
 /** The style of the system bar content that the screen on display asks for, one entry for each. */
@@ -76,7 +79,7 @@ describe('root layout', () => {
         renderRouter();
 
         expect(
-          screen.getByRole('tab', { name: t('meetings.period.upcoming'), selected: true }),
+          await screen.findByRole('tab', { name: t('meetings.period.upcoming'), selected: true }),
         ).toBeTruthy();
         const rows = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
         expect(rows.length).toBeGreaterThan(0);
@@ -91,7 +94,9 @@ describe('root layout', () => {
 
       renderRouter();
 
-      expect(screen.getByRole('tab', { name: french.t('meetings.period.past') })).toBeTruthy();
+      expect(
+        await screen.findByRole('tab', { name: french.t('meetings.period.past') }),
+      ).toBeTruthy();
       expect(screen.queryByRole('tab', { name: english.t('meetings.period.past') })).toBeNull();
       await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
     });
@@ -193,35 +198,65 @@ describe('root layout', () => {
     });
   });
 
+  describe('while the app starts', () => {
+    it.each([
+      ['en', 'Starting Boardroom'],
+      ['fr', 'Démarrage de Boardroom'],
+    ] as const)('shows a translated loading state first, in %s', async (language, text) => {
+      setDeviceLanguages(language);
+
+      renderRouter();
+
+      expect(screen.getByTestId(TEST_IDS.startupLoading)).toBeTruthy();
+      expect(screen.getByRole('progressbar', { name: text })).toBeTruthy();
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
+      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      expect(screen.queryByTestId(TEST_IDS.startupLoading)).toBeNull();
+    });
+  });
+
   describe('with a setting that cannot be honoured', () => {
-    it('says the http adapters are not available yet, instead of starting the mock ones', () => {
+    it('says the address of the API is missing for the http adapters, instead of starting the mock ones', async () => {
       process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = 'http';
+      delete process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL;
       setDeviceLanguages('en');
       const { t } = createI18n('en');
 
       renderRouter();
 
-      expect(screen.getByTestId(TEST_IDS.startupFailure)).toBeTruthy();
+      expect(await screen.findByTestId(TEST_IDS.startupFailure)).toBeTruthy();
       expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
-      expect(
-        screen.getByText(t('startup.code', { code: 'configurationNotAvailable' })),
-      ).toBeTruthy();
+      expect(screen.getByText(t('startup.code', { code: 'missingApiBaseUrl' }))).toBeTruthy();
       expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
 
-    it('says a setting it does not know is invalid, in the language of the device', () => {
+    it('says an address that is not secure is refused for the http adapters in a release build', async () => {
+      process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = 'http';
+      process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL = 'http://api.example.com';
+      setDevelopmentFlag(false);
+      setDeviceLanguages('en');
+      const { t } = createI18n('en');
+
+      renderRouter();
+
+      expect(
+        await screen.findByText(t('startup.code', { code: 'insecureApiBaseUrl' })),
+      ).toBeTruthy();
+    });
+
+    it('says a setting it does not know is invalid, in the language of the device', async () => {
       process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = 'staging';
       setDeviceLanguages('fr');
       const { t } = createI18n('fr');
 
       renderRouter();
 
-      expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
+      expect(await screen.findByRole('header', { name: t('startup.title') })).toBeTruthy();
       expect(screen.getByText(t('startup.code', { code: 'invalidAdaptersSetting' }))).toBeTruthy();
     });
 
-    it('does not start the mock adapters in a build that is not a development one when the setting is missing', () => {
+    it('does not start the mock adapters in a build that is not a development one when the setting is missing', async () => {
       delete process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
       setDevelopmentFlag(false);
       setDeviceLanguages('en');
@@ -229,7 +264,7 @@ describe('root layout', () => {
 
       renderRouter();
 
-      expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
+      expect(await screen.findByRole('header', { name: t('startup.title') })).toBeTruthy();
       expect(screen.getByText(t('startup.code', { code: 'missingAdaptersSetting' }))).toBeTruthy();
       expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
     });

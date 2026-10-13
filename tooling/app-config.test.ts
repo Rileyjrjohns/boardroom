@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 import type { ExpoConfig } from 'expo/config';
 
-import { SUPPORTED_LANGUAGES } from '../src/presentation/i18n/constants';
+import { FALLBACK_LANGUAGE, SUPPORTED_LANGUAGES } from '../src/presentation/i18n/constants';
 
 // app.config.ts is loaded by Expo with plain Node.js module resolution, so it cannot import the
 // supported languages from src/. This test keeps its copy of the list in step with the source of
@@ -26,5 +29,51 @@ describe('app.config.ts', () => {
     expect(pluginOptions(LOCALIZATION_PLUGIN)).toEqual({
       supportedLocales: [...SUPPORTED_LANGUAGES],
     });
+  });
+});
+
+describe('app.config.ts, the native modules of the real adapters', () => {
+  it('builds SQLite with SQLCipher, so that the local database can be encrypted', () => {
+    expect(pluginOptions('expo-sqlite')).toEqual({ useSQLCipher: true });
+  });
+
+  it('declares the secure storage and the biometrics, with the same Face ID text', () => {
+    const secureStore = pluginOptions('expo-secure-store') as { faceIDPermission?: string };
+    const localAuthentication = pluginOptions('expo-local-authentication') as {
+      faceIDPermission?: string;
+    };
+
+    expect(secureStore.faceIDPermission).toEqual(expect.stringContaining('Face ID'));
+    expect(localAuthentication.faceIDPermission).toBe(secureStore.faceIDPermission);
+  });
+
+  it('puts no secret in the configuration: no key, token or password', () => {
+    expect(JSON.stringify(config)).not.toMatch(/secret|token|password|api[_-]?key/i);
+  });
+});
+
+describe('app.config.ts, the Face ID text in the languages of the app', () => {
+  const ROOT = path.resolve(__dirname, '..');
+  const FACE_ID_KEY = 'NSFaceIDUsageDescription';
+  const others = SUPPORTED_LANGUAGES.filter((language) => language !== FALLBACK_LANGUAGE);
+
+  it('has a file of Info.plist strings for every language but the default one', () => {
+    expect(Object.keys(config.locales ?? {}).sort()).toEqual([...others].sort());
+  });
+
+  it.each(others)('has the Face ID text in %s, which is not the English one', (language) => {
+    const file = (config.locales ?? {})[language];
+    if (typeof file !== 'string') throw new Error(`No file of strings for ${language}.`);
+
+    const strings = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')) as Record<
+      string,
+      string
+    >;
+
+    expect(strings[FACE_ID_KEY]?.trim()).toBeTruthy();
+    expect(strings[FACE_ID_KEY]).not.toBe(
+      (pluginOptions('expo-local-authentication') as { faceIDPermission: string }).faceIDPermission,
+    );
+    expect(strings[FACE_ID_KEY]).not.toContain('"');
   });
 });

@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { createFakes } from '@application/testing/createFakes';
+import { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
 import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 
@@ -39,6 +40,7 @@ function createTestServices(fakes: TestFakes, pageSize = TEST_PAGE_SIZE): AppSer
     useCases: {
       listMeetings: new ListMeetings(fakes),
       getMeeting: new GetMeeting(fakes),
+      observeConnectivity: new ObserveConnectivity(fakes),
     },
     settings: { meetingsPageSize: pageSize },
   };

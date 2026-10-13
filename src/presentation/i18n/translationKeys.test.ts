@@ -1,3 +1,4 @@
+import { BIOMETRIC_REASON } from '@application/ports/BiometricGate';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
 import type { ParticipantRole } from '@domain/entities/Participant';
@@ -13,6 +14,7 @@ import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import { SUPPORTED_LANGUAGES } from './constants';
 import { createI18n } from './createI18n';
 import {
+  BIOMETRIC_PROMPT_KEYS,
   CONFIDENTIALITY_KEYS,
   EMPTY_LIST_KEYS,
   MEETINGS_ERROR_KEYS,
@@ -27,6 +29,7 @@ import type { TranslationKey } from './translationKeys';
 /** Every map, with the codes it must cover. */
 const MAPS = {
   PARTICIPANT_ROLE_KEYS: [PARTICIPANT_ROLE_KEYS, valuesOf(PARTICIPANT_ROLE)],
+  BIOMETRIC_PROMPT_KEYS: [BIOMETRIC_PROMPT_KEYS, valuesOf(BIOMETRIC_REASON)],
   VOTING_STATE_KEYS: [VOTING_STATE_KEYS, valuesOf(VOTING_STATE)],
   VOTING_DATE_KEYS: [VOTING_DATE_KEYS, valuesOf(VOTING_STATE)],
   CONFIDENTIALITY_KEYS: [CONFIDENTIALITY_KEYS, valuesOf(CONFIDENTIALITY_LEVEL)],
