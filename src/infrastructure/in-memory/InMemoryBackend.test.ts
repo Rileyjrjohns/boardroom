@@ -1,7 +1,12 @@
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { findResolution } from '@domain/entities/Meeting';
 import { idempotencyKeyOf } from '@domain/entities/Vote';
-import { REPOSITORY_ERROR_CODE, notFound, unauthorized } from '@domain/errors/RepositoryError';
+import {
+  REPOSITORY_ERROR_CODE,
+  forbidden,
+  notFound,
+  unauthorized,
+} from '@domain/errors/RepositoryError';
 import { err, ok } from '@domain/shared/Result';
 import {
   MILLIS_PER_DAY,
@@ -15,7 +20,10 @@ import {
   aMeetingSummary,
   aMeetingWithAgenda,
   aParticipant,
+  aResolution,
   aResolutionId,
+  anAgendaItem,
+  anAgendaItemId,
   aUser,
   aUserId,
   aVote,
@@ -28,6 +36,8 @@ import { createPageRequest } from '@domain/value-objects/PageRequest';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 
 import { recordingSleep } from '../testing/sleep';
+
+import { InMemoryBackend, SERVER_CONTENT_ERROR_CODE } from './InMemoryBackend';
 import { TEST_PASSWORD, createTestServer } from '../testing/testServer';
 
 const BRUNO = aUser({ id: aUserId('user-2') });
@@ -40,6 +50,23 @@ const request = (limit: number, cursor?: string) =>
     ),
   );
 
+/** A meeting with one resolution, of the given id. */
+function meetingAtWithResolution(id: string, resolutionId: string) {
+  return aMeeting({
+    summary: aMeetingSummary({
+      id: aMeetingId(id),
+      title: `Meeting ${id}`,
+      scheduledAt: at(MILLIS_PER_DAY),
+    }),
+    agenda: [
+      anAgendaItem({
+        id: anAgendaItemId(`agenda-${id}`),
+        resolution: aResolution({ id: aResolutionId(resolutionId) }),
+      }),
+    ],
+  });
+}
+
 function meetingAt(id: string, millisFromNow: number, participants = [aParticipant()]) {
   return aMeeting({
     summary: aMeetingSummary({
@@ -47,6 +74,8 @@ function meetingAt(id: string, millisFromNow: number, participants = [aParticipa
       title: `Meeting ${id}`,
       scheduledAt: at(millisFromNow),
     }),
+    // Resolution ids are unique across meetings, and these meetings need no agenda.
+    agenda: [],
     participants,
   });
 }
@@ -74,22 +103,24 @@ describe('InMemoryBackend', () => {
       expect(theirs.ok && theirs.value.items.map(({ id }) => id)).toEqual(['theirs']);
     });
 
-    it('answers notFound for a meeting the user is not invited to: it does not exist for them', async () => {
+    it('refuses a meeting the user is not invited to with forbidden, and one that does not exist with notFound', async () => {
       const server = createTestServer({
         content: { meetings: [meetingAt('mine', MILLIS_PER_DAY)], recordedVotes: [] },
       });
       server.auth.openSessionFor(aUser({ id: OUTSIDER }));
 
-      expect(await server.meetings.get(aMeetingId('mine'))).toStrictEqual(err(notFound()));
+      expect(await server.meetings.get(aMeetingId('mine'))).toStrictEqual(err(forbidden()));
+      expect(await server.meetings.get(aMeetingId('unknown'))).toStrictEqual(err(notFound()));
     });
 
-    it('hides a document the same way: only documents of a meeting the user takes part in exist', async () => {
+    it('refuses a document of a meeting the user is not part of with forbidden, one that no meeting lists with notFound', async () => {
       const hidden = aConfidentialDocument({ id: aDocumentId('hidden') });
       const server = createTestServer();
-      server.backend.replaceContent({
+      server.load({
         meetings: [
           aMeeting({
             summary: aMeetingSummary({ id: aMeetingId('theirs') }),
+            agenda: [],
             documents: [hidden],
             participants: [aParticipant({ userId: aUserId('user-2') })],
           }),
@@ -98,9 +129,29 @@ describe('InMemoryBackend', () => {
         recordedVotes: [],
       });
 
-      expect(await server.documents.get(hidden.id)).toStrictEqual(err(notFound()));
-      expect(await server.documents.fetchContent(hidden.id)).toStrictEqual(err(notFound()));
+      expect(await server.documents.get(hidden.id)).toStrictEqual(err(forbidden()));
+      expect(await server.documents.fetchContent(hidden.id)).toStrictEqual(err(forbidden()));
+      expect(await server.documents.get(aDocumentId('unknown'))).toStrictEqual(err(notFound()));
       expect((await server.documents.get(aDocument().id)).ok).toBe(true);
+    });
+
+    it('lets a document that two meetings list be had by a user who is in one of them', async () => {
+      const shared = aDocument({ id: aDocumentId('shared') });
+      const server = createTestServer();
+      server.load({
+        meetings: [
+          aMeeting({
+            summary: aMeetingSummary({ id: aMeetingId('theirs') }),
+            agenda: [],
+            documents: [shared],
+            participants: [aParticipant({ userId: aUserId('user-2') })],
+          }),
+          aMeeting({ documents: [shared] }),
+        ],
+        recordedVotes: [],
+      });
+
+      expect((await server.documents.get(shared.id)).ok).toBe(true);
     });
 
     it('treats a session whose expiry has passed as no session: unauthorized', async () => {
@@ -124,6 +175,236 @@ describe('InMemoryBackend', () => {
       await server.auth.signIn({ email: bruno.user.email, password: TEST_PASSWORD });
 
       expect(await server.votes.submit(aVote())).toStrictEqual(err(unauthorized()));
+    });
+  });
+
+  describe('the content it accepts', () => {
+    const twinOf = (id: string) => meetingAtWithResolution(id, 'resolution-shared');
+
+    it('refuses, on creation, two meetings that share a resolution id: resolution ids are globally unique', () => {
+      const server = createTestServer();
+
+      const created = InMemoryBackend.create({
+        clock: server.clock,
+        auth: server.auth,
+        network: server.network,
+        content: { meetings: [twinOf('first'), twinOf('second')], recordedVotes: [] },
+      });
+
+      expect(created).toStrictEqual(
+        err({
+          code: SERVER_CONTENT_ERROR_CODE.DuplicateResolutionId,
+          resolutionId: aResolutionId('resolution-shared'),
+        }),
+      );
+    });
+
+    it('refuses the same on a replacement, and keeps what it held', async () => {
+      const server = createTestServer();
+      await server.votes.submit(aVote());
+
+      const replaced = server.backend.replaceContent({
+        meetings: [twinOf('first'), twinOf('second')],
+        recordedVotes: [],
+      });
+
+      expect(replaced.ok).toBe(false);
+      expect(!replaced.ok && replaced.error.code).toBe(
+        SERVER_CONTENT_ERROR_CODE.DuplicateResolutionId,
+      );
+      expect((await server.meetings.get(aMeetingId())).ok).toBe(true);
+      expect(server.backend.recordedVotes()).toHaveLength(1);
+    });
+
+    it('accepts meetings with distinct resolution ids, and a meeting without resolutions', () => {
+      const server = createTestServer();
+
+      expect(
+        server.backend.replaceContent({
+          meetings: [
+            twinOf('first'),
+            meetingAtWithResolution('second', 'resolution-other'),
+            meetingAt('third', 0),
+          ],
+          recordedVotes: [],
+        }).ok,
+      ).toBe(true);
+    });
+
+    it('does not take a vote held for another meeting under the same key for the vote it is sent', async () => {
+      // Cannot happen with unique resolution ids; the safeguard is that it is not acknowledged.
+      const server = createTestServer({
+        content: {
+          meetings: [aMeetingWithAgenda()],
+          recordedVotes: [aVote({ meetingId: aMeetingId('another-meeting') })],
+        },
+      });
+
+      const result = await server.votes.submit(aVote());
+
+      expect(result.ok).toBe(false);
+      expect(server.backend.recordedVotes()).toHaveLength(1);
+    });
+  });
+
+  describe('the requests it validates', () => {
+    it.each([0, -1, 51, 1.5, Number.NaN])(
+      'refuses a page limit of %s, which the domain does not accept',
+      async (limit) => {
+        const server = createTestServer();
+
+        const result = await server.meetings.list(MEETING_PERIOD.Upcoming, { limit });
+
+        expect(!result.ok && result.error.code).toBe(REPOSITORY_ERROR_CODE.Unexpected);
+      },
+    );
+
+    it.each([
+      ['an exponent', '1e3:a'],
+      ['a hexadecimal instant', '0x10:a'],
+      ['a space after the instant', '5 :a'],
+      ['a negative instant', '-5:a'],
+      ['a leading zero', '05:a'],
+      ['a fractional instant', '5.5:a'],
+      ['an extra segment', '5:a:b'],
+      ['an empty id', '5:'],
+      ['no separator', '5'],
+      ['no instant', ':a'],
+      ['an instant too large to be exact', '99999999999999999999:a'],
+      ['a malformed escape sequence', '5:%E0%A4%A'],
+    ])('refuses a cursor with %s', async (_name, cursor) => {
+      const server = createTestServer();
+
+      const result = await server.meetings.list(MEETING_PERIOD.Upcoming, request(5, cursor));
+
+      expect(!result.ok && result.error.code).toBe(REPOSITORY_ERROR_CODE.Unexpected);
+    });
+
+    it('reads the cursors it writes back, for ids that contain the separator and other special characters', async () => {
+      const ids = ['a:b', 'c/d', 'e%20f', 'g h'];
+      const server = createTestServer({
+        content: {
+          meetings: ids.map((id, index) => meetingAt(id, (index + 1) * MILLIS_PER_DAY)),
+          recordedVotes: [],
+        },
+      });
+
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await server.meetings.list(MEETING_PERIOD.Upcoming, request(1, cursor));
+        if (!page.ok) throw new Error('the list failed');
+        seen.push(...page.value.items.map(({ id }) => id));
+        cursor = page.value.nextCursor;
+      } while (cursor !== undefined);
+
+      expect(seen).toEqual(ids);
+    });
+  });
+
+  describe('the identity of a request', () => {
+    /** A server whose latency lets the test change the world while a request is on its way. */
+    function slowServer(options: Parameters<typeof createTestServer>[0] = {}) {
+      const hooks: { whileWaiting: () => void } = { whileWaiting: () => undefined };
+      const server = createTestServer({
+        ...options,
+        sleep: () => Promise.resolve(hooks.whileWaiting()),
+      });
+      server.network.setLatency(aDuration(1));
+      return { server, hooks };
+    }
+
+    it('is the one read when the request was created: a vote is recorded for the user who cast it', async () => {
+      const { server, hooks } = slowServer();
+      hooks.whileWaiting = () => {
+        server.auth.openSessionFor(BRUNO);
+      };
+
+      const result = await server.votes.submit(aVote());
+
+      expect(result).toStrictEqual(ok(undefined));
+      expect(server.backend.recordedVotes().map((vote) => vote.voterId)).toEqual([aUserId()]);
+    });
+
+    it('never answers with the view of a user who signed in while it was on its way', async () => {
+      const { server, hooks } = slowServer({
+        content: {
+          meetings: [
+            aMeetingWithAgenda({
+              participants: [
+                aParticipant(),
+                aParticipant({ userId: aUserId('user-2'), fullName: 'Bruno Durand' }),
+              ],
+            }),
+          ],
+          recordedVotes: [aVote({ choice: VOTE_CHOICE.Against })],
+        },
+      });
+      hooks.whileWaiting = () => {
+        server.auth.openSessionFor(BRUNO);
+      };
+
+      const meeting = await server.meetings.get(aMeetingId());
+
+      expect(meeting.ok && findResolution(meeting.value, aResolutionId())?.recordedVote).toBe(
+        VOTE_CHOICE.Against,
+      );
+    });
+
+    it('refuses a request created when nobody was signed in, though somebody signs in meanwhile', async () => {
+      const { server, hooks } = slowServer({ signedIn: false });
+      hooks.whileWaiting = () => {
+        server.auth.openSessionFor(aUser());
+      };
+
+      expect(await server.votes.submit(aVote())).toStrictEqual(err(unauthorized()));
+      expect(server.backend.recordedVotes()).toEqual([]);
+    });
+
+    it('answers unauthorized to nobody signed in even without a connection: the client has no token to send', async () => {
+      const server = createTestServer({ signedIn: false });
+      server.network.setOnline(false);
+
+      expect(await server.meetings.get(aMeetingId())).toStrictEqual(err(unauthorized()));
+    });
+  });
+
+  describe('the downloads', () => {
+    it('are located per user: two users never share a location', async () => {
+      const server = createTestServer({
+        content: { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] },
+      });
+      const first = await server.documents.fetchContent(aDocument().id);
+      server.auth.openSessionFor(BRUNO);
+      const second = await server.documents.fetchContent(aDocument().id);
+
+      expect(first.ok && second.ok && first.value !== second.value).toBe(true);
+    });
+
+    it('are located per version of the content: serving the content again changes the location', async () => {
+      const content = { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] };
+      const server = createTestServer({ content });
+      const first = await server.documents.fetchContent(aDocument().id);
+      server.load(content);
+      const second = await server.documents.fetchContent(aDocument().id);
+
+      expect(first.ok && second.ok && first.value !== second.value).toBe(true);
+    });
+
+    it('are located by encoded parts, so that ids that contain a separator cannot share a location', async () => {
+      const first = aDocument({ id: aDocumentId('a/b') });
+      const second = aDocument({ id: aDocumentId('a%2Fb') });
+      const server = createTestServer({
+        content: { meetings: [aMeeting({ documents: [first, second] })], recordedVotes: [] },
+      });
+
+      const locations = [
+        await server.documents.fetchContent(first.id),
+        await server.documents.fetchContent(second.id),
+      ];
+
+      expect(locations.every((location) => location.ok)).toBe(true);
+      expect(new Set(locations.map((location) => location.ok && location.value)).size).toBe(2);
     });
   });
 
@@ -282,7 +563,7 @@ describe('InMemoryBackend', () => {
       const server = createTestServer();
       await server.votes.submit(aVote());
 
-      server.backend.replaceContent({ meetings: [aMeetingWithAgenda()], recordedVotes: [] });
+      server.load({ meetings: [aMeetingWithAgenda()], recordedVotes: [] });
 
       expect(server.backend.recordedVotes()).toEqual([]);
       expect(await server.votes.submit(aVote({ choice: VOTE_CHOICE.Against }))).toStrictEqual(
@@ -306,7 +587,7 @@ describe('InMemoryBackend', () => {
       const server = createTestServer({
         content: { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] },
       });
-      server.network.goOffline();
+      server.network.setOnline(false);
 
       const location = await server.documents.fetchContent(aDocument().id);
 
@@ -365,7 +646,7 @@ describe('InMemoryBackend', () => {
 
     it('is the network every client of the server goes through: going offline cuts them all', async () => {
       const server = createTestServer();
-      server.backend.network.goOffline();
+      server.backend.network.setOnline(false);
 
       const results = [
         await server.meetings.get(aMeetingId()),

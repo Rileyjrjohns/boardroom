@@ -26,13 +26,26 @@ describe('the seed of the simulated server', () => {
   const alice = demoUser;
   const bruno = accounts[1]?.user;
 
-  it('builds through the domain factories, at several instants, and always the same size', () => {
-    for (const now of [NOW, NOW + 1, NOW + 183 * 24 * 3_600_000, 4_000_000_000_000]) {
-      const seed = seedAt(parseNow(now));
+  it.each([
+    ['the instant of the tests', NOW],
+    ['a millisecond later', NOW + 1],
+    ['half a year later', NOW + 183 * 24 * 3_600_000],
+    ['the year 2096', 4_000_000_000_000],
+  ])(
+    'has the same upcoming and past meetings at %s, built through the domain factories',
+    (_name, millis) => {
+      const now = parseNow(millis);
 
-      expect(seed.content.meetings).toHaveLength(UPCOMING_MEETING_COUNT + PAST_MEETING_COUNT);
-    }
-  });
+      const { meetings } = seedAt(now).content;
+
+      expect(meetings.filter((meeting) => meeting.scheduledAt > now)).toHaveLength(
+        UPCOMING_MEETING_COUNT,
+      );
+      expect(meetings.filter((meeting) => meeting.scheduledAt <= now)).toHaveLength(
+        PAST_MEETING_COUNT,
+      );
+    },
+  );
 
   it('is invalid, and says so, when the instant leaves no room for the past meetings', () => {
     const seed = buildSeed(aEarlyInstant());

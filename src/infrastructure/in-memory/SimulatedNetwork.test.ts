@@ -14,28 +14,15 @@ describe('SimulatedNetwork', () => {
     expect(await network.enter()).toStrictEqual(ok(undefined));
   });
 
-  it('can start offline', async () => {
-    const network = new SimulatedNetwork({
-      sleep: immediateSleep,
-      latency: aDuration(0),
-      online: false,
-    });
-
-    expect(network.online).toBe(false);
-    expect(await network.enter()).toStrictEqual(err(networkUnavailable()));
-  });
-
   it('goes offline and online again, as told', async () => {
     const network = new SimulatedNetwork({ sleep: immediateSleep, latency: aDuration(0) });
 
-    network.goOffline();
-    expect(await network.enter()).toStrictEqual(err(networkUnavailable()));
-    network.goOnline();
-    expect(await network.enter()).toStrictEqual(ok(undefined));
     network.setOnline(false);
     expect(network.online).toBe(false);
+    expect(await network.enter()).toStrictEqual(err(networkUnavailable()));
     network.setOnline(true);
     expect(network.online).toBe(true);
+    expect(await network.enter()).toStrictEqual(ok(undefined));
   });
 
   it('waits for the latency before letting a request in, through the sleep it was given', async () => {
@@ -58,18 +45,48 @@ describe('SimulatedNetwork', () => {
     expect(requested).toEqual([900]);
   });
 
-  it('never waits longer than the cap, whatever latency is configured', async () => {
+  it('times out a latency above the cap: it waits for the cap, no longer, and then fails', async () => {
     const { sleep, requested } = recordingSleep();
     const network = new SimulatedNetwork({ sleep, latency: aDuration(3_600_000) });
 
-    await network.enter();
+    const result = await network.enter();
 
+    expect(requested).toEqual([MAX_SIMULATED_LATENCY_MILLIS]);
+    expect(result).toStrictEqual(err(networkUnavailable()));
+  });
+
+  it('lets a latency that is exactly the cap through', async () => {
+    const { sleep, requested } = recordingSleep();
+    const network = new SimulatedNetwork({
+      sleep,
+      latency: aDuration(MAX_SIMULATED_LATENCY_MILLIS),
+    });
+
+    expect(await network.enter()).toStrictEqual(ok(undefined));
     expect(requested).toEqual([MAX_SIMULATED_LATENCY_MILLIS]);
   });
 
+  it.each([
+    [
+      'throws',
+      () => {
+        throw new Error('timer is gone');
+      },
+    ],
+    ['rejects', () => Promise.reject(new Error('timer is gone'))],
+  ])(
+    'answers networkUnavailable, and does not let the error escape, when the sleep %s',
+    async (_name, sleep) => {
+      const network = new SimulatedNetwork({ sleep, latency: aDuration(250) });
+
+      await expect(network.enter()).resolves.toStrictEqual(err(networkUnavailable()));
+    },
+  );
+
   it('does not wait at all when offline: the failure is immediate', async () => {
     const { sleep, requested } = recordingSleep();
-    const network = new SimulatedNetwork({ sleep, latency: aDuration(250), online: false });
+    const network = new SimulatedNetwork({ sleep, latency: aDuration(250) });
+    network.setOnline(false);
 
     await network.enter();
 
@@ -87,7 +104,7 @@ describe('SimulatedNetwork', () => {
     });
 
     const entering = network.enter();
-    network.goOffline();
+    network.setOnline(false);
     release();
 
     expect(await entering).toStrictEqual(err(networkUnavailable()));

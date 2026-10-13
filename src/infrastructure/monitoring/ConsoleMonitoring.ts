@@ -18,6 +18,15 @@ export interface ConsoleSink {
 const LOG_PREFIX = '[boardroom]';
 
 /**
+ * The channel of the console each level is written to. Typed over every level: a level added to
+ * the port without a channel fails the typecheck here, instead of being dropped.
+ */
+const CHANNEL_OF_LEVEL = {
+  [LOG_LEVEL.Info]: 'info',
+  [LOG_LEVEL.Warn]: 'warn',
+} as const satisfies Record<LogLevel, keyof ConsoleSink>;
+
+/**
  * Monitoring for development and for the demo: structured events written to the console. The
  * events and attribute names are the const sets of the port, so the lines can be searched; the
  * errors carry their code and structured fields, which hold no personal data (see the errors). A
@@ -46,14 +55,6 @@ export class ConsoleMonitoring implements Monitoring {
   }
 
   private write(level: LogLevel, event: MonitoringEvent, attributes?: LogAttributes): void {
-    const line = [LOG_PREFIX, event, attributes ?? {}] as const;
-    switch (level) {
-      case LOG_LEVEL.Info:
-        this.sink.info(...line);
-        return;
-      case LOG_LEVEL.Warn:
-        this.sink.warn(...line);
-        return;
-    }
+    this.sink[CHANNEL_OF_LEVEL[level]](LOG_PREFIX, event, attributes ?? {});
   }
 }

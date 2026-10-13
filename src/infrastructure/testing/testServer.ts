@@ -11,6 +11,7 @@ import {
 import type { Credentials } from '@domain/value-objects/Credentials';
 
 import type { Sleep } from '../clock/sleep';
+import { valid } from '../shared/valid';
 import { InMemoryAuthSession } from '../in-memory/InMemoryAuthSession';
 import type { DemoAccount } from '../in-memory/InMemoryAuthSession';
 import { InMemoryBackend } from '../in-memory/InMemoryBackend';
@@ -74,12 +75,14 @@ export function createTestServer(options: TestServerOptions = {}) {
   });
   if (options.signedIn ?? true) auth.openSessionFor(accounts[0].user);
 
-  const backend = new InMemoryBackend({
-    clock,
-    auth,
-    network,
-    content: options.content ?? { meetings: [aMeetingWithAgenda()], recordedVotes: [] },
-  });
+  const backend = valid(
+    InMemoryBackend.create({
+      clock,
+      auth,
+      network,
+      content: options.content ?? { meetings: [aMeetingWithAgenda()], recordedVotes: [] },
+    }),
+  );
   const files = new InMemoryDocumentContent();
 
   return {
@@ -89,6 +92,8 @@ export function createTestServer(options: TestServerOptions = {}) {
     auth,
     backend,
     files,
+    /** Replaces what the server holds. A content the server refuses is a broken fixture. */
+    load: (content: ServerContent) => valid(backend.replaceContent(content)),
     meetings: new InMemoryMeetingRepository(backend),
     documents: new InMemoryDocumentRepository(backend, files),
     votes: new InMemoryVoteRepository(backend),

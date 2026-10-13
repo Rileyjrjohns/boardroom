@@ -1,3 +1,4 @@
+import { valuesOf } from '@domain/shared/constants';
 import { storageWriteFailed } from '@domain/errors/StorageError';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@application/ports/Monitoring';
 
@@ -33,15 +34,26 @@ describe('ConsoleMonitoring', () => {
   it('writes a warning to the warn channel, and an event without attributes as an empty object', () => {
     const { sink, calls } = recordingSink();
 
-    new ConsoleMonitoring(sink).log(LOG_LEVEL.Warn, MONITORING_EVENT.ServedFromCache);
+    new ConsoleMonitoring(sink).log(LOG_LEVEL.Warn, MONITORING_EVENT.CacheEntryDiscarded);
 
     expect(calls).toEqual([
       {
         method: 'warn',
-        data: [expect.any(String), MONITORING_EVENT.ServedFromCache, {}],
+        data: [expect.any(String), MONITORING_EVENT.CacheEntryDiscarded, {}],
       },
     ]);
   });
+
+  it.each(valuesOf(LOG_LEVEL))(
+    'writes a %s event to exactly one channel, never dropping it',
+    (level) => {
+      const { sink, calls } = recordingSink();
+
+      new ConsoleMonitoring(sink).log(level, MONITORING_EVENT.VoteQueued);
+
+      expect(calls).toHaveLength(1);
+    },
+  );
 
   it('writes a captured error to the error channel, with its code and fields', () => {
     const { sink, calls } = recordingSink();

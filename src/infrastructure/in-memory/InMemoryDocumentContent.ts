@@ -1,3 +1,6 @@
+import type { StorageWriteFailedError } from '@domain/errors/StorageError';
+import { err, ok } from '@domain/shared/Result';
+import type { Result } from '@domain/shared/Result';
 import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 
 /**
@@ -8,6 +11,14 @@ import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
  */
 export class InMemoryDocumentContent {
   private readonly stored = new Set<DocumentLocation>();
+  private deletionFailure: StorageWriteFailedError | undefined;
+
+  /**
+   * Makes every deletion fail with this error while set, as a locked file would. For tests.
+   */
+  failDeletionWith(failure: StorageWriteFailedError | undefined): void {
+    this.deletionFailure = failure;
+  }
 
   /** Content has been downloaded to this location. Storing it again changes nothing. */
   store(location: DocumentLocation): void {
@@ -18,8 +29,10 @@ export class InMemoryDocumentContent {
     return this.stored.has(location);
   }
 
-  /** The file is gone. Deleting what is not there changes nothing. */
-  delete(location: DocumentLocation): void {
+  /** The file is gone. Deleting what is not there succeeds. Fails while deletions are made to fail. */
+  delete(location: DocumentLocation): Result<void, StorageWriteFailedError> {
+    if (this.deletionFailure !== undefined) return err(this.deletionFailure);
     this.stored.delete(location);
+    return ok(undefined);
   }
 }

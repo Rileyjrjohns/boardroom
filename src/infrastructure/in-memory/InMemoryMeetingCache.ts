@@ -1,7 +1,7 @@
 import type { Meeting } from '@domain/entities/Meeting';
 import type { MeetingSummary } from '@domain/entities/MeetingSummary';
 import type { StorageReadFailedError, StorageWriteFailedError } from '@domain/errors/StorageError';
-import { ok } from '@domain/shared/Result';
+import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 import type { MeetingId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
@@ -20,6 +20,15 @@ import { clonePlain } from '../shared/clonePlain';
 export class InMemoryMeetingCache implements MeetingCache {
   private readonly pages = new Map<string, CacheEntry<Page<MeetingSummary>>>();
   private readonly meetings = new Map<string, CacheEntry<Meeting>>();
+  private writeFailure: StorageWriteFailedError | undefined;
+
+  /**
+   * Makes every save fail with this error while set, as a full disk would. A save that fails drops
+   * the older entry under the same key, as the port requires. For tests.
+   */
+  failWritesWith(failure: StorageWriteFailedError | undefined): void {
+    this.writeFailure = failure;
+  }
 
   savePage(
     owner: UserId,
@@ -27,6 +36,10 @@ export class InMemoryMeetingCache implements MeetingCache {
     page: Page<MeetingSummary>,
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
+    if (this.writeFailure !== undefined) {
+      this.pages.delete(pageKey(owner, key));
+      return Promise.resolve(err(this.writeFailure));
+    }
     this.pages.set(pageKey(owner, key), clonePlain({ value: page, cachedAt }));
     return Promise.resolve(ok(undefined));
   }
@@ -48,6 +61,10 @@ export class InMemoryMeetingCache implements MeetingCache {
     meeting: Meeting,
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
+    if (this.writeFailure !== undefined) {
+      this.meetings.delete(meetingKey(owner, meeting.id));
+      return Promise.resolve(err(this.writeFailure));
+    }
     this.meetings.set(meetingKey(owner, meeting.id), clonePlain({ value: meeting, cachedAt }));
     return Promise.resolve(ok(undefined));
   }

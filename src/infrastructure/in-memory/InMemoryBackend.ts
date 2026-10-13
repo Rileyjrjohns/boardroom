@@ -5,14 +5,15 @@ import type { MeetingSummary } from '@domain/entities/MeetingSummary';
 import type { Resolution } from '@domain/entities/Resolution';
 import { createVote, idempotencyKeyOf } from '@domain/entities/Vote';
 import type { IdempotencyKey, Vote } from '@domain/entities/Vote';
-import { notFound, unauthorized, unexpected } from '@domain/errors/RepositoryError';
+import { forbidden, notFound, unauthorized, unexpected } from '@domain/errors/RepositoryError';
 import type {
+  ForbiddenError,
   NetworkUnavailableError,
   NotFoundError,
   UnauthorizedError,
   UnexpectedError,
 } from '@domain/errors/RepositoryError';
-import { VOTING_ERROR_CODE } from '@domain/errors/VotingError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@domain/errors/VotingError';
 import type { VotingError } from '@domain/errors/VotingError';
 import { isSessionExpired } from '@domain/policies/sessionExpiry';
 import { checkVotingEligibility } from '@domain/policies/votingEligibility';
@@ -20,7 +21,7 @@ import { err, isErr, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 import { parseDocumentLocation } from '@domain/value-objects/DocumentLocation';
 import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
-import type { DocumentId, MeetingId, UserId } from '@domain/value-objects/ids';
+import type { DocumentId, MeetingId, ResolutionId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
@@ -28,6 +29,7 @@ import { createPage } from '@domain/value-objects/Page';
 import type { Page } from '@domain/value-objects/Page';
 import { parsePageCursor } from '@domain/value-objects/PageCursor';
 import type { PageCursor } from '@domain/value-objects/PageCursor';
+import { createPageRequest } from '@domain/value-objects/PageRequest';
 import type { PageRequest } from '@domain/value-objects/PageRequest';
 import type { AuthSession } from '@application/ports/AuthSession';
 import type { Clock } from '@application/ports/Clock';
@@ -64,17 +66,53 @@ export interface InMemoryBackendOptions {
 }
 
 /** Where the content of a document is, once downloaded. A scheme no real storage uses. */
-const DOCUMENT_LOCATION_PREFIX = 'memory://documents/';
+const DOCUMENT_LOCATION_PREFIX = 'memory://documents';
 
-/** Separates the instant and the id in a page cursor. The instant has no separator in it. */
+/** Separates the parts of a location. The parts are encoded, so it cannot appear inside one. */
+const LOCATION_SEPARATOR = '/';
+
+/** Separates the instant and the id in a page cursor. */
 const CURSOR_SEPARATOR = ':';
 
 /** The `cause` of the `unexpected` errors. Technical, and free of any value of the query. */
 const FAILURE_CAUSE = {
   InvalidCursor: 'invalid page cursor',
+  InvalidLimit: 'invalid page limit',
   CursorNotBuilt: 'page cursor could not be built',
   LocationNotBuilt: 'document location could not be built',
 } as const;
+
+/** Why a content cannot be held by the server. */
+export const SERVER_CONTENT_ERROR_CODE = {
+  DuplicateResolutionId: 'duplicateResolutionId',
+} as const;
+
+/**
+ * Two meetings of the content have a resolution with the same id. Resolution ids are globally
+ * unique (see `ResolutionId`): the idempotency key of a vote holds the resolution and the voter,
+ * not the meeting, so a shared id would make a vote on one meeting look like a vote on the other.
+ */
+export interface ServerContentError {
+  readonly code: typeof SERVER_CONTENT_ERROR_CODE.DuplicateResolutionId;
+  readonly resolutionId: ResolutionId;
+}
+
+function duplicateResolutionId(resolutionId: ResolutionId): ServerContentError {
+  return { code: SERVER_CONTENT_ERROR_CODE.DuplicateResolutionId, resolutionId };
+}
+
+/** A resolution id that two meetings share, or `undefined`. (Within a meeting the domain checks it.) */
+function findDuplicateResolutionId(meetings: readonly Meeting[]): ResolutionId | undefined {
+  const seen = new Set<ResolutionId>();
+  for (const meeting of meetings) {
+    for (const item of meeting.agenda) {
+      if (item.resolution === undefined) continue;
+      if (seen.has(item.resolution.id)) return item.resolution.id;
+      seen.add(item.resolution.id);
+    }
+  }
+  return undefined;
+}
 
 interface CursorKey {
   readonly scheduledAt: number;
@@ -90,7 +128,11 @@ interface CursorKey {
  *   is authenticated (`unauthorized` without a valid session);
  * - a user sees the meetings they take part in. Which of the two lists a meeting is in is decided
  *   here, against the clock: upcoming ones soonest first, past ones latest first. A meeting or a
- *   document the user cannot see does not exist for them (`notFound`);
+ *   document that exists but that the user may not have is refused with `forbidden`, and one that
+ *   does not exist is `notFound`. Telling them apart reveals that an id exists. That is little here
+ *   (ids are opaque, issued by the server, and a board is a closed group), and it lets the client
+ *   say "you no longer have access" instead of "does not exist"; a server that wants to hide the
+ *   existence answers `notFound`, which the application treats the same way;
  * - pages are cut to the requested limit and continue after an opaque cursor that stays valid when
  *   the lists change in between;
  * - a vote is recorded for the authenticated user only, once per resolution: sending the same vote
@@ -104,23 +146,42 @@ export class InMemoryBackend {
   readonly network: SimulatedNetwork;
   private meetings = new Map<MeetingId, Meeting>();
   private votes = new Map<IdempotencyKey, Vote>();
+  /** Counts the versions of the content: a download is never reused across two of them. */
+  private revision = 0;
 
-  constructor(private readonly options: InMemoryBackendOptions) {
+  private constructor(private readonly options: InMemoryBackendOptions) {
     this.network = options.network;
-    this.replaceContent(options.content);
   }
 
-  /** Replaces everything the server holds: the demo's reset, and the set-up of a test. */
-  replaceContent(content: ServerContent): void {
+  /**
+   * A server holding the content, or the reason the content is not acceptable: two meetings must
+   * not share a resolution id (see `ResolutionId`).
+   */
+  static create(options: InMemoryBackendOptions): Result<InMemoryBackend, ServerContentError> {
+    const backend = new InMemoryBackend(options);
+    const loaded = backend.replaceContent(options.content);
+    return isErr(loaded) ? loaded : ok(backend);
+  }
+
+  /**
+   * Replaces everything the server holds, for a test that sets the world up. The content is
+   * refused, and the server keeps what it held, when two meetings share a resolution id.
+   */
+  replaceContent(content: ServerContent): Result<void, ServerContentError> {
+    const duplicate = findDuplicateResolutionId(content.meetings);
+    if (duplicate !== undefined) return err(duplicateResolutionId(duplicate));
+
+    this.revision += 1;
     this.meetings = new Map(
       content.meetings.map((meeting) => [meeting.id, clonePlain(meeting)] as const),
     );
     this.votes = new Map(
       content.recordedVotes.map((vote) => [vote.idempotencyKey, clonePlain(vote)] as const),
     );
+    return ok(undefined);
   }
 
-  /** The votes the server holds, whoever cast them. For tests and the demo, not for a client. */
+  /** The votes the server holds, whoever cast them. For tests, not for a client. */
   recordedVotes(): readonly Vote[] {
     return clonePlain([...this.votes.values()]);
   }
@@ -136,39 +197,55 @@ export class InMemoryBackend {
 
   getMeeting(
     id: MeetingId,
-  ): Promise<Result<Meeting, NetworkUnavailableError | UnauthorizedError | NotFoundError>> {
-    return this.serve((userId) => {
+  ): Promise<
+    Result<Meeting, NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError>
+  > {
+    return this.serve<Meeting, NotFoundError | ForbiddenError>((userId) => {
       const meeting = this.meetings.get(id);
-      if (meeting === undefined || findParticipant(meeting, userId) === undefined) {
-        return err(notFound());
-      }
+      if (meeting === undefined) return err(notFound());
+      if (findParticipant(meeting, userId) === undefined) return err(forbidden());
       return ok(this.viewFor(meeting, userId));
     });
   }
 
   getDocument(
     id: DocumentId,
-  ): Promise<Result<Document, NetworkUnavailableError | UnauthorizedError | NotFoundError>> {
-    return this.serve((userId) => {
-      const document = this.findVisibleDocument(id, userId);
-      return document === undefined ? err(notFound()) : ok(clonePlain(document));
+  ): Promise<
+    Result<Document, NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError>
+  > {
+    return this.serve<Document, NotFoundError | ForbiddenError>((userId) => {
+      const found = this.findDocument(id, userId);
+      if (found === undefined) return err(notFound());
+      return found.allowed ? ok(clonePlain(found.document)) : err(forbidden());
     });
   }
 
-  /** Where the content of a document can be read once downloaded. The download itself is not simulated. */
+  /**
+   * Where the content of a document can be read once downloaded. The download itself is not
+   * simulated. The location is per user and per version of the content: a download is never
+   * reused for somebody else, nor after the content changed.
+   */
   fetchDocumentContent(
     id: DocumentId,
   ): Promise<
     Result<
       DocumentLocation,
-      NetworkUnavailableError | UnauthorizedError | NotFoundError | UnexpectedError
+      NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError | UnexpectedError
     >
   > {
-    return this.serve<DocumentLocation, NotFoundError | UnexpectedError>((userId) => {
-      if (this.findVisibleDocument(id, userId) === undefined) return err(notFound());
-      const location = parseDocumentLocation(`${DOCUMENT_LOCATION_PREFIX}${id}`);
-      return location.ok ? location : err(unexpected(FAILURE_CAUSE.LocationNotBuilt));
-    });
+    return this.serve<DocumentLocation, NotFoundError | ForbiddenError | UnexpectedError>(
+      (userId) => {
+        const found = this.findDocument(id, userId);
+        if (found === undefined) return err(notFound());
+        if (!found.allowed) return err(forbidden());
+        const location = parseDocumentLocation(
+          [DOCUMENT_LOCATION_PREFIX, this.revision, userId, id]
+            .map((part) => encodeURIComponent(String(part)))
+            .join(LOCATION_SEPARATOR),
+        );
+        return location.ok ? location : err(unexpected(FAILURE_CAUSE.LocationNotBuilt));
+      },
+    );
   }
 
   submitVote(
@@ -177,15 +254,21 @@ export class InMemoryBackend {
     return this.serve((userId) => this.record(vote, userId));
   }
 
-  /** The request pipeline: network, then authentication, then the handler. */
+  /**
+   * The request pipeline. The identity is read when the request is created, from the session
+   * stored on the device at that moment, like a client that attaches its token before sending:
+   * nobody signed in is `unauthorized`, whatever the network. Then the request goes through the
+   * network, and the handler answers for the identity of the request, never for a user who signed
+   * in while it was on its way.
+   */
   private async serve<T, E>(
     handle: (userId: UserId) => Result<T, E>,
   ): Promise<Result<T, E | NetworkUnavailableError | UnauthorizedError>> {
-    const reached = await this.network.enter();
-    if (isErr(reached)) return reached;
-
     const userId = await this.authenticatedUser();
     if (userId === undefined) return err(unauthorized());
+
+    const reached = await this.network.enter();
+    if (isErr(reached)) return reached;
     return handle(userId);
   }
 
@@ -202,6 +285,14 @@ export class InMemoryBackend {
     period: MeetingPeriod,
     request: PageRequest,
   ): Result<Page<MeetingSummary>, UnexpectedError> {
+    // The limit comes from outside: it is checked by the rules of the domain, not trusted.
+    const valid = createPageRequest({
+      limit: request.limit,
+      ...(request.cursor === undefined ? {} : { cursor: request.cursor }),
+    });
+    if (isErr(valid)) return err(unexpected(FAILURE_CAUSE.InvalidLimit));
+    const { limit } = valid.value;
+
     const now = this.options.clock.now();
     const ordered = [...this.meetings.values()]
       .filter(
@@ -219,24 +310,33 @@ export class InMemoryBackend {
       start = firstAfter === -1 ? ordered.length : firstAfter;
     }
 
-    const items = ordered.slice(start, start + request.limit).map(summaryOf);
+    const items = ordered.slice(start, start + limit).map(summaryOf);
     const last = items.at(-1);
-    if (last === undefined || start + request.limit >= ordered.length) {
+    if (last === undefined || start + limit >= ordered.length) {
       return ok(createPage(items));
     }
-    const nextCursor = parsePageCursor(`${last.scheduledAt}${CURSOR_SEPARATOR}${last.id}`);
+    const nextCursor = parsePageCursor(encodeCursor(last));
     return nextCursor.ok
       ? ok(createPage(items, nextCursor.value))
       : err(unexpected(FAILURE_CAUSE.CursorNotBuilt));
   }
 
-  private findVisibleDocument(id: DocumentId, userId: UserId): Document | undefined {
+  /**
+   * The document, and whether the user may have it: they may when they take part in a meeting that
+   * lists it. `undefined` when no meeting lists it at all.
+   */
+  private findDocument(
+    id: DocumentId,
+    userId: UserId,
+  ): { readonly document: Document; readonly allowed: boolean } | undefined {
+    let found: Document | undefined;
     for (const meeting of this.meetings.values()) {
-      if (findParticipant(meeting, userId) === undefined) continue;
       const document = meeting.documents.find((candidate) => candidate.id === id);
-      if (document !== undefined) return document;
+      if (document === undefined) continue;
+      if (findParticipant(meeting, userId) !== undefined) return { document, allowed: true };
+      found ??= document;
     }
-    return undefined;
+    return found === undefined ? undefined : { document: found, allowed: false };
   }
 
   /** The meeting as the user sees it: their own recorded votes on the resolutions. */
@@ -260,8 +360,18 @@ export class InMemoryBackend {
     // A vote is recorded for the user the request is authenticated as, whoever queued it.
     if (vote.voterId !== userId) return err(unauthorized());
 
+    // A key that already holds a vote answers before any rule of eligibility: the same choice is
+    // the same vote sent again (success, even if the resolution has closed since), another choice
+    // is a second vote (`alreadyVoted`, not `resolutionClosed`). The meeting is compared too, as
+    // a safeguard: resolution ids are unique, so a vote held under the key of another meeting
+    // cannot happen.
     const key = idempotencyKeyOf(vote.resolutionId, userId);
-    if (this.votes.get(key)?.choice === vote.choice) return ok(undefined);
+    const held = this.votes.get(key);
+    if (held !== undefined && held.meetingId === vote.meetingId) {
+      return held.choice === vote.choice
+        ? ok(undefined)
+        : err({ code: VOTING_ERROR_CODE.AlreadyVoted, source: ALREADY_VOTED_SOURCE.Recorded });
+    }
 
     const meeting = this.meetings.get(vote.meetingId);
     if (meeting === undefined) {
@@ -313,13 +423,26 @@ function comparatorOf(period: MeetingPeriod): (first: CursorKey, second: CursorK
   };
 }
 
+/** `<instant>:<encoded id>`. The id is encoded, so the separator cannot appear inside it. */
+function encodeCursor({ scheduledAt, id }: CursorKey): string {
+  return `${scheduledAt}${CURSOR_SEPARATOR}${encodeURIComponent(id)}`;
+}
+
+/** Exactly what `encodeCursor` writes: a whole instant without sign, sign or leading zero, a separator, an encoded id. */
+const CURSOR_FORMAT = /^(0|[1-9][0-9]*):([^:]+)$/;
+
 function decodeCursor(cursor: PageCursor): CursorKey | undefined {
-  const separatorAt = cursor.indexOf(CURSOR_SEPARATOR);
-  if (separatorAt <= 0) return undefined;
-  const scheduledAt = Number(cursor.slice(0, separatorAt));
-  return Number.isInteger(scheduledAt)
-    ? { scheduledAt, id: cursor.slice(separatorAt + CURSOR_SEPARATOR.length) }
-    : undefined;
+  const match = CURSOR_FORMAT.exec(cursor);
+  const [, instant, encodedId] = match ?? [];
+  if (instant === undefined || encodedId === undefined) return undefined;
+  const scheduledAt = Number(instant);
+  if (!Number.isSafeInteger(scheduledAt)) return undefined;
+  try {
+    return { scheduledAt, id: decodeURIComponent(encodedId) };
+  } catch {
+    // A malformed escape sequence: a cursor this server did not write.
+    return undefined;
+  }
 }
 
 /** What a list shows: not the agenda, the documents nor the participants. */

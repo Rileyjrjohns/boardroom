@@ -47,7 +47,7 @@ export const DEMO_PASSWORD = 'boardroom-demo';
 const MILLIS_PER_HOUR = 3_600_000;
 const MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR;
 
-/** How many meetings of each period the server holds: several pages of each at any page size. */
+/** How many meetings of each period the server holds: several pages of each at the page sizes the app uses. */
 export const UPCOMING_MEETING_COUNT = 24;
 export const PAST_MEETING_COUNT = 42;
 
