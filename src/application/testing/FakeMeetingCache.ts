@@ -19,7 +19,10 @@ import { copyPlain } from './copyPlain';
 export class FakeMeetingCache implements MeetingCache {
   /** Makes the reads fail while set. */
   readFailure: StorageReadFailedError | undefined;
-  /** Makes the saves fail while set (nothing is stored). */
+  /**
+   * Makes the saves fail while set. Nothing new is stored, and the older entry under the same key
+   * is dropped, as the port requires: it must not stay readable as if it were current.
+   */
   writeFailure: StorageWriteFailedError | undefined;
   /** Makes `removePage` and `removeMeeting` fail while set (the entry stays). */
   removeFailure: StorageWriteFailedError | undefined;
@@ -42,7 +45,10 @@ export class FakeMeetingCache implements MeetingCache {
     page: Page<MeetingSummary>,
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
-    if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
+    if (this.writeFailure !== undefined) {
+      this.pages.delete(pageKey(owner, key));
+      return Promise.resolve(err(this.writeFailure));
+    }
     this.pages.set(pageKey(owner, key), copyPlain({ value: page, cachedAt }));
     return Promise.resolve(ok(undefined));
   }
@@ -66,7 +72,10 @@ export class FakeMeetingCache implements MeetingCache {
     meeting: Meeting,
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
-    if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
+    if (this.writeFailure !== undefined) {
+      this.meetings.delete(meetingKey(owner, meeting.id));
+      return Promise.resolve(err(this.writeFailure));
+    }
     this.meetings.set(meetingKey(owner, meeting.id), copyPlain({ value: meeting, cachedAt }));
     return Promise.resolve(ok(undefined));
   }

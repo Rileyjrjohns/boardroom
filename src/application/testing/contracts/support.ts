@@ -25,3 +25,34 @@ export function valueOf<T, E>(result: Result<T, E>): T {
   if (!result.ok) throw new Error(`Expected a success, got ${JSON.stringify(result.error)}`);
   return result.value;
 }
+
+/**
+ * Identifiers that break a key built by joining the parts with a separator, or by normalising
+ * them: separators, quotes, a backslash, other case, surrounding spaces, and the same letter
+ * written as one code point or as two. The pairs are chosen so that joining two of them with a
+ * separator gives the same text for two different pairs (`a|b` + `c`, and `a` + `b|c`), including the
+ * pairs that swallow the name of a period: `a|upcoming|b` + `c` and `a` + `b|upcoming|c`.
+ */
+export const TRICKY_IDS = [
+  'a',
+  'b',
+  'a:b',
+  'a|b',
+  'b|c',
+  'a/b',
+  'a,b',
+  'c',
+  'b:c',
+  'b/c',
+  'b,c',
+  'a|upcoming|b',
+  'b|upcoming|c',
+  '"',
+  '\\',
+  'a","b',
+  'A',
+  ' a',
+  'a ',
+  'caf\u00e9',
+  'cafe\u0301',
+] as const;

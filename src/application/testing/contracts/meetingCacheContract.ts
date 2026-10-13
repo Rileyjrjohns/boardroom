@@ -17,9 +17,22 @@ import { parsePageCursor } from '@domain/value-objects/PageCursor';
 
 import type { MeetingCache, MeetingPageKey } from '../../ports/MeetingCache';
 
-import { mutable, mutableArray } from './support';
+import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 
-export type MeetingCacheFactory = () => MeetingCache | Promise<MeetingCache>;
+import { TRICKY_IDS, mutable, mutableArray } from './support';
+
+/**
+ * What the suite needs besides the port: a way to make the store refuse writes (a full disk, a
+ * database that is locked) and to let it write again.
+ */
+export interface MeetingCacheHarness {
+  readonly cache: MeetingCache;
+  /** From now on every `savePage` and `saveMeeting` fails with a storage error. */
+  breakWrites(): void;
+  repairWrites(): void;
+}
+
+export type MeetingCacheFactory = () => MeetingCacheHarness | Promise<MeetingCacheHarness>;
 
 const OWNER = aUserId('owner-1');
 const OTHER_OWNER = aUserId('owner-2');
@@ -57,10 +70,12 @@ function deface(meeting: Meeting): void {
  */
 export function describeMeetingCacheContract(name: string, createCache: MeetingCacheFactory): void {
   describe(`${name} honours the MeetingCache contract`, () => {
+    let harness: MeetingCacheHarness;
     let cache: MeetingCache;
 
     beforeEach(async () => {
-      cache = await createCache();
+      harness = await createCache();
+      cache = harness.cache;
     });
 
     it('answers a miss with a successful undefined, never an error', async () => {
@@ -206,6 +221,113 @@ export function describeMeetingCacheContract(name: string, createCache: MeetingC
       expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
         ok({ value: MEETING, cachedAt: at(30) }),
       );
+    });
+
+    describe('a save that fails', () => {
+      it('does not leave the older meeting readable as if it were current', async () => {
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        harness.breakWrites();
+
+        const failed = await cache.saveMeeting(OWNER, { ...MEETING, title: 'Newer' }, at(11));
+        harness.repairWrites();
+
+        expect(failed.ok).toBe(false);
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(ok(undefined));
+      });
+
+      it('does not leave the older page readable as if it were current', async () => {
+        await cache.savePage(OWNER, PAGE_KEY, PAGE, at(20));
+        harness.breakWrites();
+
+        const failed = await cache.savePage(OWNER, PAGE_KEY, OTHER_PAGE, at(21));
+        harness.repairWrites();
+
+        expect(failed.ok).toBe(false);
+        expect(await cache.readPage(OWNER, PAGE_KEY)).toStrictEqual(ok(undefined));
+      });
+
+      it('leaves the other entries, and the entries of other owners, alone', async () => {
+        await cache.saveMeeting(OWNER, OTHER_MEETING, at(10));
+        await cache.saveMeeting(OTHER_OWNER, MEETING, at(11));
+        await cache.saveMeeting(OWNER, MEETING, at(12));
+        harness.breakWrites();
+
+        await cache.saveMeeting(OWNER, { ...MEETING, title: 'Newer' }, at(13));
+        harness.repairWrites();
+
+        expect(await cache.readMeeting(OWNER, OTHER_MEETING.id)).toStrictEqual(
+          ok({ value: OTHER_MEETING, cachedAt: at(10) }),
+        );
+        expect(await cache.readMeeting(OTHER_OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(11) }),
+        );
+      });
+
+      it('saves again once the store works', async () => {
+        harness.breakWrites();
+        await cache.saveMeeting(OWNER, MEETING, at(10));
+        harness.repairWrites();
+
+        expect(await cache.saveMeeting(OWNER, MEETING, at(11))).toStrictEqual(ok(undefined));
+        expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+          ok({ value: MEETING, cachedAt: at(11) }),
+        );
+      });
+    });
+
+    describe('the storage key is injective in the owner and the id', () => {
+      const meetingOf = (id: string, title: string) =>
+        aMeeting({ summary: aMeetingSummary({ id: aMeetingId(id), title }) });
+
+      it('never mixes up two pairs of (owner, meeting id), whatever characters they contain', async () => {
+        const pairs = TRICKY_IDS.flatMap((owner) => TRICKY_IDS.map((id) => [owner, id] as const));
+        for (const [owner, id] of pairs) {
+          await cache.saveMeeting(
+            aUserId(owner),
+            meetingOf(id, JSON.stringify([owner, id])),
+            at(1),
+          );
+        }
+
+        for (const [owner, id] of pairs) {
+          const read = await cache.readMeeting(aUserId(owner), aMeetingId(id));
+          expect(read.ok && read.value?.value.title).toBe(JSON.stringify([owner, id]));
+        }
+      });
+
+      it('never mixes up two pairs of (owner, cursor), whatever characters they contain', async () => {
+        // A cursor is trimmed by the domain, so those that differ only by their edges are one cursor.
+        const cursors = TRICKY_IDS.filter((cursor) => cursor.trim() === cursor);
+        const pairs = TRICKY_IDS.flatMap((owner) =>
+          cursors.map((cursor) => [owner, cursor] as const),
+        );
+        const keyOf = (cursor: string): MeetingPageKey => ({
+          ...PAGE_KEY,
+          cursor: unwrap(parsePageCursor(cursor)),
+        });
+        for (const [owner, cursor] of pairs) {
+          const page = createPage([aMeetingSummary({ title: JSON.stringify([owner, cursor]) })]);
+          await cache.savePage(aUserId(owner), keyOf(cursor), page, at(1));
+        }
+
+        for (const [owner, cursor] of pairs) {
+          const read = await cache.readPage(aUserId(owner), keyOf(cursor));
+          expect(read.ok && read.value?.value.items[0]?.title).toBe(
+            JSON.stringify([owner, cursor]),
+          );
+        }
+      });
+
+      it('does not merge an owner with a prefix of another, nor a meeting id with a prefix of another', async () => {
+        await cache.saveMeeting(aUserId('owner'), meetingOf('meeting', 'short'), at(1));
+        await cache.saveMeeting(aUserId('owner-2'), meetingOf('meeting', 'owner-2'), at(1));
+        await cache.saveMeeting(aUserId('owner'), meetingOf('meeting-2', 'longer'), at(1));
+
+        const read = await cache.readMeeting(aUserId('owner'), aMeetingId('meeting'));
+
+        expect(read.ok && read.value?.value.title).toBe('short');
+      });
     });
 
     describe('keeps no reference to the objects that go in or out', () => {

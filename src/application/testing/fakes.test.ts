@@ -290,10 +290,11 @@ describe('the fake vote outbox', () => {
 
   it('lists the votes in the order they were enqueued, which no sort of the votes would give', async () => {
     const fakes = createFakes();
-    // Neither the resolution ids nor the instants are in increasing order of enqueueing.
-    const enqueuedThird = aPendingVote(aVote({ resolutionId: aResolutionId('r3') }), at(5000));
-    const enqueuedFirst = aPendingVote(aVote({ resolutionId: aResolutionId('r9') }), at(-9000));
+    // Enqueued in this order, the votes are in decreasing order of instant and in no order of
+    // resolution: a sort by instant, by resolution or by key would give another.
+    const enqueuedFirst = aPendingVote(aVote({ resolutionId: aResolutionId('r9') }), at(5000));
     const enqueuedSecond = aPendingVote(aVote({ resolutionId: aResolutionId('r1') }), at(1000));
+    const enqueuedThird = aPendingVote(aVote({ resolutionId: aResolutionId('r5') }), at(-9000));
 
     await fakes.outbox.enqueue(enqueuedFirst);
     await fakes.outbox.enqueue(enqueuedSecond);

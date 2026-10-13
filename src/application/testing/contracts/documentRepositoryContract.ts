@@ -1,7 +1,13 @@
 import type { Document } from '@domain/entities/Document';
-import { networkUnavailable, notFound, unauthorized } from '@domain/errors/RepositoryError';
+import {
+  forbidden,
+  networkUnavailable,
+  notFound,
+  unauthorized,
+} from '@domain/errors/RepositoryError';
 import { err, ok } from '@domain/shared/Result';
-import { aConfidentialDocument, aDocument, aDocumentId } from '@domain/testing/builders';
+import { aConfidentialDocument, aDocument, aDocumentId, aUserId } from '@domain/testing/builders';
+import type { UserId } from '@domain/value-objects/ids';
 
 import type { DocumentRepository } from '../../ports/DocumentRepository';
 
@@ -14,9 +20,25 @@ export interface DocumentRepositoryHarness {
    * forgets the ones it held.
    */
   serve(documents: readonly Document[]): void | Promise<void>;
+  /** Makes the server hold this document as one the signed-in user may not have. */
+  forbid(document: Document): void | Promise<void>;
+  /**
+   * From now on the requests are authenticated as this user, who is allowed the documents that
+   * `serve` put on the server, like the first user.
+   */
+  signInAs(userId: UserId): void | Promise<void>;
   setOnline(online: boolean): void;
   /** From now on the server refuses the caller: no valid credentials. */
   refuseCaller(): void | Promise<void>;
+}
+
+export interface DocumentRepositoryContractOptions {
+  /**
+   * Whether the adapter downloads a document once per user and per version, so that a location is
+   * never shared by two users nor kept across versions. The scripted server of the fakes, whose
+   * locations are given by the test, cannot.
+   */
+  readonly downloadsPerUserAndVersion: boolean;
 }
 
 export type DocumentRepositoryFactory = () =>
@@ -37,6 +59,7 @@ const UNKNOWN = aDocumentId('does-not-exist');
 export function describeDocumentRepositoryContract(
   name: string,
   createHarness: DocumentRepositoryFactory,
+  options: DocumentRepositoryContractOptions,
 ): void {
   describe(`${name} honours the DocumentRepository contract`, () => {
     let harness: DocumentRepositoryHarness;
@@ -78,6 +101,43 @@ export function describeDocumentRepositoryContract(
 
       expect(first.ok).toBe(true);
       expect(second).toStrictEqual(first);
+    });
+
+    it('refuses a document the user may not have with forbidden, for the metadata and for the content', async () => {
+      const hidden = aConfidentialDocument({ id: aDocumentId('hidden'), title: 'Restricted' });
+      await harness.forbid(hidden);
+
+      expect(await repository.get(hidden.id)).toStrictEqual(err(forbidden()));
+      expect(await repository.fetchContent(hidden.id)).toStrictEqual(err(forbidden()));
+      expect((await repository.get(INTERNAL.id)).ok).toBe(true);
+    });
+
+    // An adapter that cannot download once per user and version skips these: they show as skipped.
+    (options.downloadsPerUserAndVersion ? describe : describe.skip)('the downloads', () => {
+      it('gives two users two locations: a download is never reused for somebody else', async () => {
+        const first = valueOf(await repository.fetchContent(INTERNAL.id));
+
+        await harness.signInAs(aUserId('user-2'));
+        const second = valueOf(await repository.fetchContent(INTERNAL.id));
+
+        expect(second).not.toBe(first);
+      });
+
+      it('gives the same user the same location for the same version of a document', async () => {
+        const first = valueOf(await repository.fetchContent(INTERNAL.id));
+        const second = valueOf(await repository.fetchContent(INTERNAL.id));
+
+        expect(second).toBe(first);
+      });
+
+      it('gives a new version of a document a new location: a download is never reused across versions', async () => {
+        const first = valueOf(await repository.fetchContent(INTERNAL.id));
+
+        await harness.serve([{ ...INTERNAL, pageCount: INTERNAL.pageCount + 1 }, CONFIDENTIAL]);
+        const second = valueOf(await repository.fetchContent(INTERNAL.id));
+
+        expect(second).not.toBe(first);
+      });
     });
 
     it('answers networkUnavailable without a connection, and recovers with it', async () => {

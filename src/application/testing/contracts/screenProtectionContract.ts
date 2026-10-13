@@ -58,6 +58,24 @@ export function describeScreenProtectionContract(
       expect(harness.isEnabled()).toBe(false);
     });
 
+    it('applies the calls in the order they were issued, whether or not each one is awaited', async () => {
+      const first = protection.enable();
+      const second = protection.disable();
+      await Promise.all([first, second]);
+      expect(harness.isEnabled()).toBe(false);
+
+      const third = protection.disable();
+      const fourth = protection.enable();
+      await Promise.all([third, fourth]);
+      expect(harness.isEnabled()).toBe(true);
+    });
+
+    it('has taken effect when enable resolves', async () => {
+      await protection.enable();
+
+      expect(harness.isEnabled()).toBe(true);
+    });
+
     it('is one global switch: a single disable turns it off however often it was enabled', async () => {
       await protection.enable();
       await protection.enable();

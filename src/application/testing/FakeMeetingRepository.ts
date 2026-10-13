@@ -1,6 +1,6 @@
 import type { Meeting } from '@domain/entities/Meeting';
 import type { MeetingSummary } from '@domain/entities/MeetingSummary';
-import { networkUnavailable, notFound } from '@domain/errors/RepositoryError';
+import { forbidden, networkUnavailable, notFound } from '@domain/errors/RepositoryError';
 import type { GatewayError, RepositoryError } from '@domain/errors/RepositoryError';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
@@ -15,6 +15,7 @@ import type { PageRequest } from '@domain/value-objects/PageRequest';
 
 import type { MeetingRepository } from '../ports/MeetingRepository';
 
+import { copyPlain } from './copyPlain';
 import type { FakeNetwork } from './FakeNetwork';
 
 /**
@@ -29,11 +30,19 @@ export class FakeMeetingRepository implements MeetingRepository {
   /** Makes every call fail with this error while set (an `unauthorized` server, say). */
   failure: GatewayError | undefined;
 
+  /**
+   * Called when a request arrives, before the server answers: a test uses it to change the world
+   * while the request is in flight (another user signs in, say). The answer is the one of the
+   * world after the hook has run.
+   */
+  onRequest: (() => void | Promise<void>) | undefined;
+
   readonly listCalls: { period: MeetingPeriod; request: PageRequest }[] = [];
   readonly getCalls: MeetingId[] = [];
 
   private readonly summaries = new Map<MeetingPeriod, readonly MeetingSummary[]>();
   private readonly meetings = new Map<MeetingId, Meeting>();
+  private readonly forbiddenIds = new Set<MeetingId>();
 
   constructor(private readonly network: FakeNetwork) {}
 
@@ -49,15 +58,22 @@ export class FakeMeetingRepository implements MeetingRepository {
   /** The server no longer has the meeting. */
   removeMeeting(id: MeetingId): void {
     this.meetings.delete(id);
+    this.forbiddenIds.delete(id);
   }
 
-  list(
+  /** The server has the meeting but refuses the caller: it answers `forbidden`. */
+  forbid(id: MeetingId): void {
+    this.forbiddenIds.add(id);
+  }
+
+  async list(
     period: MeetingPeriod,
     request: PageRequest,
   ): Promise<Result<Page<MeetingSummary>, GatewayError>> {
     this.listCalls.push({ period, request });
-    if (!this.network.online) return Promise.resolve(err(networkUnavailable()));
-    if (this.failure !== undefined) return Promise.resolve(err(this.failure));
+    await this.onRequest?.();
+    if (!this.network.online) return err(networkUnavailable());
+    if (this.failure !== undefined) return err(this.failure);
 
     const sorted = [...(this.summaries.get(period) ?? [])].sort((first, second) =>
       period === MEETING_PERIOD.Upcoming
@@ -72,8 +88,8 @@ export class FakeMeetingRepository implements MeetingRepository {
     const last = items.at(-1);
     const hasMore = start + request.limit < sorted.length;
 
-    return Promise.resolve(
-      ok(
+    return ok(
+      copyPlain(
         hasMore && last !== undefined
           ? createPage(items, unwrap(parsePageCursor(last.id)))
           : createPage(items),
@@ -81,11 +97,13 @@ export class FakeMeetingRepository implements MeetingRepository {
     );
   }
 
-  get(id: MeetingId): Promise<Result<Meeting, RepositoryError>> {
+  async get(id: MeetingId): Promise<Result<Meeting, RepositoryError>> {
     this.getCalls.push(id);
-    if (!this.network.online) return Promise.resolve(err(networkUnavailable()));
-    if (this.failure !== undefined) return Promise.resolve(err(this.failure));
+    await this.onRequest?.();
+    if (!this.network.online) return err(networkUnavailable());
+    if (this.failure !== undefined) return err(this.failure);
+    if (this.forbiddenIds.has(id)) return err(forbidden());
     const meeting = this.meetings.get(id);
-    return Promise.resolve(meeting === undefined ? err(notFound()) : ok(meeting));
+    return meeting === undefined ? err(notFound()) : ok(copyPlain(meeting));
   }
 }

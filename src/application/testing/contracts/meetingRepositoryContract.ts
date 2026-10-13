@@ -1,14 +1,28 @@
+import { findResolution } from '@domain/entities/Meeting';
 import type { Meeting } from '@domain/entities/Meeting';
+import type { Vote } from '@domain/entities/Vote';
 import type { MeetingSummary } from '@domain/entities/MeetingSummary';
-import { networkUnavailable, notFound, unauthorized } from '@domain/errors/RepositoryError';
+import {
+  forbidden,
+  networkUnavailable,
+  notFound,
+  unauthorized,
+} from '@domain/errors/RepositoryError';
 import { err, ok } from '@domain/shared/Result';
 import {
   MILLIS_PER_DAY,
   aMeeting,
   aMeetingId,
   aMeetingSummary,
+  aResolution,
+  aResolutionId,
+  aUserId,
+  anAgendaItem,
+  anAgendaItemId,
+  aVote,
   unwrap,
 } from '@domain/testing/builders';
+import type { UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { parseInstant } from '@domain/value-objects/Instant';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
@@ -18,7 +32,7 @@ import { createPageRequest } from '@domain/value-objects/PageRequest';
 
 import type { MeetingRepository } from '../../ports/MeetingRepository';
 
-import { valueOf } from './support';
+import { mutable, mutableArray, valueOf } from './support';
 
 /**
  * What a repository needs to be tested for the contract: a way to make the server hold given
@@ -37,9 +51,26 @@ export interface MeetingRepositoryHarness {
    * forgets the ones it held. They are served in the order given.
    */
   serve(meetings: readonly Meeting[]): void | Promise<void>;
+  /**
+   * Makes the server hold this meeting as one the signed-in user may not see (they are not
+   * invited): the meeting exists, and is refused to them.
+   */
+  forbid(meeting: Meeting): void | Promise<void>;
+  /** Makes the server hold this vote as recorded, for its voter. */
+  recordVote(vote: Vote): void | Promise<void>;
+  /** From now on the requests are authenticated as this user, who is invited to the served meetings. */
+  signInAs(userId: UserId): void | Promise<void>;
   setOnline(online: boolean): void;
   /** From now on the server refuses the caller: no valid credentials. */
   refuseCaller(): void | Promise<void>;
+}
+
+export interface MeetingRepositoryContractOptions {
+  /**
+   * Whether the server shows each user their own recorded votes on the resolutions of a meeting.
+   * The scripted server of the fakes returns the meetings it was given, and cannot.
+   */
+  readonly projectsRecordedVotes: boolean;
 }
 
 export type MeetingRepositoryFactory = () =>
@@ -55,6 +86,7 @@ const UNKNOWN_MEETING = aMeetingId('does-not-exist');
 export function describeMeetingRepositoryContract(
   name: string,
   createHarness: MeetingRepositoryFactory,
+  options: MeetingRepositoryContractOptions,
 ): void {
   describe(`${name} honours the MeetingRepository contract`, () => {
     let harness: MeetingRepositoryHarness;
@@ -68,6 +100,13 @@ export function describeMeetingRepositoryContract(
           title: `Meeting ${id}`,
           scheduledAt: unwrap(parseInstant(harness.now + days * MILLIS_PER_DAY)),
         }),
+        // Resolution ids are unique across meetings: each meeting has its own.
+        agenda: [
+          anAgendaItem({
+            id: anAgendaItemId(`agenda-${id}`),
+            resolution: aResolution({ id: aResolutionId(`resolution-${id}`) }),
+          }),
+        ],
       });
     }
 
@@ -222,6 +261,85 @@ export function describeMeetingRepositoryContract(
         await harness.serve([]);
 
         expect(await repository.get(aMeetingId('u1'))).toStrictEqual(err(notFound()));
+      });
+    });
+
+    describe('what it returns', () => {
+      it('is a copy: changing a meeting or a page that was returned changes nothing the next call returns', async () => {
+        const meeting = meetingIn('u1', 1);
+        await harness.serve([meeting]);
+        const returned = valueOf(await repository.get(meeting.id));
+        const page = valueOf(await repository.list(MEETING_PERIOD.Upcoming, request(5)));
+
+        mutable(returned).title = 'DEFACED';
+        mutableArray(returned.agenda).length = 0;
+        mutableArray(returned.participants).length = 0;
+        for (const item of page.items) mutable(item).title = 'DEFACED';
+        mutableArray(page.items).length = 0;
+
+        expect(await repository.get(meeting.id)).toStrictEqual(ok(meeting));
+        const again = valueOf(await repository.list(MEETING_PERIOD.Upcoming, request(5)));
+        expect(again.items).toStrictEqual([summaryOf(meeting)]);
+      });
+    });
+
+    // A server that returns what it was given (the fakes) skips these: they show as skipped.
+    (options.projectsRecordedVotes ? describe : describe.skip)('the votes of the user', () => {
+      const MEETING_WITH_VOTE = aMeeting();
+      const vote = aVote();
+
+      it('shows the user the vote they recorded on a resolution', async () => {
+        await harness.serve([MEETING_WITH_VOTE]);
+        await harness.recordVote(vote);
+
+        const returned = valueOf(await repository.get(MEETING_WITH_VOTE.id));
+
+        expect(findResolution(returned, vote.resolutionId)?.recordedVote).toBe(vote.choice);
+      });
+
+      it('shows it to nobody else: another user of the same meeting sees no vote', async () => {
+        await harness.serve([MEETING_WITH_VOTE]);
+        await harness.recordVote(vote);
+
+        await harness.signInAs(aUserId('user-2'));
+        const returned = valueOf(await repository.get(MEETING_WITH_VOTE.id));
+
+        expect(findResolution(returned, vote.resolutionId)?.recordedVote).toBeUndefined();
+      });
+
+      it('shows no vote on a resolution nobody voted on', async () => {
+        await harness.serve([MEETING_WITH_VOTE]);
+
+        const returned = valueOf(await repository.get(MEETING_WITH_VOTE.id));
+
+        expect(findResolution(returned, vote.resolutionId)?.recordedVote).toBeUndefined();
+      });
+    });
+
+    describe('a meeting the user may not see', () => {
+      it('is refused with forbidden: the session is valid, the item is not theirs', async () => {
+        const hidden = meetingIn('hidden', 1);
+        await harness.serve([meetingIn('u1', 2)]);
+        await harness.forbid(hidden);
+
+        expect(await repository.get(hidden.id)).toStrictEqual(err(forbidden()));
+      });
+
+      it('is not told apart from the session being refused: that one is unauthorized', async () => {
+        const hidden = meetingIn('hidden', 1);
+        await harness.serve([]);
+        await harness.forbid(hidden);
+        await harness.refuseCaller();
+
+        expect(await repository.get(hidden.id)).toStrictEqual(err(unauthorized()));
+      });
+
+      it('is not listed, and does not hide the meetings that are theirs', async () => {
+        await harness.serve([meetingIn('u1', 1), meetingIn('u2', 2)]);
+        await harness.forbid(meetingIn('hidden', 1));
+
+        expect((await idsOf(MEETING_PERIOD.Upcoming, 10)).ids).toEqual(['u1', 'u2']);
+        expect((await repository.get(aMeetingId('u1'))).ok).toBe(true);
       });
     });
 

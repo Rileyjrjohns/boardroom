@@ -1,5 +1,6 @@
 import { aDuration, MILLIS_PER_DAY } from '@domain/testing/builders';
 
+import { AppLock } from '../shared/AppLock';
 import { ScreenProtectionCoordinator } from '../shared/ScreenProtectionCoordinator';
 
 import { FakeAuthSession } from './FakeAuthSession';
@@ -19,7 +20,7 @@ import { FakeVoteRepository } from './FakeVoteRepository';
  * One fake of every port, wired together: the remote fakes share `network`. The property names are
  * those of the `deps` objects of the use cases, so the whole set can be passed to any of them:
  * `new CastVote(createFakes())`. The user is signed in, the network is up, the clock stands at
- * `NOW`, the biometrics succeed and the screen protection is available. It also carries the values
+ * `NOW`, the app is unlocked, the biometrics succeed and the screen protection is available. It also carries the values
  * of the configuration the use cases take in their deps: `maxCacheAge` (7 days) and `maxAttempts`
  * (5).
  */
@@ -30,6 +31,7 @@ export function createFakes() {
   return {
     network,
     clock: new FakeClock(),
+    appLock: new AppLock({ locked: false }),
     monitoring: new FakeMonitoring(),
     auth,
     biometricGate: new FakeBiometricGate(),

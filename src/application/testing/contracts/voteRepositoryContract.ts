@@ -7,6 +7,7 @@ import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@domain/errors/VotingEr
 import { err, ok } from '@domain/shared/Result';
 import {
   MILLIS_PER_HOUR,
+  MILLIS_PER_MINUTE,
   aMeeting,
   aMeetingId,
   aResolution,
@@ -41,6 +42,13 @@ export interface VoteRepositoryHarness {
   authenticateAs(userId: UserId): void | Promise<void>;
   /** Makes the server hold exactly this meeting, and nothing recorded. For the business rules. */
   serve(meeting: Meeting): void | Promise<void>;
+  /** Replaces the meeting on the server, and keeps the votes that were recorded. */
+  change(meeting: Meeting): void | Promise<void>;
+  /**
+   * Moves the clock of the server forward, by less than the life of a session. The server stamps a
+   * vote with its own time, so this is how a test lets a voting window end.
+   */
+  advanceClock(millis: number): void;
   /** How many votes the server recorded under the key of this vote. */
   recordedCount(vote: Vote): number | Promise<number>;
 }
@@ -148,6 +156,76 @@ export function describeVoteRepositoryContract(
       function meetingWith(resolution: Resolution): Meeting {
         return aMeeting({ agenda: [anAgendaItem({ resolution })] });
       }
+
+      describe('a vote that the server already holds under the key', () => {
+        const OTHER_CHOICE = VOTE_CHOICE.Against;
+        const HALF_AN_HOUR = 30 * MILLIS_PER_MINUTE;
+        const closingIn = (millis: number) =>
+          meetingWith(aResolution({ closesAt: unwrap(parseInstant(harness.now + millis)) }));
+
+        it('answers alreadyVoted to another choice once the voting window is over', async () => {
+          await harness.serve(closingIn(HALF_AN_HOUR));
+          await repository.submit(aVote({ choice: VOTE_CHOICE.For }));
+          harness.advanceClock(HALF_AN_HOUR + 1);
+
+          expect(await repository.submit(aVote({ choice: OTHER_CHOICE }))).toStrictEqual(
+            err({ code: VOTING_ERROR_CODE.AlreadyVoted, source: ALREADY_VOTED_SOURCE.Recorded }),
+          );
+        });
+
+        it('answers success to the same choice once the voting window is over, and records nothing more', async () => {
+          await harness.serve(closingIn(HALF_AN_HOUR));
+          await repository.submit(aVote({ choice: VOTE_CHOICE.For }));
+          harness.advanceClock(HALF_AN_HOUR + 1);
+
+          expect(await repository.submit(aVote({ choice: VOTE_CHOICE.For }))).toStrictEqual(
+            ok(undefined),
+          );
+          expect(await harness.recordedCount(aVote())).toBe(1);
+        });
+
+        it('answers alreadyVoted to another choice once the resolution is closed', async () => {
+          await harness.serve(meetingWith(aResolution()));
+          await repository.submit(aVote({ choice: VOTE_CHOICE.For }));
+          await harness.change(meetingWith(aResolution({ status: RESOLUTION_STATUS.Closed })));
+
+          expect(await repository.submit(aVote({ choice: OTHER_CHOICE }))).toStrictEqual(
+            err({ code: VOTING_ERROR_CODE.AlreadyVoted, source: ALREADY_VOTED_SOURCE.Recorded }),
+          );
+        });
+
+        it('answers success to the same choice once the resolution is closed, and records nothing more', async () => {
+          await harness.serve(meetingWith(aResolution()));
+          await repository.submit(aVote({ choice: VOTE_CHOICE.For }));
+          await harness.change(meetingWith(aResolution({ status: RESOLUTION_STATUS.Closed })));
+
+          expect(await repository.submit(aVote({ choice: VOTE_CHOICE.For }))).toStrictEqual(
+            ok(undefined),
+          );
+          expect(await harness.recordedCount(aVote())).toBe(1);
+        });
+
+        it('still rejects a first vote once the window is over: the rule only protects a vote that was recorded', async () => {
+          await harness.serve(closingIn(HALF_AN_HOUR));
+          harness.advanceClock(HALF_AN_HOUR + 1);
+
+          expect(await repository.submit(aVote())).toStrictEqual(
+            err({ code: VOTING_ERROR_CODE.VotingWindowOver }),
+          );
+        });
+      });
+
+      it('accepts a vote whose castAt, from the clock of the device, is after the closing instant while the time of the server is before it', async () => {
+        await harness.serve(
+          meetingWith(
+            aResolution({ closesAt: unwrap(parseInstant(harness.now + MILLIS_PER_HOUR)) }),
+          ),
+        );
+
+        const result = await repository.submit(aVote({ castAt: at(2 * MILLIS_PER_HOUR) }));
+
+        expect(result).toStrictEqual(ok(undefined));
+      });
 
       it('rejects a vote on a closed resolution', async () => {
         await harness.serve(meetingWith(aResolution({ status: RESOLUTION_STATUS.Closed })));

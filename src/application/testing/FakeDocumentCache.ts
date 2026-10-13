@@ -17,7 +17,10 @@ import { copyPlain } from './copyPlain';
 export class FakeDocumentCache implements DocumentCache {
   /** Makes the reads fail while set. */
   readFailure: StorageReadFailedError | undefined;
-  /** Makes `save` fail while set (nothing is stored). */
+  /**
+   * Makes `save` fail while set. Nothing new is stored, and the older entry for the same owner and
+   * document is dropped, as the port requires: it must not stay readable as if it were current.
+   */
   writeFailure: StorageWriteFailedError | undefined;
   /** Makes `remove` fail while set (the entry stays). */
   removeFailure: StorageWriteFailedError | undefined;
@@ -38,7 +41,10 @@ export class FakeDocumentCache implements DocumentCache {
     viewable: ViewableDocument,
     cachedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
-    if (this.writeFailure !== undefined) return Promise.resolve(err(this.writeFailure));
+    if (this.writeFailure !== undefined) {
+      this.entries.delete(entryKey(owner, viewable.document.id));
+      return Promise.resolve(err(this.writeFailure));
+    }
     this.entries.set(
       entryKey(owner, viewable.document.id),
       copyPlain({ value: viewable, cachedAt }),

@@ -69,10 +69,11 @@ export function describeVoteOutboxContract(name: string, createOutbox: VoteOutbo
       });
 
       it('lists the votes in the order they were enqueued, which no sort of the votes would give', async () => {
-        // Neither the resolutions nor the instants are in increasing order of enqueueing.
-        const third = pending('r3', at(5000));
-        const first = pending('r9', at(-9000));
+        // Enqueued in this order, the votes are in decreasing order of instant and in no order of
+        // resolution: a sort by instant (oldest first), by resolution, or by key gives another.
+        const first = pending('r9', at(5000));
         const second = pending('r1', at(1000));
+        const third = pending('r5', at(-9000));
 
         await outbox.enqueue(first);
         await outbox.enqueue(second);
@@ -117,6 +118,27 @@ export function describeVoteOutboxContract(name: string, createOutbox: VoteOutbo
       });
     });
 
+    describe('findByResolution', () => {
+      it('returns the vote of a resolution whatever its state: pending, and rejected', async () => {
+        const queued = pending('r1', at(1));
+        await outbox.enqueue(queued);
+        expect(await outbox.findByResolution(aResolutionId('r1'), VOTER)).toStrictEqual(
+          ok([queued]),
+        );
+
+        await outbox.reject(
+          queued.vote.idempotencyKey,
+          { code: VOTING_ERROR_CODE.ResolutionClosed },
+          at(9),
+        );
+
+        const found = await outbox.findByResolution(aResolutionId('r1'), VOTER);
+        expect(found).toStrictEqual(
+          ok([rejectVote(queued, { code: VOTING_ERROR_CODE.ResolutionClosed }, at(9))]),
+        );
+      });
+    });
+
     describe('reads scoped by voter', () => {
       it('only ever returns the votes of the voter it is asked for', async () => {
         const mine = pending('r1', at(1));
@@ -146,6 +168,70 @@ export function describeVoteOutboxContract(name: string, createOutbox: VoteOutbo
         expect(await outbox.enqueue(theirs)).toStrictEqual(
           ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
         );
+      });
+    });
+
+    describe('the whole idempotency key identifies a vote', () => {
+      // The key is `<length of the resolution id>.<resolution id>.<voter id>`: these pairs make
+      // keys that share a long prefix, or differ only in case or in an inner dot.
+      const similar = [
+        ['r1', 'user-1'],
+        ['r1', 'user-10'],
+        ['r1', 'user-1.0'],
+        ['r1', 'USER-1'],
+        ['r1.user-1', 'x'],
+        ['r', '1.user-1'],
+      ] as const;
+      const queued = (resolution: string, voter: string, enqueuedAt = at(0)) =>
+        aPendingVote(vote(resolution, aUserId(voter)), enqueuedAt);
+
+      it('enqueues each of them as a vote of its own, and lists each one for its voter only', async () => {
+        for (const [resolution, voter] of similar) {
+          expect(await outbox.enqueue(queued(resolution, voter))).toStrictEqual(
+            ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
+          );
+        }
+
+        for (const [resolution, voter] of similar) {
+          expect(await outbox.list(aUserId(voter))).toStrictEqual(ok([queued(resolution, voter)]));
+        }
+      });
+
+      it('treats resolution ids that differ only in case as two resolutions', async () => {
+        await outbox.enqueue(queued('r1', 'user-1', at(1)));
+
+        expect(await outbox.enqueue(queued('R1', 'user-1', at(2)))).toStrictEqual(
+          ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
+        );
+        expect(await outbox.findByResolution(aResolutionId('R1'), aUserId('user-1'))).toStrictEqual(
+          ok([queued('R1', 'user-1', at(2))]),
+        );
+      });
+
+      it('removes, counts an attempt on, and rejects only the vote whose key it is given', async () => {
+        for (const [resolution, voter] of similar) await outbox.enqueue(queued(resolution, voter));
+        const [first, second, ...others] = similar;
+        const target = queued(first[0], first[1]);
+
+        await outbox.markAttempt(target.vote.idempotencyKey);
+        await outbox.reject(
+          queued(second[0], second[1]).vote.idempotencyKey,
+          { code: VOTING_ERROR_CODE.ResolutionClosed },
+          at(9),
+        );
+        await outbox.remove(queued(others[0][0], others[0][1]).vote.idempotencyKey);
+
+        expect(await outbox.list(aUserId(first[1]))).toStrictEqual(
+          ok([{ ...target, attempts: 1 }]),
+        );
+        const rejected = await outbox.list(aUserId(second[1]));
+        expect(rejected.ok && rejected.value.map((entry) => entry.status)).toEqual([
+          OUTBOX_STATUS.Rejected,
+        ]);
+        expect(await outbox.list(aUserId(others[0][1]))).toStrictEqual(ok([]));
+        for (const [resolution, voter] of others.slice(1)) {
+          expect(await outbox.list(aUserId(voter))).toStrictEqual(ok([queued(resolution, voter)]));
+        }
       });
     });
 

@@ -12,7 +12,9 @@ import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 
 import type { DocumentCache, ViewableDocument } from '../../ports/DocumentCache';
 
-import { mutable } from './support';
+import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
+
+import { TRICKY_IDS, mutable } from './support';
 
 /**
  * The files of the device, as far as the contract needs them. Content lives outside the cache, at
@@ -27,11 +29,17 @@ export interface DocumentFiles {
   exists(location: DocumentLocation): boolean | Promise<boolean>;
   /** Removes the content without telling the cache. */
   lose(location: DocumentLocation): void | Promise<void>;
+  /** From now on a file cannot be deleted (a locked file, a failing disk). */
+  breakDeletion(): void;
+  repairDeletion(): void;
 }
 
 export interface DocumentCacheHarness {
   readonly cache: DocumentCache;
   readonly files?: DocumentFiles;
+  /** From now on every `save` fails with a storage error. */
+  breakWrites(): void;
+  repairWrites(): void;
 }
 
 export type DocumentCacheFactory = () => DocumentCacheHarness | Promise<DocumentCacheHarness>;
@@ -163,6 +171,65 @@ export function describeDocumentCacheContract(
       expect(await cache.purge()).toStrictEqual(ok(undefined));
     });
 
+    describe('a save that fails', () => {
+      it('does not leave the older entry readable as if it were current', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        harness.breakWrites();
+
+        const failed = await cache.save(
+          OWNER,
+          { ...VIEWABLE, document: aDocument({ title: 'Newer' }) },
+          at(11),
+        );
+        harness.repairWrites();
+
+        expect(failed.ok).toBe(false);
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+      });
+
+      it('leaves the entries of the other documents and owners alone', async () => {
+        await download(VIEWABLE);
+        await download(OTHER_VIEWABLE);
+        await cache.save(OWNER, OTHER_VIEWABLE, at(10));
+        await cache.save(OTHER_OWNER, VIEWABLE, at(11));
+        await cache.save(OWNER, VIEWABLE, at(12));
+        harness.breakWrites();
+
+        await cache.save(OWNER, VIEWABLE, at(13));
+        harness.repairWrites();
+
+        expect(await cache.read(OWNER, OTHER_VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: OTHER_VIEWABLE, cachedAt: at(10) }),
+        );
+        expect(await cache.read(OTHER_OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(11) }),
+        );
+      });
+    });
+
+    describe('the storage key is injective in the owner and the document id', () => {
+      it('never mixes up two pairs of (owner, document id), whatever characters they contain', async () => {
+        const pairs = TRICKY_IDS.flatMap((owner) => TRICKY_IDS.map((id) => [owner, id] as const));
+        const viewableOf = (owner: string, id: string): ViewableDocument => ({
+          document: aDocument({ id: aDocumentId(id), title: JSON.stringify([owner, id]) }),
+          location: aDocumentLocation(
+            `file:///documents/${encodeURIComponent(owner)}/${encodeURIComponent(id)}.pdf`,
+          ),
+        });
+        for (const [owner, id] of pairs) {
+          const viewable = await download(viewableOf(owner, id));
+          await cache.save(aUserId(owner), viewable, at(1));
+        }
+
+        for (const [owner, id] of pairs) {
+          const read = await cache.read(aUserId(owner), aDocumentId(id));
+          expect(read.ok && read.value?.value.document.title).toBe(JSON.stringify([owner, id]));
+        }
+      });
+    });
+
     describe('keeps no reference to the objects that go in or out', () => {
       it('is not changed by a change of the document after it was saved', async () => {
         const saved = { document: aDocument(), location: aDocumentLocation() };
@@ -234,6 +301,76 @@ export function describeDocumentCacheContract(
 
         expect(await filesOf().exists(VIEWABLE.location)).toBe(false);
         expect(await filesOf().exists(OTHER_VIEWABLE.location)).toBe(false);
+      });
+
+      it('deletes the previous content when a save moves an entry to another location, so that nothing is left behind', async () => {
+        const moved = { ...VIEWABLE, location: aDocumentLocation('file:///documents/moved.pdf') };
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await download(moved);
+
+        await cache.save(OWNER, moved, at(11));
+
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(false);
+        expect(await filesOf().exists(moved.location)).toBe(true);
+
+        await cache.remove(OWNER, VIEWABLE.document.id);
+        expect(await filesOf().exists(moved.location)).toBe(false);
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(false);
+      });
+
+      it('keeps the previous content when another owner still has an entry that points at it', async () => {
+        const moved = { ...VIEWABLE, location: aDocumentLocation('file:///documents/moved.pdf') };
+        await download(VIEWABLE);
+        await download(moved);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.save(OTHER_OWNER, VIEWABLE, at(11));
+
+        await cache.save(OWNER, moved, at(12));
+
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(true);
+        expect(await cache.read(OTHER_OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(11) }),
+        );
+      });
+
+      it('deletes the content before the entry: when the file cannot be deleted, remove fails and nothing is reported as deleted', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        filesOf().breakDeletion();
+
+        const failed = await cache.remove(OWNER, VIEWABLE.document.id);
+
+        expect(failed.ok).toBe(false);
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(true);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+
+        filesOf().repairDeletion();
+        expect(await cache.remove(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(false);
+      });
+
+      it('purge fails too when a file cannot be deleted, keeps what it could not delete, and finishes on a second call', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        filesOf().breakDeletion();
+
+        const failed = await cache.purge();
+
+        expect(failed.ok).toBe(false);
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(true);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+
+        filesOf().repairDeletion();
+        expect(await cache.purge()).toStrictEqual(ok(undefined));
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+        expect(await filesOf().exists(VIEWABLE.location)).toBe(false);
       });
 
       it('keeps a file while another owner still has an entry that points at it', async () => {

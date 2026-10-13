@@ -11,6 +11,12 @@ export class FakeBiometricGate implements BiometricGate {
   /** What `authenticate` answers. */
   authentication: Result<void, BiometricError> = ok(undefined);
 
+  /**
+   * Called when a prompt is shown, before the user answers: a test uses it to change the world
+   * while the user is looking at the prompt (another user signs in, say).
+   */
+  onPrompt: (() => void | Promise<void>) | undefined;
+
   /** The reason of every prompt shown, in order. */
   readonly prompts: BiometricReason[] = [];
   availabilityChecks = 0;
@@ -20,8 +26,9 @@ export class FakeBiometricGate implements BiometricGate {
     return Promise.resolve(this.availability);
   }
 
-  authenticate(reason: BiometricReason): Promise<Result<void, BiometricError>> {
+  async authenticate(reason: BiometricReason): Promise<Result<void, BiometricError>> {
     this.prompts.push(reason);
-    return Promise.resolve(this.authentication);
+    await this.onPrompt?.();
+    return this.authentication;
   }
 }
