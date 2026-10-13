@@ -1,0 +1,56 @@
+import { unexpected } from '@domain/errors/RepositoryError';
+import type { UnexpectedError } from '@domain/errors/RepositoryError';
+import type { ValidationError } from '@domain/errors/ValidationError';
+import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
+import type { Monitoring } from '@application/ports/Monitoring';
+
+/** What the server answered, for the logs: the resource, never a value of it. */
+export const HTTP_RESOURCE = {
+  Session: 'session',
+  MeetingPage: 'meetingPage',
+  Meeting: 'meeting',
+  Document: 'document',
+  DocumentContent: 'documentContent',
+  Vote: 'vote',
+} as const;
+
+export type HttpResource = (typeof HTTP_RESOURCE)[keyof typeof HTTP_RESOURCE];
+
+/** The `cause` of the error an answer that does not have the shape of the API becomes. */
+const INVALID_RESPONSE_CAUSE = 'invalid response';
+
+/** The path that stands for the body as a whole, when it is not even JSON. */
+export const WHOLE_BODY_PATH = '$';
+
+/**
+ * An answer that breaks the schema of the API becomes `unexpected`, and the places where it broke
+ * go to the monitoring: the paths of the fields, never what they held.
+ */
+export function schemaViolation(
+  monitoring: Monitoring,
+  resource: HttpResource,
+  issuePaths: string,
+): UnexpectedError {
+  const error = unexpected(INVALID_RESPONSE_CAUSE);
+  monitoring.captureError(MONITORING_EVENT.ResponseInvalid, error, {
+    [LOG_ATTRIBUTE.Resource]: resource,
+    [LOG_ATTRIBUTE.IssuePaths]: issuePaths,
+  });
+  return error;
+}
+
+/**
+ * An answer that has the shape of the API but breaks a rule of the domain (a blank title, a status
+ * nobody knows) becomes `unexpected` too. The error of the domain names a field and a rule, not
+ * the value, so it can go to the monitoring as it is.
+ */
+export function domainViolation(
+  monitoring: Monitoring,
+  resource: HttpResource,
+  violation: ValidationError,
+): UnexpectedError {
+  monitoring.captureError(MONITORING_EVENT.ResponseInvalid, violation, {
+    [LOG_ATTRIBUTE.Resource]: resource,
+  });
+  return unexpected(INVALID_RESPONSE_CAUSE);
+}
