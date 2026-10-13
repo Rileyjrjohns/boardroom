@@ -60,15 +60,27 @@ const PAST_SPACING_DAYS = 4;
 
 /** Hours of the day (UTC) the meetings start at, in turn. */
 const START_HOURS = [9, 10, 14, 16] as const;
-/** A vote on a resolution of a past meeting stays open this long after the meeting starts. */
+/** A vote on a resolution of a past meeting stayed open this long after the meeting started. */
 const PAST_VOTING_HOURS = 2;
+/**
+ * A vote on a resolution of an upcoming meeting closes this long after the meeting starts, in turn:
+ * always after it, so that the vote is still open when the meeting takes place. The last is the day
+ * after, for the members who vote once they have read the minutes.
+ */
+const UPCOMING_DEADLINE_HOURS = [2, 4, 24] as const;
+/** One upcoming meeting in this many has resolutions with no closing time (the remainder is 1). */
+const UNTIMED_UPCOMING_EVERY = 5;
+const UNTIMED_UPCOMING_REMAINDER = 1;
+/**
+ * One past meeting in this many (counting back from the latest, the remainder is 1) has resolutions
+ * whose status was never set to closed: their voting window is over and nobody voted. It is the
+ * state a screen must not call open.
+ */
+const LAPSED_PAST_EVERY = 8;
+const LAPSED_PAST_REMAINDER = 1;
 
 /** The upcoming meeting where the demo user already voted on the minutes, still open. */
 const VOTED_UPCOMING_SEQUENCE = 0;
-/** The upcoming meeting with a resolution that has no closing time. */
-const UNTIMED_UPCOMING_SEQUENCE = 1;
-/** The upcoming meeting with a resolution closed before the meeting. */
-const CLOSED_UPCOMING_SEQUENCE = 2;
 /** Where the demo user attends as a guest (no vote), and as the secretary (no vote). */
 const ALICE_GUEST_SEQUENCES: ReadonlySet<number> = new Set([3, 30]);
 const ALICE_SECRETARY_SEQUENCES: ReadonlySet<number> = new Set([12]);
@@ -79,6 +91,16 @@ const BRUNO_ABSENT_EVERY = 3;
 /** The demo user did not vote on one past meeting in this many. */
 const ALICE_ABSTAINED_EVERY = 5;
 const BRUNO_VOTES_EVERY = 3;
+/** Votes of the demo user on the past meetings, in turn: all three choices come up. */
+const ALICE_VOTE_PATTERN: readonly VoteChoice[] = [
+  VOTE_CHOICE.For,
+  VOTE_CHOICE.Against,
+  VOTE_CHOICE.For,
+  VOTE_CHOICE.Abstain,
+  VOTE_CHOICE.For,
+  VOTE_CHOICE.For,
+  VOTE_CHOICE.Against,
+];
 /** Votes of the other seats, in turn: mostly for. */
 const VOTE_PATTERN: readonly VoteChoice[] = [
   VOTE_CHOICE.For,
@@ -272,8 +294,14 @@ interface SeedError {
  *
  * Two demo accounts: Alice Martin, who is a voting member of most meetings, chairs some, attends
  * two as a guest and one as the secretary (no vote in those); and Bruno Durand, who is in two
- * meetings out of three, so that the two users see different lists. Resolutions are open (with or
- * without a closing time) or closed, and the demo users have already voted on some.
+ * meetings out of three, so that the two users see different lists.
+ *
+ * The state of the resolutions follows from the date of the meeting. In an upcoming meeting they
+ * are open, with a closing time after the meeting starts (or none), and most are still to be voted
+ * on; Alice voted on the minutes of one of them. In a past meeting they were closed after the
+ * meeting started, with the votes of the demo users on most of them (Alice voted for, against and
+ * abstained in turn), except in some meetings where the status was never closed although the voting
+ * window is over, so that every state a screen can show is in the data.
  */
 export function buildSeed(now: Instant): Result<SeedData, SeedError> {
   try {
@@ -428,8 +456,8 @@ function resolutionsOf(
   kind: MeetingKind,
   meetingId: Meeting['id'],
 ): Resolutions {
-  const { sequence, upcoming, scheduledAt, now } = spec;
-  const { status, closesAt } = windowOf(sequence, upcoming, scheduledAt, now);
+  const { sequence, upcoming, scheduledAt } = spec;
+  const { status, closesAt } = windowOf(sequence, upcoming, scheduledAt);
   const make = (suffix: string, title: string, description: string): Resolution =>
     valid(
       createResolution({
@@ -450,29 +478,38 @@ function resolutionsOf(
   };
 }
 
-/** Whether a vote is open and when it closes, depending on where the meeting is in time. */
+/** Whether the voting on the past meeting `sequence` lapsed: its status stayed open past the window. */
+function isLapsedPast(sequence: number, upcoming: boolean): boolean {
+  return (
+    !upcoming && (sequence - UPCOMING_MEETING_COUNT) % LAPSED_PAST_EVERY === LAPSED_PAST_REMAINDER
+  );
+}
+
+/**
+ * Whether a vote is open and when it closes, depending on where the meeting is in time. The closing
+ * time is always after the meeting starts: a vote on a meeting that has not taken place is open, and
+ * a vote on one that has was closed after it started.
+ */
 function windowOf(
   sequence: number,
   upcoming: boolean,
   scheduledAt: Instant,
-  now: Instant,
 ): { status: ResolutionStatus; closesAt: Instant | undefined } {
   if (!upcoming) {
     return {
-      status: RESOLUTION_STATUS.Closed,
+      status: isLapsedPast(sequence, upcoming) ? RESOLUTION_STATUS.Open : RESOLUTION_STATUS.Closed,
       closesAt: valid(parseInstant(scheduledAt + PAST_VOTING_HOURS * MILLIS_PER_HOUR)),
     };
   }
-  if (sequence === UNTIMED_UPCOMING_SEQUENCE) {
+  if (sequence % UNTIMED_UPCOMING_EVERY === UNTIMED_UPCOMING_REMAINDER) {
     return { status: RESOLUTION_STATUS.Open, closesAt: undefined };
   }
-  if (sequence === CLOSED_UPCOMING_SEQUENCE) {
-    return {
-      status: RESOLUTION_STATUS.Closed,
-      closesAt: valid(parseInstant(now - MILLIS_PER_DAY)),
-    };
-  }
-  return { status: RESOLUTION_STATUS.Open, closesAt: scheduledAt };
+  const hours =
+    UPCOMING_DEADLINE_HOURS[sequence % UPCOMING_DEADLINE_HOURS.length] ?? failMissing('deadline');
+  return {
+    status: RESOLUTION_STATUS.Open,
+    closesAt: valid(parseInstant(scheduledAt + hours * MILLIS_PER_HOUR)),
+  };
 }
 
 function agendaOf(
@@ -543,6 +580,8 @@ function votesOf(
 ): Vote[] {
   const { sequence, upcoming, scheduledAt, now, alice, bruno } = spec;
   const castAt = upcoming ? valid(parseInstant(now - 2 * MILLIS_PER_HOUR)) : scheduledAt;
+  // Nobody voted before the window lapsed.
+  if (isLapsedPast(sequence, upcoming)) return [];
 
   const hasVoted = (user: User): boolean => {
     const seat = participants.find((participant) => participant.userId === user.id);
@@ -566,13 +605,19 @@ function votesOf(
           resolutionId: resolution.id,
           meetingId,
           voterId: user.id,
-          choice: VOTE_PATTERN[(sequence + votes.length) % VOTE_PATTERN.length] ?? VOTE_CHOICE.For,
+          choice: choiceOf(user === alice, sequence + votes.length),
           castAt,
         }),
       );
     }
   }
   return votes;
+}
+
+/** The choice of a vote: the demo user's come in a fixed turn, the others' are mostly for. */
+function choiceOf(isDemoUser: boolean, ordinal: number): VoteChoice {
+  const pattern = isDemoUser ? ALICE_VOTE_PATTERN : VOTE_PATTERN;
+  return pattern[ordinal % pattern.length] ?? VOTE_CHOICE.For;
 }
 
 /** A table lookup that cannot miss: the index is taken modulo the length of the table. */

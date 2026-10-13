@@ -4,8 +4,13 @@ import type { Meeting } from '@domain/entities/Meeting';
 import { PARTICIPANT_ROLE, hasVotingRights } from '@domain/entities/Participant';
 import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
 import type { Resolution } from '@domain/entities/Resolution';
+import { VOTING_ERROR_CODE } from '@domain/errors/VotingError';
+import { VOTING_STATE, getVotingState } from '@domain/policies/votingState';
+import { checkVotingEligibility } from '@domain/policies/votingEligibility';
+import { valuesOf } from '@domain/shared/constants';
 import { NOW, aDuration } from '@domain/testing/builders';
 import { parseInstant } from '@domain/value-objects/Instant';
+import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 
 import { DEMO_PASSWORD, PAST_MEETING_COUNT, UPCOMING_MEETING_COUNT, buildSeed } from './seed';
 import type { SeedData } from './seed';
@@ -15,6 +20,8 @@ function seedAt(now = NOW): SeedData {
   if (!seed.ok) throw new Error(`The seed is invalid: ${seed.error.detail}`);
   return seed.value;
 }
+
+const MILLIS_PER_DAY = 24 * 3_600_000;
 
 const resolutionsOf = (meeting: Meeting): Resolution[] =>
   meeting.agenda.flatMap((item) => (item.resolution === undefined ? [] : [item.resolution]));
@@ -170,6 +177,161 @@ describe('the seed of the simulated server', () => {
     }
     const keys = content.recordedVotes.map((vote) => vote.idempotencyKey);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  describe.each([
+    ['the instant of the tests', NOW],
+    ['a millisecond later', NOW + 1],
+    ['the start of a day', Math.floor(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY],
+    ['the last millisecond of a day', Math.ceil(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY - 1],
+    ['half a year later', NOW + 183 * MILLIS_PER_DAY],
+    ['the year 2096', 4_000_000_000_000],
+  ])('the resolutions at %s', (_name, millis) => {
+    const now = parseNow(millis);
+    const seed = seedAt(now);
+    const meetings = seed.content.meetings;
+    const isUpcoming = (meeting: Meeting): boolean => meeting.scheduledAt > now;
+    const upcomingMeetings = meetings.filter(isUpcoming);
+    const pastMeetings = meetings.filter((meeting) => !isUpcoming(meeting));
+    const demoUser = seed.demoUser;
+    const demoVotes = seed.content.recordedVotes.filter((vote) => vote.voterId === demoUser.id);
+
+    it('are all open in an upcoming meeting, never closed, with a closing time after it starts or none', () => {
+      for (const meeting of upcomingMeetings) {
+        for (const resolution of resolutionsOf(meeting)) {
+          expect(resolution.status).toBe(RESOLUTION_STATUS.Open);
+          expect(getVotingState(resolution, now)).toBe(VOTING_STATE.Open);
+          if (resolution.closesAt !== undefined) {
+            expect(resolution.closesAt).toBeGreaterThan(meeting.scheduledAt);
+          }
+        }
+      }
+    });
+
+    it('have a closing time after the meeting started, and already behind, in a past meeting', () => {
+      for (const meeting of pastMeetings) {
+        for (const resolution of resolutionsOf(meeting)) {
+          expect(resolution.closesAt).toBeDefined();
+          expect(resolution.closesAt ?? 0).toBeGreaterThan(meeting.scheduledAt);
+          expect(resolution.closesAt ?? Infinity).toBeLessThanOrEqual(now);
+          expect(getVotingState(resolution, now)).not.toBe(VOTING_STATE.Open);
+        }
+      }
+    });
+
+    it('close every close instant after its meeting starts, wherever it is', () => {
+      for (const meeting of meetings) {
+        for (const { closesAt } of resolutionsOf(meeting)) {
+          if (closesAt !== undefined) expect(closesAt).toBeGreaterThan(meeting.scheduledAt);
+        }
+      }
+    });
+
+    it('show every state of the voting somewhere, and the window over only in the past', () => {
+      const states = (list: readonly Meeting[]) =>
+        new Set(list.flatMap(resolutionsOf).map((resolution) => getVotingState(resolution, now)));
+
+      expect(states(meetings)).toEqual(new Set(valuesOf(VOTING_STATE)));
+      expect(states(upcomingMeetings)).toEqual(new Set([VOTING_STATE.Open]));
+      expect(states(pastMeetings)).toContain(VOTING_STATE.Closed);
+      expect(states(pastMeetings)).toContain(VOTING_STATE.WindowOver);
+    });
+
+    it('include a past resolution that is still open by status once its window is over', () => {
+      const lapsed = pastMeetings
+        .flatMap(resolutionsOf)
+        .filter((resolution) => resolution.status === RESOLUTION_STATUS.Open);
+
+      expect(lapsed.length).toBeGreaterThan(0);
+      expect(
+        lapsed.every((resolution) => getVotingState(resolution, now) === VOTING_STATE.WindowOver),
+      ).toBe(true);
+    });
+
+    it('include upcoming resolutions with a closing time and upcoming ones without', () => {
+      const upcoming = upcomingMeetings.flatMap(resolutionsOf);
+
+      expect(upcoming.some((resolution) => resolution.closesAt !== undefined)).toBe(true);
+      expect(upcoming.some((resolution) => resolution.closesAt === undefined)).toBe(true);
+    });
+
+    it('have every choice among the votes of the demo user, on closed resolutions', () => {
+      const closed = new Set(
+        pastMeetings
+          .flatMap(resolutionsOf)
+          .filter((resolution) => getVotingState(resolution, now) === VOTING_STATE.Closed)
+          .map((resolution) => resolution.id),
+      );
+      const choices = new Set(
+        demoVotes.filter((vote) => closed.has(vote.resolutionId)).map((vote) => vote.choice),
+      );
+
+      expect(choices).toEqual(new Set(valuesOf(VOTE_CHOICE)));
+    });
+
+    it('have closed resolutions the demo user voted on and closed ones they did not, as a voting member', () => {
+      const voted = new Set(demoVotes.map((vote) => vote.resolutionId));
+      const closedAsVoter = pastMeetings
+        .filter((meeting) => {
+          const seat = findParticipant(meeting, demoUser.id);
+          return seat !== undefined && hasVotingRights(seat);
+        })
+        .flatMap(resolutionsOf)
+        .filter((resolution) => getVotingState(resolution, now) === VOTING_STATE.Closed);
+
+      expect(closedAsVoter.some((resolution) => voted.has(resolution.id))).toBe(true);
+      expect(closedAsVoter.some((resolution) => !voted.has(resolution.id))).toBe(true);
+    });
+
+    it('leave a few upcoming resolutions that the demo user can vote on right away', () => {
+      const voted = new Set(demoVotes.map((vote) => vote.resolutionId));
+      const votable = upcomingMeetings.filter((meeting) =>
+        resolutionsOf(meeting).some(
+          (resolution) =>
+            !voted.has(resolution.id) &&
+            checkVotingEligibility({
+              meeting,
+              resolutionId: resolution.id,
+              voterId: demoUser.id,
+              queuedVotes: [],
+              now,
+            }).ok,
+        ),
+      );
+
+      expect(votable.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('have the demo user as a guest in a meeting, where there is nothing for them to vote on', () => {
+      const asGuest = meetings.filter(
+        (meeting) => findParticipant(meeting, demoUser.id)?.role === PARTICIPANT_ROLE.Guest,
+      );
+
+      expect(asGuest.length).toBeGreaterThan(0);
+      for (const meeting of asGuest) {
+        for (const resolution of resolutionsOf(meeting)) {
+          const eligibility = checkVotingEligibility({
+            meeting,
+            resolutionId: resolution.id,
+            voterId: demoUser.id,
+            queuedVotes: [],
+            now,
+          });
+          expect(!eligibility.ok && eligibility.error.code).toBe(VOTING_ERROR_CODE.NoVotingRights);
+        }
+      }
+    });
+
+    it('have no vote of the demo user on a resolution whose window lapsed', () => {
+      const lapsed = new Set(
+        pastMeetings
+          .flatMap(resolutionsOf)
+          .filter((resolution) => resolution.status === RESOLUTION_STATUS.Open)
+          .map((resolution) => resolution.id),
+      );
+
+      expect(seed.content.recordedVotes.some((vote) => lapsed.has(vote.resolutionId))).toBe(false);
+    });
   });
 
   it('has documents that are confidential and documents that are not', () => {
