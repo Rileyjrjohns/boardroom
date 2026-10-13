@@ -4,12 +4,12 @@ import type { ConfidentialityLevel } from '@domain/entities/Document';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import type { ParticipantRole } from '@domain/entities/Participant';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
-import type { ResolutionStatus } from '@domain/entities/Resolution';
-import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@domain/errors/ValidationError';
+import { VOTING_STATE } from '@domain/policies/votingState';
+import type { VotingState } from '@domain/policies/votingState';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
@@ -34,10 +34,22 @@ export const PARTICIPANT_ROLE_KEYS = {
   [PARTICIPANT_ROLE.Guest]: 'participantRole.guest',
 } as const satisfies Record<ParticipantRole, TranslationKey>;
 
-export const RESOLUTION_STATUS_KEYS = {
-  [RESOLUTION_STATUS.Open]: 'resolutionStatus.open',
-  [RESOLUTION_STATUS.Closed]: 'resolutionStatus.closed',
-} as const satisfies Record<ResolutionStatus, TranslationKey>;
+/** The badge of a resolution: where voting stands, not the raw status (see `getVotingState`). */
+export const VOTING_STATE_KEYS = {
+  [VOTING_STATE.Open]: 'votingState.open',
+  [VOTING_STATE.Closed]: 'votingState.closed',
+  [VOTING_STATE.WindowOver]: 'votingState.windowOver',
+} as const satisfies Record<VotingState, TranslationKey>;
+
+/**
+ * The line that dates the voting of a resolution: a deadline while it is open, the date it closed
+ * on otherwise. The wording is neutral: it is true whether the date is ahead or behind.
+ */
+export const VOTING_DATE_KEYS = {
+  [VOTING_STATE.Open]: 'meeting.votingDeadline',
+  [VOTING_STATE.Closed]: 'meeting.votingClosedOn',
+  [VOTING_STATE.WindowOver]: 'meeting.votingClosedOn',
+} as const satisfies Record<VotingState, TranslationKey>;
 
 export const CONFIDENTIALITY_KEYS = {
   [CONFIDENTIALITY_LEVEL.Public]: 'confidentiality.public',
@@ -68,10 +80,13 @@ export type MeetingsErrorCode = (ListMeetingsError | GetMeetingError | Validatio
 export const MEETINGS_ERROR_KEYS = {
   [REPOSITORY_ERROR_CODE.NetworkUnavailable]: 'errors.networkUnavailable',
   [REPOSITORY_ERROR_CODE.Unauthorized]: 'errors.unauthorized',
+  [REPOSITORY_ERROR_CODE.Forbidden]: 'errors.forbidden',
   [REPOSITORY_ERROR_CODE.NotFound]: 'errors.notFound',
   [REPOSITORY_ERROR_CODE.Unexpected]: 'errors.unexpected',
   [AUTHENTICATION_ERROR_CODE.NotAuthenticated]: 'errors.notAuthenticated',
   [AUTHENTICATION_ERROR_CODE.SessionExpired]: 'errors.sessionExpired',
+  [AUTHENTICATION_ERROR_CODE.AppLocked]: 'errors.appLocked',
+  [AUTHENTICATION_ERROR_CODE.SessionChanged]: 'errors.sessionChanged',
   [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
   [VALIDATION_ERROR_CODE.Validation]: 'errors.validation',
 } as const satisfies Record<MeetingsErrorCode, TranslationKey>;

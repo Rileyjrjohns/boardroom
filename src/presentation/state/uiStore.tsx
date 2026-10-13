@@ -6,15 +6,26 @@ import type { StoreApi } from 'zustand';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 
+import type { MeetingsErrorCode } from '../i18n/translationKeys';
+
 /**
- * The state of the interface that has to survive navigation, and nothing else. Server data is not
- * here (it is in the query cache) and neither is state that belongs to one component (it is in
- * `useState`). Today that is one thing: which period of the meetings list is selected, so that
- * coming back from a meeting shows the list the user left.
+ * The state of the interface, and nothing else. Server data is not here (it is in the query cache)
+ * and neither is state that belongs to one component (it is in `useState`). Two things:
+ *
+ * - which period of the meetings list is selected. Today only the list reads it, so a `useState`
+ *   would do (the list stays mounted below the detail, so nothing needs the store to survive
+ *   opening a meeting). It is here because it is the first piece of interface state, and the store
+ *   is the pattern the stack mandates for it;
+ * - why the session ended, once it has. It is written by the query cache when a failure ends the
+ *   session, outside of any component, and read by the root of the app: the cache has just been
+ *   emptied, so it cannot remember it, and the component that would is the one being left.
  */
 export interface UiState {
   readonly meetingsPeriod: MeetingPeriod;
   selectMeetingsPeriod(period: MeetingPeriod): void;
+  /** The code of the failure that ended the session, or `undefined` while it goes on. */
+  readonly sessionEndedBy: MeetingsErrorCode | undefined;
+  endSession(code: MeetingsErrorCode): void;
 }
 
 export type UiStore = StoreApi<UiState>;
@@ -26,14 +37,24 @@ export function createUiStore(): UiStore {
     selectMeetingsPeriod: (period) => {
       set({ meetingsPeriod: period });
     },
+    sessionEndedBy: undefined,
+    endSession: (code) => {
+      set({ sessionEndedBy: code });
+    },
   }));
 }
 
 const UiStoreContext = createContext<UiStore | undefined>(undefined);
 
-/** Creates the store once, on the first render, and provides it to the tree below. */
-export function UiStoreProvider({ children }: { readonly children: ReactNode }) {
-  const [store] = useState(createUiStore);
+interface UiStoreProviderProps {
+  /** The store to provide. Without one, a new store is created on the first render. */
+  readonly store?: UiStore;
+  readonly children: ReactNode;
+}
+
+/** Provides the store to the tree below, creating it once, on the first render, when none is given. */
+export function UiStoreProvider({ store: given, children }: UiStoreProviderProps) {
+  const [store] = useState(() => given ?? createUiStore());
   return <UiStoreContext.Provider value={store}>{children}</UiStoreContext.Provider>;
 }
 

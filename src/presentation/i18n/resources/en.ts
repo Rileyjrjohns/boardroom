@@ -7,14 +7,11 @@
  * because the other languages are typed against this shape. English itself only selects `one`
  * and `other`: its `_many` entry is never shown, it exists for the French resource.
  *
- * The groups `participantRole`, `resolutionStatus`, `confidentiality`, `voteChoice` and `errors`
+ * The groups `participantRole`, `votingState`, `confidentiality`, `voteChoice` and `errors`
  * translate the codes of the domain and the application. They are reached through the typed maps
  * of `translationKeys.ts`, never by building a key from a code.
  */
 export const en = {
-  app: {
-    name: 'Boardroom',
-  },
   navigation: {
     meetings: 'Meetings',
     meeting: 'Meeting',
@@ -32,7 +29,6 @@ export const en = {
     loading: 'Loading meetings',
     loadingMore: 'Loading more meetings',
     endOfList: 'That is all of the meetings.',
-    loadMoreFailed: 'The next meetings could not be loaded.',
     openHint: 'Opens the meeting',
   },
   meeting: {
@@ -44,16 +40,18 @@ export const en = {
     documentsEmpty: 'There are no documents.',
     participants: 'Participants',
     participantsEmpty: 'There are no participants.',
-    resolutionClosesAt: 'Voting closes {{date}}',
+    votingDeadline: 'Vote by {{date}}',
+    votingClosedOn: 'Closed on {{date}}',
     resolutionYourVote: 'Your vote: {{choice}}',
     resolutionNoVote: 'You have not voted.',
-    pageCount_one: '{{count}} page',
-    pageCount_many: '{{count}} pages',
-    pageCount_other: '{{count}} pages',
+    pageCount_one: '{{formattedCount}} page',
+    pageCount_many: '{{formattedCount}} pages',
+    pageCount_other: '{{formattedCount}} pages',
   },
   states: {
     retry: 'Try again',
     staleData: 'Showing saved data from {{date}}',
+    refreshing: 'Refreshing',
   },
   participantRole: {
     chair: 'Chair',
@@ -61,9 +59,10 @@ export const en = {
     member: 'Member',
     guest: 'Guest',
   },
-  resolutionStatus: {
+  votingState: {
     open: 'Open',
     closed: 'Closed',
+    windowOver: 'Voting ended',
   },
   confidentiality: {
     public: 'Public',
@@ -77,9 +76,12 @@ export const en = {
   },
   errors: {
     networkUnavailable: 'The server cannot be reached. Check your connection and try again.',
-    unauthorized: 'You are not allowed to see this. Sign in again.',
+    unauthorized: 'Your session is no longer valid. Sign in again.',
+    forbidden: 'You do not have access to this meeting.',
     notAuthenticated: 'You are signed out. Sign in to continue.',
     sessionExpired: 'Your session has expired. Sign in again.',
+    appLocked: 'The app is locked. Unlock it to continue.',
+    sessionChanged: 'The signed-in user has changed. Sign in again.',
     notFound: 'This meeting does not exist, or you no longer have access to it.',
     unexpected: 'Something went wrong on our side. Try again in a moment.',
     storageReadFailed: 'The data saved on this device could not be read.',
@@ -88,7 +90,7 @@ export const en = {
   startup: {
     title: 'Boardroom cannot start',
     message:
-      'The app is not configured correctly. Check the EXPO_PUBLIC_BOARDROOM_ADAPTERS setting: it accepts mock (the default) or http, which is not available yet.',
+      'The app is not configured correctly. Check the EXPO_PUBLIC_BOARDROOM_ADAPTERS setting: it accepts mock or http, which is not available yet. A development build uses mock when the setting is missing; any other build needs it.',
     code: 'Technical code: {{code}}',
   },
 } as const;

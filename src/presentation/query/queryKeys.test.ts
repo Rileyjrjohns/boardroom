@@ -34,14 +34,15 @@ describe('queryKeys', () => {
     );
   });
 
-  it('starts every key of the meetings with the prefix of the family, to invalidate them together', () => {
-    const [prefix] = queryKeys.meetings.all();
-
-    expect(queryKeys.meetings.list(MEETING_PERIOD.Past, 5)[0]).toBe(prefix);
-    expect(queryKeys.meetings.detail(aMeetingId())[0]).toBe(prefix);
+  it('starts every key of the meetings with the same scope, to reach them together', () => {
+    expect(queryKeys.meetings.list(MEETING_PERIOD.Past, 5)[0]).toBe(
+      queryKeys.meetings.detail(aMeetingId())[0],
+    );
   });
 
   it('builds a new key at every call, so that a key can never be changed under another caller', () => {
-    expect(queryKeys.meetings.all()).not.toBe(queryKeys.meetings.all());
+    expect(queryKeys.meetings.detail(aMeetingId())).not.toBe(
+      queryKeys.meetings.detail(aMeetingId()),
+    );
   });
 });

@@ -10,9 +10,6 @@ import type { TranslationResource } from './translation';
  * A colon is preceded by a no-break space (U+00A0), as French typography wants.
  */
 export const fr: TranslationResource = {
-  app: {
-    name: 'Boardroom',
-  },
   navigation: {
     meetings: 'Réunions',
     meeting: 'Réunion',
@@ -29,8 +26,7 @@ export const fr: TranslationResource = {
     },
     loading: 'Chargement des réunions',
     loadingMore: 'Chargement des réunions suivantes',
-    endOfList: 'Vous avez vu toutes les réunions.',
-    loadMoreFailed: 'Les réunions suivantes n’ont pas pu être chargées.',
+    endOfList: 'Toutes les réunions sont affichées.',
     openHint: 'Ouvre la réunion',
   },
   meeting: {
@@ -42,16 +38,18 @@ export const fr: TranslationResource = {
     documentsEmpty: 'Il n’y a aucun document.',
     participants: 'Participants',
     participantsEmpty: 'Il n’y a aucun participant.',
-    resolutionClosesAt: 'Fin du vote le {{date}}',
+    votingDeadline: 'Vote possible jusqu’au {{date}}',
+    votingClosedOn: 'Clôturée le {{date}}',
     resolutionYourVote: 'Votre vote : {{choice}}',
     resolutionNoVote: 'Vous n’avez pas voté.',
-    pageCount_one: '{{count}} page',
-    pageCount_many: '{{count}} de pages',
-    pageCount_other: '{{count}} pages',
+    pageCount_one: '{{formattedCount}} page',
+    pageCount_many: '{{formattedCount}} de pages',
+    pageCount_other: '{{formattedCount}} pages',
   },
   states: {
     retry: 'Réessayer',
-    staleData: 'Données enregistrées le {{date}}',
+    staleData: 'Affichage des données enregistrées le {{date}}',
+    refreshing: 'Actualisation en cours',
   },
   participantRole: {
     chair: 'Président',
@@ -59,9 +57,10 @@ export const fr: TranslationResource = {
     member: 'Membre',
     guest: 'Invité',
   },
-  resolutionStatus: {
+  votingState: {
     open: 'Ouverte',
     closed: 'Clôturée',
+    windowOver: 'Délai écoulé',
   },
   confidentiality: {
     public: 'Public',
@@ -75,9 +74,12 @@ export const fr: TranslationResource = {
   },
   errors: {
     networkUnavailable: 'Le serveur est injoignable. Vérifiez votre connexion et réessayez.',
-    unauthorized: 'Vous n’avez pas accès à cet élément. Reconnectez-vous.',
+    unauthorized: 'Votre session n’est plus valide. Reconnectez-vous.',
+    forbidden: 'Vous n’avez pas accès à cette réunion.',
     notAuthenticated: 'Vous êtes déconnecté. Connectez-vous pour continuer.',
     sessionExpired: 'Votre session a expiré. Reconnectez-vous.',
+    appLocked: 'L’application est verrouillée. Déverrouillez-la pour continuer.',
+    sessionChanged: 'L’utilisateur connecté a changé. Reconnectez-vous.',
     notFound: 'Cette réunion n’existe pas, ou vous n’y avez plus accès.',
     unexpected: 'Une erreur est survenue de notre côté. Réessayez dans un instant.',
     storageReadFailed: 'Les données enregistrées sur cet appareil n’ont pas pu être lues.',
@@ -86,7 +88,7 @@ export const fr: TranslationResource = {
   startup: {
     title: 'Boardroom ne peut pas démarrer',
     message:
-      'L’application n’est pas configurée correctement. Vérifiez le réglage EXPO_PUBLIC_BOARDROOM_ADAPTERS : il accepte mock (la valeur par défaut) ou http, qui n’est pas encore disponible.',
+      'L’application n’est pas configurée correctement. Vérifiez le réglage EXPO_PUBLIC_BOARDROOM_ADAPTERS\u00a0: il accepte mock ou http, qui n’est pas encore disponible. Une version de développement utilise mock quand le réglage manque\u00a0; toute autre version l’exige.',
     code: 'Code technique : {{code}}',
   },
 };

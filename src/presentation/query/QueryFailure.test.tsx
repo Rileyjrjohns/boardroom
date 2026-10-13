@@ -7,6 +7,8 @@ import { notFound, unauthorized, unexpected } from '@domain/errors/RepositoryErr
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
+import { trackClient } from '../testing/queryClients';
+
 import { createQueryClient } from './createQueryClient';
 import { QueryFailure, isQueryFailure, unwrapResult } from './QueryFailure';
 
@@ -55,7 +57,7 @@ describe('the Result to query state convention', () => {
   }
 
   function renderProbe(children: ReactNode = <Probe />) {
-    const client = createQueryClient({ retryDelay: () => 0, gcTime: Infinity });
+    const client = trackClient(createQueryClient({ retryDelay: () => 0 }));
     render(<QueryClientProvider client={client}>{children}</QueryClientProvider>);
     return client;
   }
@@ -92,9 +94,8 @@ describe('the Result to query state convention', () => {
     expect(await screen.findByText('true false third -')).toBeTruthy();
 
     answers = [err(notFound()), ok('never read')];
-    const second = renderProbe();
+    renderProbe();
     await screen.findByText(/false true - notFound/);
     expect(answers).toHaveLength(1);
-    second.clear();
   });
 });

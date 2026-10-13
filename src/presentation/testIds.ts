@@ -25,6 +25,8 @@ export const TEST_IDS = {
   documentsSection: 'documents-section',
   participantsSection: 'participants-section',
   startupFailure: 'startup-failure',
+  sessionEnded: 'session-ended',
+  errorBoundary: 'error-boundary',
 } as const;
 
 export const MEETING_ROW_TEST_ID_PREFIX = 'meeting-row-';

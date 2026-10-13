@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, fontSizes, fontWeights, radii, spacing } from '../theme/tokens';
 
-type BadgeTone = 'neutral' | 'positive' | 'confidential';
+export type BadgeTone = 'neutral' | 'positive' | 'confidential';
 
 interface BadgeProps {
   /** The translated text. */

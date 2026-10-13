@@ -12,10 +12,12 @@ const third = aMeetingSummary({ id: aMeetingId('c') });
 const fresh = (...meetings: (typeof first)[]): MeetingsPage => ({
   data: createPage(meetings),
   source: { freshness: FRESHNESS.Fresh },
+  loadedAt: at(0),
 });
 const stale = (cachedAt: number, ...meetings: (typeof first)[]): MeetingsPage => ({
   data: createPage(meetings),
   source: { freshness: FRESHNESS.Stale, cachedAt: at(cachedAt) },
+  loadedAt: at(0),
 });
 const pagesOf = (...pages: MeetingsPage[]): MeetingsPages => ({
   pages,

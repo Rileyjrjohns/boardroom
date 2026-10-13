@@ -19,10 +19,12 @@ import { Message } from '../components/Message';
 import { ParticipantRow } from '../components/ParticipantRow';
 import { Section } from '../components/Section';
 import { StaleBanner } from '../components/StaleBanner';
-import { useDateTimeFormatter } from '../format/useDateTimeFormatter';
+import { useAnnounce } from '../accessibility/useAnnounce';
+import { useFormatters } from '../format/FormattersProvider';
 import { useMeeting } from '../hooks/useMeeting';
-import type { MeetingFailure } from '../hooks/useMeeting';
-import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
+import type { MeetingsErrorCode } from '../i18n/translationKeys';
+import { errorCodeOf } from '../query/errorCode';
+import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 
@@ -55,6 +57,7 @@ function NotFound() {
 function MeetingDetail({ id }: { readonly id: MeetingId }) {
   const { t } = useTranslation();
   const { data, error, isPending, isError, isRefetchError, refetch } = useMeeting(id);
+  const errorCode = isError ? errorCodeOf(error) : undefined;
   const [refreshing, setRefreshing] = useState(false);
   const retry = useCallback(() => {
     void refetch();
@@ -75,22 +78,25 @@ function MeetingDetail({ id }: { readonly id: MeetingId }) {
       </View>
     );
   }
-  if (isError && data === undefined) {
-    // Asking again cannot bring back a meeting that does not exist.
-    return error.error.code === REPOSITORY_ERROR_CODE.NotFound ? (
+  if (errorCode !== undefined && (data === undefined || !isRetryableCode(errorCode))) {
+    // A failure that asking again cannot fix is final, and replaces the meeting whatever was
+    // loaded before. A meeting that does not exist is told as such.
+    return errorCode === REPOSITORY_ERROR_CODE.NotFound ? (
       <NotFound />
     ) : (
       <View style={styles.screen}>
-        <ErrorState code={error.error.code} onRetry={retry} testID={TEST_IDS.meetingError} />
+        <ErrorState code={errorCode} onRetry={retry} testID={TEST_IDS.meetingError} />
       </View>
     );
   }
+  if (data === undefined) return null;
 
   return (
     <MeetingContent
       meeting={data.data}
+      loadedAt={data.loadedAt}
       staleSince={data.source.freshness === FRESHNESS.Stale ? data.source.cachedAt : undefined}
-      refreshError={isRefetchError ? error : null}
+      refreshError={isRefetchError ? errorCode : undefined}
       refreshing={refreshing}
       onRefresh={refresh}
       onRetry={retry}
@@ -100,10 +106,12 @@ function MeetingDetail({ id }: { readonly id: MeetingId }) {
 
 interface MeetingContentProps {
   readonly meeting: Meeting;
+  /** The instant the data was produced at, for the state of the votes. */
+  readonly loadedAt: Instant;
   /** When the saved copy on the screen was cached, or `undefined` when it is fresh. */
   readonly staleSince: Instant | undefined;
   /** Why the last refresh failed, while the content of the last success stays on the screen. */
-  readonly refreshError: MeetingFailure | null;
+  readonly refreshError: MeetingsErrorCode | undefined;
   /** Whether the user's pull to refresh is under way. */
   readonly refreshing: boolean;
   readonly onRefresh: () => void;
@@ -112,6 +120,7 @@ interface MeetingContentProps {
 
 function MeetingContent({
   meeting,
+  loadedAt,
   staleSince,
   refreshError,
   refreshing,
@@ -120,7 +129,8 @@ function MeetingContent({
 }: MeetingContentProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const { fullDateTime } = useDateTimeFormatter();
+  const { fullDateTime } = useFormatters();
+  useAnnounce(refreshing ? t('states.refreshing') : undefined);
 
   return (
     <ScrollView
@@ -130,12 +140,8 @@ function MeetingContent({
       testID={TEST_IDS.meetingDetail}
     >
       {staleSince === undefined ? null : <StaleBanner cachedAt={staleSince} />}
-      {refreshError === null ? null : (
-        <InlineError
-          message={t(MEETINGS_ERROR_KEYS[refreshError.error.code])}
-          onRetry={onRetry}
-          testID={TEST_IDS.refreshError}
-        />
+      {refreshError === undefined ? null : (
+        <InlineError code={refreshError} onRetry={onRetry} testID={TEST_IDS.refreshError} />
       )}
 
       <View style={styles.header}>
@@ -150,7 +156,7 @@ function MeetingContent({
         {meeting.agenda.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.agendaEmpty')}</Text>
         ) : (
-          meeting.agenda.map((item) => <AgendaItemView key={item.id} item={item} />)
+          meeting.agenda.map((item) => <AgendaItemView key={item.id} item={item} now={loadedAt} />)
         )}
       </Section>
 

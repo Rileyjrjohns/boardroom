@@ -13,10 +13,13 @@ const RETRYABLE = [
 ];
 const NOT_RETRYABLE = [
   REPOSITORY_ERROR_CODE.Unauthorized,
+  REPOSITORY_ERROR_CODE.Forbidden,
   REPOSITORY_ERROR_CODE.NotFound,
   VALIDATION_ERROR_CODE.Validation,
   AUTHENTICATION_ERROR_CODE.NotAuthenticated,
   AUTHENTICATION_ERROR_CODE.SessionExpired,
+  AUTHENTICATION_ERROR_CODE.AppLocked,
+  AUTHENTICATION_ERROR_CODE.SessionChanged,
 ];
 
 describe('the retry policy', () => {
@@ -34,10 +37,16 @@ describe('the retry policy', () => {
     expect(isRetryableCode(code)).toBe(false);
   });
 
-  it('does not try again a thrown value that is not a failure of a use case: it is a bug', () => {
-    expect(shouldRetry(0, new Error('boom'))).toBe(false);
-    expect(shouldRetry(0, 'boom')).toBe(false);
-    expect(shouldRetry(0, undefined)).toBe(false);
+  it('reads a rejection that is not the failure of a use case as unexpected, and tries it again', () => {
+    expect(shouldRetry(0, new Error('boom'))).toBe(true);
+    expect(shouldRetry(0, 'boom')).toBe(true);
+    expect(shouldRetry(0, undefined)).toBe(true);
+    expect(shouldRetry(MAX_QUERY_RETRIES, new Error('boom'))).toBe(false);
+  });
+
+  it('does not try again a failure whose code is not one of the app', () => {
+    expect(shouldRetry(0, new QueryFailure({ code: 'unheardOf' }))).toBe(true);
+    expect(isRetryableCode('unheardOf')).toBe(false);
   });
 
   it('waits twice as long before each retry, up to a limit', () => {

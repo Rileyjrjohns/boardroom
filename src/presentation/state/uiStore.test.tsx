@@ -1,6 +1,7 @@
 import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import { Pressable, Text } from 'react-native';
 
+import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
 import { UiStoreProvider, createUiStore, useUiStore } from './uiStore';
@@ -26,6 +27,15 @@ describe('createUiStore', () => {
     store.getState().selectMeetingsPeriod(MEETING_PERIOD.Past);
 
     expect(periods).toEqual([MEETING_PERIOD.Past]);
+  });
+
+  it('has a session that goes on, until a failure says otherwise', () => {
+    const store = createUiStore();
+    expect(store.getState().sessionEndedBy).toBeUndefined();
+
+    store.getState().endSession(REPOSITORY_ERROR_CODE.Unauthorized);
+
+    expect(store.getState().sessionEndedBy).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
   });
 
   it('creates a new store at every call: no state is shared between two', () => {
@@ -83,6 +93,23 @@ describe('UiStoreProvider', () => {
     fireEvent.press(screen.getByLabelText(FIRST));
 
     expect(screen.getByText('b: past')).toBeTruthy();
+  });
+
+  it('provides the store it is given, so that what is outside React and what is inside see one', () => {
+    const store = createUiStore();
+    store.getState().selectMeetingsPeriod(MEETING_PERIOD.Past);
+
+    render(
+      <UiStoreProvider store={store}>
+        <Period label={FIRST} />
+      </UiStoreProvider>,
+    );
+
+    expect(screen.getByText('a: past')).toBeTruthy();
+    act(() => {
+      store.getState().selectMeetingsPeriod(MEETING_PERIOD.Upcoming);
+    });
+    expect(screen.getByText('a: upcoming')).toBeTruthy();
   });
 
   it('gives each provider its own store, so that two apps never share state', () => {

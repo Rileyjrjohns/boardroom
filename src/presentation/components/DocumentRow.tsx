@@ -2,21 +2,15 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { Document } from '@domain/entities/Document';
-import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 
+import { useFormatters } from '../format/FormattersProvider';
 import { CONFIDENTIALITY_KEYS } from '../i18n/translationKeys';
 import { translateCount } from '../i18n/translateCount';
 import { documentTestId } from '../testIds';
-import {
-  borderWidths,
-  colors,
-  fontSizes,
-  fontWeights,
-  spacing,
-  touchTarget,
-} from '../theme/tokens';
+import { borderWidths, colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 
 import { Badge } from './Badge';
+import { CONFIDENTIALITY_TONES } from './badgeTones';
 
 interface DocumentRowProps {
   readonly document: Document;
@@ -31,6 +25,7 @@ interface DocumentRowProps {
  */
 export function DocumentRow({ document }: DocumentRowProps) {
   const { t } = useTranslation();
+  const { number } = useFormatters();
 
   return (
     <View style={styles.row} testID={documentTestId(document.id)}>
@@ -38,14 +33,10 @@ export function DocumentRow({ document }: DocumentRowProps) {
       <View style={styles.details}>
         <Badge
           label={t(CONFIDENTIALITY_KEYS[document.confidentiality])}
-          tone={
-            document.confidentiality === CONFIDENTIALITY_LEVEL.Confidential
-              ? 'confidential'
-              : 'neutral'
-          }
+          tone={CONFIDENTIALITY_TONES[document.confidentiality]}
         />
         <Text style={styles.pages}>
-          {translateCount(t, 'meeting.pageCount', document.pageCount)}
+          {translateCount(t, 'meeting.pageCount', document.pageCount, number)}
         </Text>
       </View>
     </View>
@@ -54,7 +45,6 @@ export function DocumentRow({ document }: DocumentRowProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: touchTarget.min,
     gap: spacing.sm,
     paddingVertical: spacing.sm,
     borderBottomWidth: borderWidths.hairline,

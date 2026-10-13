@@ -1,7 +1,8 @@
 /**
  * Design tokens. This is the only place where raw colours are written (the lint rules forbid them
- * everywhere else). It holds the tokens that screens use today and grows with them. Light theme
- * only: the app locks the light appearance (see the README).
+ * everywhere else). It holds the tokens that screens use today and grows with them: a token that
+ * nothing uses is removed (`tooling/tokens.test.ts` fails on it). Light theme only: the app locks
+ * the light appearance (see the README).
  */
 
 export const colors = {
@@ -29,7 +30,6 @@ export const spacing = {
   md: 12,
   lg: 16,
   xl: 24,
-  xxl: 32,
 } as const;
 
 export const fontSizes = {
@@ -40,7 +40,6 @@ export const fontSizes = {
 } as const;
 
 export const fontWeights = {
-  regular: '400',
   semibold: '600',
   bold: '700',
 } as const;

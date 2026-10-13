@@ -16,7 +16,7 @@ export function findSupportedLanguage(subtag: string): SupportedLanguage | undef
  * language is returned. An entry that is not a usable string (`null`, `undefined`, an empty tag)
  * is skipped.
  *
- * Pure: the device is read elsewhere (see `useDeviceLanguage`).
+ * Pure: the device is read elsewhere (see `useDeviceLocale`).
  */
 export function resolveLanguage(
   deviceLanguageTags: readonly (string | null | undefined)[],

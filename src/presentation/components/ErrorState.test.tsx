@@ -29,4 +29,12 @@ describe('ErrorState', () => {
       expect(onRetry).toHaveBeenCalledTimes(1);
     }
   });
+
+  it('tells the French user, in French, that the session is over', () => {
+    renderScreen(<ErrorState code="unauthorized" onRetry={jest.fn()} />, { language: 'fr' });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Votre session n’est plus valide. Reconnectez-vous.',
+    );
+  });
 });

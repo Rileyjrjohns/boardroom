@@ -1,10 +1,12 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { FlatList, View } from 'react-native';
+import { AccessibilityInfo, FlatList, Platform, View } from 'react-native';
 
 import { unauthorized, unexpected } from '@domain/errors/RepositoryError';
 import { NOW, aMeetingId } from '@domain/testing/builders';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
+import { createFormatters } from '../format/formatters';
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
+import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
 import type { SupportedLanguage } from '../i18n/constants';
 import { TEST_IDS, meetingRowTestId, periodOptionTestId } from '../testIds';
 import { touchTarget } from '../theme/tokens';
@@ -207,7 +209,7 @@ describe('MeetingsListScreen', () => {
       await reachEnd();
       await screen.findByTestId(TEST_IDS.meetingsLoadMoreError);
 
-      expect(screen.getByText(t('meetings.loadMoreFailed'))).toBeTruthy();
+      expect(screen.getByText(t('errors.unexpected'))).toBeTruthy();
       expect(shownIds()).toEqual(['u1', 'u2', 'u3']);
       // The user decides when to try again: reaching the end again does not.
       const callsBefore = fakes.meetings.listCalls.length;
@@ -308,7 +310,7 @@ describe('MeetingsListScreen', () => {
       const { fakes, t } = renderList();
       fakes.meetings.failure = unauthorized();
 
-      const error = await screen.findByTestId(TEST_IDS.meetingsError);
+      const error = await screen.findByTestId(TEST_IDS.sessionEnded);
 
       expect(within(error).getByText(t('errors.unauthorized'))).toBeTruthy();
       expect(within(error).queryByRole('button')).toBeNull();
@@ -394,6 +396,96 @@ describe('MeetingsListScreen', () => {
 
       fireEvent.press(screen.getByRole('tab', { name: 'Passées' }));
       await screen.findByText('Aucune réunion passée.');
+    });
+  });
+
+  describe('for the screen reader', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('tells that the list is busy, and what it waits for, while it loads', async () => {
+      const { t } = renderList();
+
+      const progress = screen.getByRole('progressbar', { name: t('meetings.loading') });
+      expect(progress.props.accessibilityState).toEqual({ busy: true });
+      expect(screen.getByTestId(TEST_IDS.meetingsList).props.accessibilityState).toEqual({
+        busy: true,
+      });
+
+      await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+      expect(screen.getByTestId(TEST_IDS.meetingsList).props.accessibilityState).toEqual({
+        busy: false,
+      });
+      expect(screen.queryByRole('progressbar')).toBeNull();
+    });
+
+    it('tells that more is loading at the end of the list, as a busy progress bar with a name', async () => {
+      const { fakes, t } = renderList();
+      await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+      const gate = new Promise<void>(() => undefined);
+      fakes.meetings.onRequest = () => gate;
+
+      await reachEnd();
+
+      const progress = await screen.findByRole('progressbar', { name: t('meetings.loadingMore') });
+      expect(progress.props.accessibilityState).toEqual({ busy: true });
+      expect(progress).toBe(screen.getByTestId(TEST_IDS.meetingsLoadingMore));
+    });
+
+    it('announces on iOS that it is refreshing', async () => {
+      jest.replaceProperty(Platform, 'OS', 'ios');
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+      const { t } = renderList();
+      await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+      announce.mockClear();
+
+      await pullToRefresh();
+
+      expect(announce).toHaveBeenCalledWith(t('states.refreshing'));
+    });
+
+    it('announces the saved copy and the error it falls back on, on iOS', async () => {
+      jest.replaceProperty(Platform, 'OS', 'ios');
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+      const { fakes, t, format } = renderList();
+      await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+      announce.mockClear();
+      fakes.network.goOffline();
+
+      await pullToRefresh();
+      await screen.findByTestId(TEST_IDS.staleBanner);
+
+      expect(announce).toHaveBeenCalledWith(t('states.staleData', { date: format.dateTime(NOW) }));
+    });
+  });
+
+  describe('for the region of the device', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('writes the dates the way the region of the device does when it is in the language shown', async () => {
+      setDeviceLanguages('en-GB');
+      renderList();
+
+      const row = await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+
+      const scheduledAt = UPCOMING[0]?.scheduledAt ?? NOW;
+      const british = createFormatters('en-GB').dateTime(scheduledAt);
+      expect(british).not.toBe(createFormatters('en').dateTime(scheduledAt));
+      expect(within(row).getByText(british)).toBeTruthy();
+    });
+
+    it('writes the bare language when the device is in another language than the one shown', async () => {
+      setDeviceLanguages('de-DE');
+      renderList();
+
+      const row = await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
+
+      expect(
+        within(row).getByText(createFormatters('en').dateTime(UPCOMING[0]?.scheduledAt ?? NOW)),
+      ).toBeTruthy();
     });
   });
 

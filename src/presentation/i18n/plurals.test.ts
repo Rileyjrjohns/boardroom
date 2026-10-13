@@ -81,8 +81,8 @@ describe.each([
     it.each(EXPECTED_CATEGORIES[language])('uses the right form for %s', (count, category) => {
       const { t } = createI18n(language);
 
-      expect(t('meeting.pageCount', { count })).toBe(
-        PLURAL_FORMS[language][category].replace('{{count}}', String(count)),
+      expect(t('meeting.pageCount', { count, formattedCount: String(count) })).toBe(
+        PLURAL_FORMS[language][category].replace('{{formattedCount}}', String(count)),
       );
     });
   });
@@ -94,18 +94,18 @@ describe.each([
     // "page" is the same word in both languages, so the texts only differ where the plural forms
     // do: zero and a fraction are singular in French, a multiple of a million takes "de".
     for (const count of [0, 1.5, 1_000_000, 2_000_000]) {
-      expect(french.t('meeting.pageCount', { count })).not.toBe(
-        english.t('meeting.pageCount', { count }),
+      expect(french.t('meeting.pageCount', { count, formattedCount: String(count) })).not.toBe(
+        english.t('meeting.pageCount', { count, formattedCount: String(count) }),
       );
     }
   });
 
   it('pluralises French and English differently for zero', () => {
-    expect(createI18n('en').t('meeting.pageCount', { count: 0 })).not.toBe(
-      createI18n('fr').t('meeting.pageCount', { count: 0 }),
+    expect(createI18n('en').t('meeting.pageCount', { count: 0, formattedCount: '0' })).not.toBe(
+      createI18n('fr').t('meeting.pageCount', { count: 0, formattedCount: '0' }),
     );
-    expect(createI18n('fr').t('meeting.pageCount', { count: 0 })).toContain(
-      PLURAL_FORMS.fr.one.replace('{{count}}', '0'),
+    expect(createI18n('fr').t('meeting.pageCount', { count: 0, formattedCount: '0' })).toContain(
+      PLURAL_FORMS.fr.one.replace('{{formattedCount}}', '0'),
     );
   });
 });
@@ -117,8 +117,8 @@ describe('why the fallback exists', () => {
     await bare.init({ lng: 'fr', resources: RESOURCES, initAsync: false });
 
     // "0 page" is the correct French. Without Intl.PluralRules, i18next gives "0 pages".
-    expect(bare.t('meeting.pageCount', { count: 0 })).toContain(
-      PLURAL_FORMS.fr.other.replace('{{count}}', '0'),
+    expect(bare.t('meeting.pageCount', { count: 0, formattedCount: '0' })).toContain(
+      PLURAL_FORMS.fr.other.replace('{{formattedCount}}', '0'),
     );
   });
 });

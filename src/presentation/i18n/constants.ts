@@ -12,5 +12,5 @@ export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 /** Language used when the device language is not supported, and for any missing translation. */
 export const FALLBACK_LANGUAGE: SupportedLanguage = 'en';
 
-/** The only i18next namespace. Keys are grouped by area inside it, for example `app.name`. */
+/** The only i18next namespace. Keys are grouped by area inside it, for example `navigation.meetings`. */
 export const DEFAULT_NAMESPACE = 'translation';

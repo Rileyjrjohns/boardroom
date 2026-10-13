@@ -5,7 +5,7 @@ import type { Participant } from '@domain/entities/Participant';
 
 import { PARTICIPANT_ROLE_KEYS } from '../i18n/translationKeys';
 import { participantTestId } from '../testIds';
-import { borderWidths, colors, fontSizes, spacing, touchTarget } from '../theme/tokens';
+import { borderWidths, colors, fontSizes, spacing } from '../theme/tokens';
 
 interface ParticipantRowProps {
   readonly participant: Participant;
@@ -25,9 +25,9 @@ export function ParticipantRow({ participant }: ParticipantRowProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: touchTarget.min,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: spacing.sm,
     justifyContent: 'space-between',
     gap: spacing.md,
     borderBottomWidth: borderWidths.hairline,

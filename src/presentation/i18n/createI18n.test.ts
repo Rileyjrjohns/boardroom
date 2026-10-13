@@ -61,7 +61,7 @@ describe('createI18n', () => {
     // @ts-expect-error A group of keys is not a translation.
     t('navigation');
 
-    expect(t('app.name')).toBe(en.app.name);
+    expect(t('navigation.meetings')).toBe(en.navigation.meetings);
   });
 
   it('does not let a default text switch the key check off', () => {
@@ -72,20 +72,20 @@ describe('createI18n', () => {
     // @ts-expect-error The same with the `defaultValue` option.
     t('does.not.exist', { defaultValue: DEFAULT_TEXT });
 
-    expect(t('app.name')).toBe(en.app.name);
+    expect(t('navigation.meetings')).toBe(en.navigation.meetings);
   });
 
   it('gives each instance its own resources', () => {
     const first = createI18n('fr');
-    const original = first.t('app.name');
+    const original = first.t('navigation.meetings');
     const changed = `${original}, changed`;
 
-    first.addResource('fr', DEFAULT_NAMESPACE, 'app.name', changed);
+    first.addResource('fr', DEFAULT_NAMESPACE, 'navigation.meetings', changed);
 
-    expect(first.t('app.name')).toBe(changed);
-    expect(createI18n('fr').t('app.name')).toBe(original);
-    expect(fr.app.name).toBe(original);
-    expect(RESOURCES.fr[DEFAULT_NAMESPACE].app.name).toBe(original);
+    expect(first.t('navigation.meetings')).toBe(changed);
+    expect(createI18n('fr').t('navigation.meetings')).toBe(original);
+    expect(fr.navigation.meetings).toBe(original);
+    expect(RESOURCES.fr[DEFAULT_NAMESPACE].navigation.meetings).toBe(original);
   });
 
   it('gives each instance its own copy of a whole resource bundle', () => {

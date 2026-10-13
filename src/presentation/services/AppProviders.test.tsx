@@ -2,11 +2,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Pressable, Text } from 'react-native';
 
+import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
+import { QueryFailure } from '../query/QueryFailure';
 import { useUiStore } from '../state/uiStore';
+import { trackClient } from '../testing/queryClients';
 
-import { AppProviders } from './AppProviders';
+import { AppProviders, createAppState } from './AppProviders';
 import { useAppServices } from './AppServices';
 import type { AppServices } from './AppServices';
 
@@ -90,5 +93,62 @@ describe('AppProviders', () => {
 
     expect(new Set(clients).size).toBe(2);
     expect(screen.getByText('b: 12 upcoming')).toBeTruthy();
+  });
+});
+
+describe('createAppState', () => {
+  it('creates a new client and a new store at every call', () => {
+    const first = createAppState();
+    const second = createAppState();
+    trackClient(first.queryClient);
+    trackClient(second.queryClient);
+
+    expect(first.queryClient).not.toBe(second.queryClient);
+    expect(first.uiStore).not.toBe(second.uiStore);
+  });
+
+  it('has the store told why when a failure ends the session, and the cache emptied', async () => {
+    const { queryClient, uiStore } = createAppState({ retryDelay: () => 0 });
+    trackClient(queryClient);
+    queryClient.setQueryData(['rows'], 'the rows of the user');
+    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+
+    await queryClient
+      .fetchQuery({
+        queryKey: ['failing'],
+        queryFn: () =>
+          Promise.reject(new QueryFailure({ code: REPOSITORY_ERROR_CODE.Unauthorized })),
+      })
+      .catch(() => undefined);
+
+    expect(uiStore.getState().sessionEndedBy).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
+    expect(queryClient.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it('leaves the store alone for a failure that does not end the session', async () => {
+    const { queryClient, uiStore } = createAppState({ retryDelay: () => 0 });
+    trackClient(queryClient);
+
+    await queryClient
+      .fetchQuery({
+        queryKey: ['failing'],
+        queryFn: () => Promise.reject(new QueryFailure({ code: REPOSITORY_ERROR_CODE.NotFound })),
+      })
+      .catch(() => undefined);
+
+    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+  });
+
+  it('is the state AppProviders uses when it is given one', () => {
+    const state = createAppState();
+    trackClient(state.queryClient);
+
+    render(
+      <AppProviders services={SERVICES} state={state}>
+        <Probe name="a" />
+      </AppProviders>,
+    );
+
+    expect(clients).toEqual([state.queryClient]);
   });
 });

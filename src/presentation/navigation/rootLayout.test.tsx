@@ -16,15 +16,47 @@ import { MEETING_ROW_TEST_ID_PATTERN } from '../testing/meetingFixtures';
 // device and the environment variable are set by the tests; i18next, react-i18next, TanStack Query
 // and the use cases are the real ones.
 
+// The native header of a screen of the stack, which holds its title.
+const HEADER_CONFIGURATION = 'RNSScreenStackHeaderConfig';
+
 const initial = process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
+const initialDevelopment = __DEV__;
+
+// The bundler defines the flag as a global, which TypeScript only knows as a constant.
+function setDevelopmentFlag(value: boolean): void {
+  Object.assign(globalThis, { __DEV__: value });
+}
 
 afterEach(() => {
+  setDevelopmentFlag(initialDevelopment);
   // renderRouter switches to fake timers.
   jest.useRealTimers();
   jest.restoreAllMocks();
   if (initial === undefined) delete process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
   else process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = initial;
 });
+
+/** What the test renderer gives back for a host component. */
+interface RenderedNode {
+  readonly type: string;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly children: readonly (RenderedNode | string)[] | null;
+}
+
+/** The titles of the headers of the screens of the stack, from the first screen to the last. */
+function headerTitles(): string[] {
+  const titles: string[] = [];
+  const visit = (node: RenderedNode | string): void => {
+    if (typeof node === 'string') return;
+    if (node.type === HEADER_CONFIGURATION && typeof node.props.title === 'string') {
+      titles.push(node.props.title);
+    }
+    node.children?.forEach(visit);
+  };
+  const rendered = screen.toJSON() as RenderedNode | RenderedNode[] | null;
+  [rendered ?? []].flat().forEach(visit);
+  return titles;
+}
 
 describe('root layout', () => {
   describe('with the mock adapters, which is the default', () => {
@@ -70,6 +102,45 @@ describe('root layout', () => {
       expect(screen.getByRole('header', { name: t('meeting.agenda') })).toBeTruthy();
     });
 
+    it('opens the detail of a meeting once, however many times its row is tapped', async () => {
+      setDeviceLanguages('en');
+      const { getPathname } = renderRouter();
+      const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+
+      fireEvent.press(row!);
+      fireEvent.press(row!);
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+      const detail = getPathname();
+      act(() => {
+        router.back();
+      });
+
+      // One screen was stacked, so one step back is the list.
+      expect(detail).toMatch(/^\/meetings\/meeting-/);
+      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      expect(getPathname()).toBe('/');
+    });
+
+    it.each([
+      ['en', 'Meetings', 'Meeting'],
+      ['fr', 'Réunions', 'Réunion'],
+    ] as const)(
+      'titles the list and the detail of a meeting in the header, in %s',
+      async (language, listTitle, detailTitle) => {
+        setDeviceLanguages(language);
+        const { t } = createI18n(language);
+        renderRouter();
+        const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+        expect(headerTitles()).toEqual([listTitle]);
+
+        fireEvent.press(row!);
+        await screen.findByTestId(TEST_IDS.meetingDetail);
+
+        expect(headerTitles()).toEqual([listTitle, detailTitle]);
+        expect(t('navigation.meeting')).toBe(detailTitle);
+      },
+    );
+
     it('opens a meeting that does not exist as not found', async () => {
       setDeviceLanguages('en');
       const { t } = createI18n('en');
@@ -111,6 +182,30 @@ describe('root layout', () => {
 
       expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
       expect(screen.getByText(t('startup.code', { code: 'invalidAdaptersSetting' }))).toBeTruthy();
+    });
+
+    it('does not start the mock adapters in a build that is not a development one when the setting is missing', () => {
+      delete process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS;
+      setDevelopmentFlag(false);
+      setDeviceLanguages('en');
+      const { t } = createI18n('en');
+
+      renderRouter();
+
+      expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
+      expect(screen.getByText(t('startup.code', { code: 'missingAdaptersSetting' }))).toBeTruthy();
+      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+    });
+
+    it('starts the mock adapters in a build that is not a development one when they are asked for', async () => {
+      process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS = 'mock';
+      setDevelopmentFlag(false);
+      setDeviceLanguages('en');
+
+      renderRouter();
+
+      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
     });
   });
 });

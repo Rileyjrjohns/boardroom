@@ -1,11 +1,14 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 
 import { createAgendaItem } from '@domain/entities/AgendaItem';
+import { createMeeting } from '@domain/entities/Meeting';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
 import { unexpected } from '@domain/errors/RepositoryError';
 import {
   MILLIS_PER_DAY,
+  MILLIS_PER_HOUR,
   NOW,
   aConfidentialDocument,
   aDocument,
@@ -15,6 +18,7 @@ import {
   aParticipant,
   aResolution,
   aResolutionId,
+  aSession,
   anAgendaItem,
   anAgendaItemId,
   aUserId,
@@ -23,7 +27,9 @@ import {
 } from '@domain/testing/builders';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
+import { createFormatters } from '../format/formatters';
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
+import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
 import {
   TEST_IDS,
   agendaItemTestId,
@@ -31,6 +37,7 @@ import {
   participantTestId,
   resolutionTestId,
 } from '../testIds';
+import { createFakes } from '@application/testing/createFakes';
 import { renderScreen } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
@@ -160,18 +167,16 @@ describe('MeetingDetailScreen', () => {
       expect(screen.getByText('Welcome and apologies.')).toBeTruthy();
     });
 
-    it('shows the resolution of an item: its status, when voting closes and the vote of the user', async () => {
+    it('shows the resolution of an item: where voting stands, its deadline and the vote of the user', async () => {
       const { t, format } = renderDetail();
       await screen.findByTestId(TEST_IDS.meetingDetail);
 
       const open = screen.getByTestId(resolutionTestId('budget-vote'));
 
       expect(within(open).getByText('Approve the budget')).toBeTruthy();
-      expect(within(open).getByText(t('resolutionStatus.open'))).toBeTruthy();
+      expect(within(open).getByText(t('votingState.open'))).toBeTruthy();
       expect(
-        within(open).getByText(
-          t('meeting.resolutionClosesAt', { date: format.dateTime(CLOSES_AT) }),
-        ),
+        within(open).getByText(t('meeting.votingDeadline', { date: format.dateTime(CLOSES_AT) })),
       ).toBeTruthy();
       expect(
         within(open).getByText(
@@ -180,15 +185,15 @@ describe('MeetingDetailScreen', () => {
       ).toBeTruthy();
     });
 
-    it('shows a closed resolution the user did not vote on, without a closing time', async () => {
+    it('shows a closed resolution the user did not vote on, without a date it has none to give', async () => {
       const { t } = renderDetail();
       await screen.findByTestId(TEST_IDS.meetingDetail);
 
       const closed = screen.getByTestId(resolutionTestId('elections-vote'));
 
-      expect(within(closed).getByText(t('resolutionStatus.closed'))).toBeTruthy();
+      expect(within(closed).getByText(t('votingState.closed'))).toBeTruthy();
       expect(within(closed).getByText(t('meeting.resolutionNoVote'))).toBeTruthy();
-      expect(within(closed).queryByText(/closes/i)).toBeNull();
+      expect(within(closed).queryByText(/Vote by|Closed on/)).toBeNull();
     });
 
     it('shows no resolution for an item that has none', async () => {
@@ -273,6 +278,29 @@ describe('MeetingDetailScreen', () => {
       expect(fakes.meetings.getCalls).toEqual([]);
     });
 
+    it('says the meeting is forbidden to the user, with no way to retry, and drops the saved copy', async () => {
+      const { fakes, t } = renderDetail();
+      await fakes.meetingCache.saveMeeting(aUserId(), MEETING, NOW);
+      fakes.meetings.forbid(MEETING.id);
+
+      const error = await screen.findByTestId(TEST_IDS.meetingError);
+
+      expect(within(error).getByText(t('errors.forbidden'))).toBeTruthy();
+      expect(within(error).queryByRole('button')).toBeNull();
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
+    });
+
+    it('says the app is locked, with no way to retry', async () => {
+      const { fakes, t } = renderDetail();
+      fakes.appLock.lock();
+
+      const error = await screen.findByTestId(TEST_IDS.sessionEnded);
+
+      expect(within(error).getByText(t('errors.appLocked'))).toBeTruthy();
+      expect(within(error).queryByRole('button')).toBeNull();
+      expect(fakes.meetings.getCalls).toEqual([]);
+    });
+
     it('shows an error with a way to retry, and the meeting when the retry succeeds', async () => {
       const { fakes, t } = renderDetail();
       fakes.meetings.failure = unexpected();
@@ -311,6 +339,7 @@ describe('MeetingDetailScreen', () => {
     it('says since when a meeting is a saved copy, when the server cannot be reached', async () => {
       const { fakes, t, format } = renderDetail();
       await fakes.meetingCache.saveMeeting(aUserId(), MEETING, NOW);
+      fakes.auth.session = aSession({ expiresAt: at(2 * MILLIS_PER_DAY) });
       fakes.clock.advance(MILLIS_PER_DAY);
       fakes.network.goOffline();
 
@@ -384,6 +413,127 @@ describe('MeetingDetailScreen', () => {
       fakes.meetings.removeMeeting(MEETING.id);
 
       await screen.findByText('Cette réunion n’existe pas, ou vous n’y avez plus accès.');
+    });
+  });
+
+  describe('where voting stands', () => {
+    /** The world of the use cases with the clock at `instant`, and a session that outlasts it. */
+    function fakesAt(instant: number) {
+      const fakes = createFakes();
+      fakes.auth.session = aSession({ expiresAt: at(30 * MILLIS_PER_DAY) });
+      fakes.clock.set(at(instant));
+      return fakes;
+    }
+
+    it('shows the voting as ended, and not as open, once the window has passed at the instant of the load', async () => {
+      const { t, format } = renderDetail({ fakes: fakesAt(2 * MILLIS_PER_DAY) });
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+
+      const budget = screen.getByTestId(resolutionTestId('budget-vote'));
+
+      expect(within(budget).queryByText(t('votingState.open'))).toBeNull();
+      expect(within(budget).getByText(t('votingState.windowOver'))).toBeTruthy();
+      expect(
+        within(budget).getByText(t('meeting.votingClosedOn', { date: format.dateTime(CLOSES_AT) })),
+      ).toBeTruthy();
+    });
+
+    it('judges a saved copy at the instant it is shown at, not at the instant it was saved', async () => {
+      const fakes = fakesAt(2 * MILLIS_PER_DAY);
+      await fakes.meetingCache.saveMeeting(aUserId(), MEETING, NOW);
+      fakes.network.goOffline();
+      const { t } = renderDetail({ fakes });
+
+      await screen.findByTestId(TEST_IDS.staleBanner);
+
+      const budget = screen.getByTestId(resolutionTestId('budget-vote'));
+      expect(within(budget).getByText(t('votingState.windowOver'))).toBeTruthy();
+      expect(within(budget).queryByText(t('votingState.open'))).toBeNull();
+    });
+
+    it('keeps the state it had at the load until the meeting is loaded again', async () => {
+      const fakes = fakesAt(MILLIS_PER_HOUR);
+      const { t, queryClient } = renderDetail({ fakes });
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+      const budget = screen.getByTestId(resolutionTestId('budget-vote'));
+      expect(within(budget).getByText(t('votingState.open'))).toBeTruthy();
+
+      fakes.clock.set(at(2 * MILLIS_PER_DAY));
+      await act(async () => {
+        jest.advanceTimersByTime(MILLIS_PER_HOUR);
+      });
+      expect(within(budget).getByText(t('votingState.open'))).toBeTruthy();
+
+      act(() => {
+        void queryClient.refetchQueries();
+      });
+      await waitFor(() => {
+        expect(
+          within(screen.getByTestId(resolutionTestId('budget-vote'))).getByText(
+            t('votingState.windowOver'),
+          ),
+        ).toBeTruthy();
+      });
+    });
+  });
+
+  describe('for the screen reader and the region', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('tells that the meeting is loading, as a busy progress bar with a name', () => {
+      const { t } = renderDetail();
+
+      const progress = screen.getByRole('progressbar', { name: t('meeting.loading') });
+
+      expect(progress.props.accessibilityState).toEqual({ busy: true });
+    });
+
+    it('announces on iOS that it is refreshing', async () => {
+      jest.replaceProperty(Platform, 'OS', 'ios');
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+      const { t } = renderDetail();
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+      announce.mockClear();
+
+      await act(async () => {
+        screen.getByTestId(TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
+      });
+
+      expect(announce).toHaveBeenCalledWith(t('states.refreshing'));
+    });
+
+    it('writes the number of pages with the grouping of the locale', async () => {
+      const { fakes } = renderDetail();
+      fakes.meetings.addMeeting(
+        unwrap(
+          createMeeting({
+            summary: MEETING,
+            agenda: [],
+            documents: [
+              aDocument({ id: aDocumentId('big'), title: 'Annual record', pageCount: 4321 }),
+            ],
+            participants: MEETING.participants,
+          }),
+        ),
+      );
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+
+      expect(
+        within(screen.getByTestId(documentTestId('big'))).getByText('4,321 pages'),
+      ).toBeTruthy();
+    });
+
+    it('writes the dates the way the region of the device does', async () => {
+      setDeviceLanguages('en-GB');
+      renderDetail();
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+
+      const british = createFormatters('en-GB').fullDateTime(MEETING.scheduledAt);
+
+      expect(british).not.toBe(createFormatters('en').fullDateTime(MEETING.scheduledAt));
+      expect(screen.getByText(british)).toBeTruthy();
     });
   });
 });

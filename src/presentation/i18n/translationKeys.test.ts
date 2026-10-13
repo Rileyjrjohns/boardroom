@@ -1,11 +1,11 @@
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
 import type { ParticipantRole } from '@domain/entities/Participant';
-import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@domain/errors/ValidationError';
+import { VOTING_STATE } from '@domain/policies/votingState';
 import { valuesOf } from '@domain/shared/constants';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
@@ -18,15 +18,17 @@ import {
   MEETINGS_ERROR_KEYS,
   MEETING_PERIOD_KEYS,
   PARTICIPANT_ROLE_KEYS,
-  RESOLUTION_STATUS_KEYS,
   VOTE_CHOICE_KEYS,
+  VOTING_DATE_KEYS,
+  VOTING_STATE_KEYS,
 } from './translationKeys';
 import type { TranslationKey } from './translationKeys';
 
 /** Every map, with the codes it must cover. */
 const MAPS = {
   PARTICIPANT_ROLE_KEYS: [PARTICIPANT_ROLE_KEYS, valuesOf(PARTICIPANT_ROLE)],
-  RESOLUTION_STATUS_KEYS: [RESOLUTION_STATUS_KEYS, valuesOf(RESOLUTION_STATUS)],
+  VOTING_STATE_KEYS: [VOTING_STATE_KEYS, valuesOf(VOTING_STATE)],
+  VOTING_DATE_KEYS: [VOTING_DATE_KEYS, valuesOf(VOTING_STATE)],
   CONFIDENTIALITY_KEYS: [CONFIDENTIALITY_KEYS, valuesOf(CONFIDENTIALITY_LEVEL)],
   VOTE_CHOICE_KEYS: [VOTE_CHOICE_KEYS, valuesOf(VOTE_CHOICE)],
   MEETING_PERIOD_KEYS: [MEETING_PERIOD_KEYS, valuesOf(MEETING_PERIOD)],
@@ -37,6 +39,8 @@ const MAPS = {
       ...valuesOf(REPOSITORY_ERROR_CODE),
       AUTHENTICATION_ERROR_CODE.NotAuthenticated,
       AUTHENTICATION_ERROR_CODE.SessionExpired,
+      AUTHENTICATION_ERROR_CODE.AppLocked,
+      AUTHENTICATION_ERROR_CODE.SessionChanged,
       STORAGE_ERROR_CODE.ReadFailed,
       VALIDATION_ERROR_CODE.Validation,
     ],
@@ -44,7 +48,7 @@ const MAPS = {
 } as const satisfies Record<string, readonly [Record<string, TranslationKey>, readonly string[]]>;
 
 describe('the maps from codes to translation keys', () => {
-  describe.each(Object.entries(MAPS))('%s', (_name, [map, codes]) => {
+  describe.each(Object.entries(MAPS))('%s', (name, [map, codes]) => {
     it('has an entry for every code, and for nothing else', () => {
       expect(Object.keys(map).sort()).toEqual([...codes].sort());
     });
@@ -57,10 +61,11 @@ describe('the maps from codes to translation keys', () => {
       }
     });
 
-    it('gives each code its own text', () => {
+    it('gives each code its own text, unless the map says two states are told the same way', () => {
       const keys = Object.values(map);
+      const told = name === 'VOTING_DATE_KEYS' ? 1 : 0;
 
-      expect(new Set(keys).size).toBe(keys.length);
+      expect(new Set(keys).size).toBe(keys.length - told);
     });
   });
 
@@ -69,7 +74,8 @@ describe('the maps from codes to translation keys', () => {
 
     expect(t(PARTICIPANT_ROLE_KEYS[PARTICIPANT_ROLE.Chair])).toBe('Président');
     expect(t(VOTE_CHOICE_KEYS[VOTE_CHOICE.Abstain])).toBe('Abstention');
-    expect(t(RESOLUTION_STATUS_KEYS[RESOLUTION_STATUS.Closed])).toBe('Clôturée');
+    expect(t(VOTING_STATE_KEYS[VOTING_STATE.Closed])).toBe('Clôturée');
+    expect(t(VOTING_STATE_KEYS[VOTING_STATE.WindowOver])).toBe('Délai écoulé');
     expect(t(CONFIDENTIALITY_KEYS[CONFIDENTIALITY_LEVEL.Internal])).toBe('Interne');
   });
 
