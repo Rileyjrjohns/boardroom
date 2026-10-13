@@ -2,7 +2,7 @@
 
 Boardroom is a React Native demo app for board-of-directors governance. It exists to showcase a strict hexagonal (ports and adapters) architecture and production-grade tooling on a mobile codebase: the dependency rule between layers is not a convention, it is enforced by the linter.
 
-> **Status:** scaffold, tooling and internationalisation foundation only. There is no business code and no feature UI yet, only a placeholder screen that proves the whole pipeline (routing, aliases, translations, lint, types, tests, hooks) works end to end.
+> **Status:** scaffold, tooling, internationalisation foundation, and the `domain` and `application` layers (business rules, ports, use cases, unit tests). There is no adapter, no composition root and no feature UI yet, only a placeholder screen that proves the whole pipeline (routing, aliases, translations, lint, types, tests, hooks) works end to end.
 
 ## Tech stack
 
@@ -110,6 +110,78 @@ Everything else in the repository (`package.json`, the configs, `tooling/`, scri
 
 Path aliases map to the matching `src` folder: `@domain/*`, `@application/*`, `@infrastructure/*`, `@presentation/*` and `@di/*`. They resolve in TypeScript, Metro, Jest and ESLint.
 
+### Domain and application
+
+The two inner layers hold all the business logic. They are plain TypeScript, in a plain Node environment, with no external module and no ambient global.
+
+**Errors are values.** Every operation that can fail returns `Result<T, E>` (`src/domain/shared/Result.ts`), or `Promise<Result<T, E>>` when it is asynchronous. Production code of `domain` and `application` never throws (a lint rule enforces it; tests and the `testing` folders may), and the contract of every port says that an adapter never throws or rejects: it returns an error `Result`. An error is plain data: a `code` taken from a const object, plus the structured fields that matter (`src/domain/errors`, one file per concern: validation, authentication, repository, voting, vote delivery, biometric, storage, screen protection). It carries no text, because the translation happens in the presentation. The codes are unique across concerns, so a union of errors from several concerns is told apart by `code` alone. The free-text `cause` of an error is a technical diagnostic: it never holds personal data nor the values of a query.
+
+**Plain, immutable data.** Entities are `readonly` plain objects built by factory functions. A factory with something to check returns a `Result` (`createMeeting`, `createResolution`, `createDocument`, ...); one that has nothing to check just builds the data (`createVote`, `createSession`, `createPendingVote`, `createPage`, `createWatermark`). Value objects are branded types with a validating factory (`parseInstant`, `parseMeetingId`, `parseEmailAddress`, ...): a `UserId` and a `MeetingId` are both strings at runtime, and the compiler keeps them apart. There are no classes to map, so the same data goes to SQLite and to the query cache as it is. Every code, role, status, choice and event name is a const object (`VOTE_CHOICE`, `PARTICIPANT_ROLE`, `MONITORING_EVENT`, ...) with its union type derived from it, never a string literal repeated at call sites. Time is an `Instant` (epoch milliseconds), read from the `Clock` port only.
+
+**Business rules are pure functions** (`src/domain/policies`): the eligibility to vote (and the precise reason when not eligible), the biometric app lock, the expiry of a session, the maximum age of a cached entry. Which list a meeting belongs to (upcoming or past) is decided by the server: `MeetingPeriod` is only a query value. The `Watermark` fixes the content of what a confidential document shows (name, email and instant of the reader); formatting the instant and laying the watermark out stay in the presentation.
+
+**The offline policy lives in the application layer**, in one place (`src/application/shared/loadWithCacheFallback.ts`), where it can be read and tested, not hidden in an adapter. The use cases that read meetings and documents need a valid session, and read and write the cache of that user only (every cache operation takes the owner, so reading as another user finds nothing, by construction).
+
+1. Ask the remote source first; on success, write the data through to the cache and return it flagged `fresh`.
+2. When the network is unavailable, and only then, return the cached copy flagged `stale` with the instant it was cached, if it is not older than the maximum age given in the `deps` (an older entry, or one dated in the future, counts as a miss). On a miss, return the network error.
+3. When the server refuses (`unauthorized`) or says the item is gone (`notFound`), evict the cached entry and return the error: a copy the server refused is never served afterwards.
+4. Any other error (`unexpected`) is returned as is.
+
+A cache that cannot be written, read or evicted does not fail the call, the failure is captured by the monitoring. Signing out, and ending an expired session at start, empty both caches (the stored content of the documents included); the vote outbox is kept, because a vote belongs to its voter and must be sent when they come back. `ListMeetings`, `GetMeeting`, `OpenDocument` and `CastVote` all use the policy.
+
+| Port (`src/application/ports`) | Role                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `MeetingRepository`            | Remote source of truth: a page of meetings for a period, one meeting                                                                  |
+| `MeetingCache`                 | Local store of pages and meetings, per owner: save, read (a miss is a value, not an error), remove, purge                             |
+| `DocumentRepository`           | Remote documents: metadata, and the local location of the downloaded content                                                          |
+| `DocumentCache`                | Local store of documents already viewed (metadata and location), per owner; `remove` and `purge` also delete the stored content       |
+| `VoteRepository`               | Remote votes. Idempotent on the idempotency key; a business rejection is distinct from a network failure; never trusts `castAt`       |
+| `VoteOutbox`                   | Durable local store of the votes of each voter, pending or rejected, oldest first. Reads are scoped by voter. Not cleared at sign-out |
+| `AuthSession`                  | Sign in, current session, sign out. Tokens stay inside the adapter                                                                    |
+| `BiometricGate`                | Availability and authentication, for a reason (`unlockApp`, `confirmVote`). No prompt text crosses the port                           |
+| `ScreenProtection`             | A dumb global switch (enable, disable) and the capture events. Which documents need it is decided by `ScreenProtectionCoordinator`    |
+| `Clock`                        | `now()`                                                                                                                               |
+| `Monitoring`                   | Structured logs and error capture. Events and attribute names are const sets                                                          |
+
+Every method of every port settles in bounded time; a remote adapter maps a timeout to `networkUnavailable`, a local store to a storage error.
+
+| Use cases (`src/application/use-cases`) | What they do                                                                                                                                                          |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth/SignIn`                           | Validate the credentials and sign in                                                                                                                                  |
+| `auth/SignOut`                          | Empty the caches, then sign out. A cache that cannot be emptied does not stop the sign-out                                                                            |
+| `auth/RestoreSession`                   | Cold start: no session, or the session together with the requirement to unlock the app. An expired session is ended (caches emptied, signed out) and reported as none |
+| `auth/EvaluateAppLock`, `UnlockApp`     | Must the app be unlocked on return from the background; unlock it with the biometrics. `UnlockApp` fails closed                                                       |
+| `meetings/ListMeetings`, `GetMeeting`   | Need a session. Meetings with the offline policy                                                                                                                      |
+| `documents/OpenDocument`                | Needs a session; protects the screen of a confidential document (fails closed); watermark; access log; offline policy                                                 |
+| `documents/CloseDocument`               | Releases a document; the screen protection goes off when no confidential document is left open                                                                        |
+| `documents/ObserveScreenCapture`        | Needs a session; logs the capture events with the document and user ids, forwards them, and succeeds with the unsubscribe function                                    |
+| `votes/CastVote`                        | Needs a session; checks eligibility; biometric confirmation; submits, or queues the vote when the network is down or the server fails unexpectedly                    |
+| `votes/SyncPendingVotes`                | Sends the pending votes of the signed-in user, oldest first; see below                                                                                                |
+| `votes/ListPendingVotes`                | The outbox of the signed-in user, pending and rejected votes told apart                                                                                               |
+| `votes/AcknowledgeRejectedVote`         | Deletes a rejected vote once the user has seen it                                                                                                                     |
+
+A use case is a class with a single public `execute` method (`ObserveScreenCapture` also takes the callback to call). Its dependencies are injected through the constructor as one typed, `readonly` `deps` object of ports, plus the configuration values it needs (`maxCacheAge`, `maxAttempts`, `gracePeriod`). There is no static state and no singleton; the few instances that guard something in memory (`SyncPendingVotes`, `CastVote`, `ScreenProtectionCoordinator`) must be created once by the composition root and shared.
+
+**Votes.** A vote is final: a voter has one vote per resolution, identified by an idempotency key built from the resolution and the voter. Sending a vote again is safe as long as the server honours that key, which the `VoteRepository` contract requires: a retry after a lost answer is recorded once.
+
+- `CastVote` refuses a second vote on a resolution being cast on the same instance (`voteInProgress`), checks the eligibility against the meeting (cached or fresh) and the outbox, then asks for the biometric confirmation. A submitted vote is also recorded on the cached copy of its meeting, so that the voter cannot vote again from it offline.
+- The outbox keeps a vote in one of two states, pending or rejected, which cannot be mixed up: a rejected vote always carries its reason.
+- `SyncPendingVotes` is triggered by the presentation or the composition root, when connectivity is regained and when the app returns to the foreground; the application layer does not watch the network. It sends the pending votes oldest first, one at a time, and checks the session again before each one (a run stops if the user signed out or changed). A vote the server rejects for a business reason is kept as rejected, with the reason, until the user acknowledges it. Only `networkUnavailable` and `unauthorized` stop the whole run; they concern every vote and count no attempt. An `unexpected` failure counts an attempt on that vote and the run goes on with the next one; after `maxAttempts` the vote is given up as `voteUndeliverable` and shown to the user. A second call while a run is in progress on the same instance does nothing (`alreadyRunning`); two instances, or two processes, are protected by the idempotency key only.
+
+**Biometric lock.** A cold start always requires the biometric unlock: `RestoreSession` returns the session as `unlockRequired`. On a device where the biometrics cannot be used, `UnlockApp` fails closed every time, and the only way forward is to sign out and sign in again.
+
+**Test doubles** live in `src/application/testing/` (and the builders of domain fixtures in `src/domain/testing/`, because the domain tests need them and the domain cannot import the application). They are hand-written, in-memory fakes of every port, scriptable (a switch for the network, failures of the storage, queued answers of the server) and checked against the contract of the ports by `fakes.test.ts`. They exist so that the use cases are tested without `jest.mock`, against objects that behave like the real thing. They are test support, not production code: they are excluded from the coverage figures, a fixture there may throw, and a lint rule forbids production code from importing any `testing` folder.
+
+### Clock limits
+
+Time is the clock of the device, read through the `Clock` port, and the user controls it. What the rules built on it do about that:
+
+- Session expiry (`expiresAt`) is on the device clock: a clock set back extends a session locally, a clock set forward ends it early. The server enforces its own expiry on every call.
+- The age of a cached entry is compared with the device clock. An entry dated in the future (the clock was set back) is a miss, and so is one older than the maximum age. A clock set back far enough that an old entry looks young cannot be detected, and keeps an entry usable longer than the maximum age.
+- The app lock fails closed when the clock goes back (`now` earlier than the instant the app went to the background), and a grace period of zero locks every time. A clock set forward only locks sooner.
+- `castAt` of a vote comes from the device. The `VoteRepository` contract says that the server stamps the vote with its own time and applies the voting window to it. The local eligibility check (`votingWindowOver`) is a courtesy that can be wrong in either direction.
+- The ordering of the outbox is the order of enqueueing, not a comparison of instants.
+
 ### How the rule is enforced
 
 - `eslint.config.mjs` classifies the files under `app/`, `src/` and `assets/` into the elements above with eslint-plugin-boundaries, and declares which element may depend on which.
@@ -120,6 +192,9 @@ Path aliases map to the matching `src` folder: `@domain/*`, `@application/*`, `@
 - `import()`, `require()`, the Jest module calls and `require.resolve` only accept a string literal under `app/` and `src/`, because a specifier built at runtime cannot be checked (`no-restricted-syntax`). `/// <reference path="..." />` is rejected as well.
 - Packages are imported by name, never through a path in `node_modules` (`no-restricted-imports`), and every imported package must be declared in `package.json`, development dependencies being reserved to tests and tooling (`import/no-extraneous-dependencies`). Until `zod` is declared as a dependency, even `src/infrastructure` cannot import it.
 - `src/domain` and `src/application` cannot use the ambient globals that reach the runtime environment: `process`, `window`, `document`, `fetch`, `localStorage`, timers, `console` and similar (`no-restricted-globals`). Their tests are exempt.
+- In the production code of `src/domain` and `src/application`, `throw` is forbidden (every failure is an error `Result`) and so is every read of the system clock: `Date.now()`, `new Date()` without an argument, `Date()` called as a function, and `performance.now()` (time comes from the `Clock` port). `new Date(millis)` stays allowed, it is a conversion (`no-restricted-syntax`). Tests and the `testing` folders are exempt.
+- Production code cannot import from a `testing` folder, whether through a relative path or an alias, a type import or a re-export (`no-restricted-imports`). Tests and other test support can. A dynamic `import()` or a `require` of a `testing` folder is not detected by this rule.
+- `no-restricted-syntax` and `no-restricted-imports` apply to a set of files as a whole: in a flat config a later block replaces the options of an earlier one instead of merging them. `eslint.config.mjs` builds the options of each block with `restrictSyntax` and `restrictImports`, which always carry the restrictions that apply to every file (the computed module specifiers), and `tooling/lint-rules.test.ts` checks that none is lost for any set of files.
 - `.mts` and `.cts` files are linted with the TypeScript parser like `.ts` files.
 
 Known limit: an aliased `require` (`const r = require; r('x')`) cannot be detected by a lint rule.
@@ -128,24 +203,28 @@ Known limit: an aliased `require` (`const r = require; r('x')`) cannot be detect
 
 Test files are named `*.test.ts(x)` or `*.spec.ts(x)`. Jest runs four projects (`jest.config.js`):
 
-- `core` covers `src/domain` and `src/application` in a plain Node environment, with no React Native or Expo setup. If either layer reaches for a framework API, its tests fail.
+- `core` covers `src/domain` and `src/application` in a plain Node environment, with no React Native or Expo setup. If either layer reaches for a framework API, its tests fail. Nothing is mocked with `jest.mock`: the use cases are tested against the in-memory fakes of the ports.
 - `infra` covers `src/infrastructure` and `src/di` on the `jest-expo` preset, which mocks the native side of the Expo modules.
 - `ui` covers `src/presentation` on the `jest-expo` preset, with React Native Testing Library. Route files stay thin, and the screens are tested on their own. `src/presentation/i18n/rootLayout.test.tsx` renders the real route tree (`app/_layout.tsx` and `app/index.tsx`) with `expo-router/testing-library`, so a root layout that stops mounting the `I18nProvider` fails a test. The i18n stack is never mocked: components are rendered with the real i18next and react-i18next, and a test sets the language through the provider, or, for the device language, by spying on `useLocales` (`i18n/testing/setDeviceLanguages.ts`).
-- `tooling` covers `tooling/`, in a plain Node environment. It checks the repository itself: the tsconfig aliases match the folders of `src` and the Jest module name mapper, every test file lives under the root of a Jest project (a test that no project would run fails the suite), no test file sits under `app/`, the `commit-msg` hook accepts and rejects the right messages, the lint rules of the UI code accept and reject the right snippets (`lint-rules.test.ts`, which lints them with the real configuration through `lint-snippets.mjs`), and `app.config.ts` declares the same languages as the source code.
+- `tooling` covers `tooling/`, in a plain Node environment. It checks the repository itself: the tsconfig aliases match the folders of `src` and the Jest module name mapper, every test file lives under the root of a Jest project (a test that no project would run fails the suite), no test file sits under `app/`, the `commit-msg` hook accepts and rejects the right messages, the lint rules accept and reject the right snippets: the UI code rules, the purity of `domain` and `application`, the imports of test support, and that no restriction is lost when blocks of the configuration overlap (`lint-rules.test.ts`, which lints them with the real configuration through `lint-snippets.mjs`), and `app.config.ts` declares the same languages as the source code.
+
+The fakes of the caches and of the outbox keep the objects they are given: they store references, with no serialisation round trip, and the real adapters (SQLite, the query cache) will turn the data into rows and back. What is true of a fake is therefore not proof for an adapter: each adapter gets its own contract tests, written against the contract of its port, planned together with the adapters.
 
 Do not put test files under `app/`: expo-router would treat them as routes.
 
 The path aliases are declared once, in the `paths` of `tsconfig.json`. TypeScript, Metro and ESLint read them there, and `jest.config.js` derives its module name mapper from them.
 
-The 90 percent coverage threshold (statements, branches, functions, lines) on `src/domain` and `src/application` is registered automatically as soon as a layer contains source files. It is checked by `npm run test:coverage`, which `npm run validate` ends with.
+The 90 percent coverage threshold (statements, branches, functions, lines) on `src/domain` and `src/application` is registered automatically as soon as a layer contains source files. It is checked by `npm run test:coverage`, which `npm run validate` ends with. The `testing` folders (fakes and builders) are not counted: they are test support.
 
 ### Folder layout
 
 ```text
 app/                      expo-router routes (_layout.tsx, index.tsx)
 src/
-  domain/                 entities, value-objects, errors
-  application/            ports, use-cases
+  domain/                 entities, value-objects, policies, errors, shared (Result, Brand)
+    testing/                builders of fixtures for the tests (test support)
+  application/            ports, use-cases (by feature), shared (offline policy, session)
+    testing/                in-memory fakes of the ports (test support)
   infrastructure/         http, persistence, in-memory
   presentation/           screens, components, hooks
     i18n/                 translations, language detection, provider
@@ -245,12 +324,13 @@ Known limits, on purpose:
 
 A string literal is acceptable only when the type system verifies it: a member of a union type (`accessibilityRole="header"`, `fontWeight: '700'`), a typed translation key (`t('app.name')`), a typed route. Anything else is a named constant with a single definition.
 
-| Kind of value                | Where it lives                                                      |
-| ---------------------------- | ------------------------------------------------------------------- |
-| User-facing text             | `src/presentation/i18n/resources`, read with `t('...')`             |
-| Languages and the namespace  | `src/presentation/i18n/constants.ts`                                |
-| Colours, spacing, font sizes | `src/presentation/theme/tokens.ts`, only the tokens in use          |
-| Test IDs                     | A constants module, referenced from the component and from its test |
+| Kind of value                                           | Where it lives                                                                                      |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| User-facing text                                        | `src/presentation/i18n/resources`, read with `t('...')`                                             |
+| Languages and the namespace                             | `src/presentation/i18n/constants.ts`                                                                |
+| Colours, spacing, font sizes                            | `src/presentation/theme/tokens.ts`, only the tokens in use                                          |
+| Test IDs                                                | A constants module, referenced from the component and from its test                                 |
+| Codes, roles, statuses, choices, event names (business) | `UPPER_SNAKE` const objects in `src/domain` and `src/application`, the union type derived from them |
 
 ### What the linter enforces
 
