@@ -21,6 +21,12 @@ function parseIdentifier(field: ValidationField, raw: string): Result<string, Va
 export type UserId = Brand<string, 'UserId'>;
 export type MeetingId = Brand<string, 'MeetingId'>;
 export type AgendaItemId = Brand<string, 'AgendaItemId'>;
+/**
+ * Resolution ids are globally unique: no two meetings have a resolution with the same id. The
+ * idempotency key of a vote is built from the resolution and the voter, and does not hold the
+ * meeting, so a shared id would make a vote on one meeting look like a vote on the other. The
+ * remote source guarantees it, and an adapter that simulates one refuses a content that breaks it.
+ */
 export type ResolutionId = Brand<string, 'ResolutionId'>;
 export type DocumentId = Brand<string, 'DocumentId'>;
 

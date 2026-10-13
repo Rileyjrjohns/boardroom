@@ -6,7 +6,9 @@ import type { VoteChoice } from '../value-objects/VoteChoice';
 /**
  * Identifies a vote for the remote source, which uses it to recognise a vote it already has:
  * sending the same vote twice (a retry after a lost answer) records it once. Derived from the
- * resolution and the voter, because a member votes once per resolution.
+ * resolution and the voter, because a member votes once per resolution. The meeting is not part of
+ * the key: resolution ids are globally unique (see `ResolutionId`), so the resolution says which
+ * meeting the vote is for.
  */
 export type IdempotencyKey = Brand<string, 'IdempotencyKey'>;
 

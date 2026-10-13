@@ -1,6 +1,7 @@
 import type { AppError } from './AppError';
 import {
   AUTHENTICATION_ERROR_CODE,
+  appLocked,
   invalidCredentials,
   notAuthenticated,
   sessionChanged,
@@ -16,6 +17,7 @@ import {
 } from './BiometricError';
 import {
   REPOSITORY_ERROR_CODE,
+  forbidden,
   networkUnavailable,
   notFound,
   unauthorized,
@@ -78,12 +80,14 @@ describe('error factories', () => {
     expect(sessionExpired().code).toBe(AUTHENTICATION_ERROR_CODE.SessionExpired);
     expect(notAuthenticated().code).toBe(AUTHENTICATION_ERROR_CODE.NotAuthenticated);
     expect(sessionChanged().code).toBe(AUTHENTICATION_ERROR_CODE.SessionChanged);
+    expect(appLocked()).toEqual({ code: AUTHENTICATION_ERROR_CODE.AppLocked });
   });
 
   it('build the repository errors', () => {
     expect(networkUnavailable().code).toBe(REPOSITORY_ERROR_CODE.NetworkUnavailable);
     expect(notFound().code).toBe(REPOSITORY_ERROR_CODE.NotFound);
     expect(unauthorized().code).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
+    expect(forbidden()).toEqual({ code: REPOSITORY_ERROR_CODE.Forbidden });
   });
 
   it('carry a technical cause only when one is given', () => {
@@ -159,6 +163,8 @@ describe('isVotingError', () => {
   it.each<AppError>([
     networkUnavailable(),
     unauthorized(),
+    forbidden(),
+    appLocked(),
     unexpected(),
     biometricFailed(),
     storageReadFailed(),

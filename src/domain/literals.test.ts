@@ -46,11 +46,13 @@ describe('the values that are stored and mapped to translations', () => {
       SessionExpired: 'sessionExpired',
       NotAuthenticated: 'notAuthenticated',
       SessionChanged: 'sessionChanged',
+      AppLocked: 'appLocked',
     });
     expect(REPOSITORY_ERROR_CODE).toEqual({
       NetworkUnavailable: 'networkUnavailable',
       NotFound: 'notFound',
       Unauthorized: 'unauthorized',
+      Forbidden: 'forbidden',
       Unexpected: 'unexpected',
     });
     expect(VOTING_ERROR_CODE).toEqual({

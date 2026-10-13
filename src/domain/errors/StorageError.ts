@@ -5,8 +5,9 @@ export const STORAGE_ERROR_CODE = {
 
 /**
  * The local store could not be read. A miss is not an error: a cache returns it as a value.
- * `cause` is a technical diagnostic for the monitoring tools, never shown to the user, and it must
- * never hold personal data or the values of a query.
+ * `cause` is a technical diagnostic for the monitoring tools, never shown to the user, and it is a
+ * kind of failure, nothing else: never a file path, a URL, the location of a document or its title,
+ * a name, an email, nor the choice of a vote.
  */
 export interface StorageReadFailedError {
   readonly code: typeof STORAGE_ERROR_CODE.ReadFailed;

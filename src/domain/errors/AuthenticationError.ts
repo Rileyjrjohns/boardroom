@@ -3,6 +3,7 @@ export const AUTHENTICATION_ERROR_CODE = {
   SessionExpired: 'sessionExpired',
   NotAuthenticated: 'notAuthenticated',
   SessionChanged: 'sessionChanged',
+  AppLocked: 'appLocked',
 } as const;
 
 /** The email and password pair was refused. */
@@ -25,8 +26,21 @@ export interface SessionChangedError {
   readonly code: typeof AUTHENTICATION_ERROR_CODE.SessionChanged;
 }
 
+/**
+ * A session exists and is valid, but the app is locked: nobody has proven they are there since the
+ * app was started, or since it came back from the background past the grace period. Nothing is
+ * read, queued or sent for the user until the biometric unlock succeeds.
+ */
+export interface AppLockedError {
+  readonly code: typeof AUTHENTICATION_ERROR_CODE.AppLocked;
+}
+
 export type AuthenticationError =
-  InvalidCredentialsError | SessionExpiredError | NotAuthenticatedError | SessionChangedError;
+  | InvalidCredentialsError
+  | SessionExpiredError
+  | NotAuthenticatedError
+  | SessionChangedError
+  | AppLockedError;
 
 export function invalidCredentials(): InvalidCredentialsError {
   return { code: AUTHENTICATION_ERROR_CODE.InvalidCredentials };
@@ -42,4 +56,8 @@ export function notAuthenticated(): NotAuthenticatedError {
 
 export function sessionChanged(): SessionChangedError {
   return { code: AUTHENTICATION_ERROR_CODE.SessionChanged };
+}
+
+export function appLocked(): AppLockedError {
+  return { code: AUTHENTICATION_ERROR_CODE.AppLocked };
 }
