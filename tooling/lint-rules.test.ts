@@ -22,12 +22,19 @@ const DOMAIN_TEST = 'src/domain/entities/Sample.test.ts';
 const APPLICATION_TEST = 'src/application/use-cases/Sample.test.ts';
 const TEST_SUPPORT = 'src/application/testing/FakeSample.ts';
 const INFRASTRUCTURE = 'src/infrastructure/http/sample.ts';
+const PERSISTENCE = 'src/infrastructure/persistence/Sample.ts';
+const HTTP_CLIENT = 'src/infrastructure/http/HttpClient.ts';
+const INFRASTRUCTURE_TEST = 'src/infrastructure/http/Sample.test.ts';
+const INFRASTRUCTURE_TEST_SUPPORT = 'src/infrastructure/testing/sample.ts';
 
 const DI = 'src/di/sample.ts';
 const PRESENTATION_HOOK = 'src/presentation/hooks/useSample.ts';
 
 /** The rule of the dependency policies of the architecture (the layers, the reserved packages). */
 const BOUNDARY_RULES = new Set(['boundaries/dependencies']);
+
+/** The rule on the ambient globals: `fetch` outside the HTTP client. */
+const GLOBAL_RULES = new Set(['no-restricted-globals']);
 
 const CONVENTION_RULES = new Set([
   'no-restricted-syntax',
@@ -520,6 +527,98 @@ const acceptedStateLibraries = Object.fromEntries(
   ]),
 );
 
+/** Imports of the native modules of the device, which only the infrastructure layer may make. */
+const deviceImports = {
+  'expo-sqlite':
+    "import * as SQLite from 'expo-sqlite';\nexport const open = SQLite.openDatabaseAsync;",
+  'a subpath of expo-sqlite':
+    "import Storage from 'expo-sqlite/kv-store';\nexport const storage = Storage;",
+  'expo-secure-store':
+    "import * as SecureStore from 'expo-secure-store';\nexport const get = SecureStore.getItemAsync;",
+  'expo-local-authentication':
+    "import * as Auth from 'expo-local-authentication';\nexport const ask = Auth.authenticateAsync;",
+  'expo-network':
+    "import * as Network from 'expo-network';\nexport const state = Network.getNetworkStateAsync;",
+  'a type of expo-network':
+    "import type { NetworkState } from 'expo-network';\nexport type State = NetworkState;",
+  'a named import of expo-secure-store':
+    "import { getItemAsync } from 'expo-secure-store';\nexport const get = getItemAsync;",
+} as const;
+
+const deviceFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'the composition root': DI,
+  'a route': ROUTE,
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+} as const;
+
+const rejectedDevicePackages = Object.fromEntries(
+  Object.entries(deviceFiles).map(([where, filePath]) => [
+    where,
+    registerAll(deviceImports, asWritten, filePath),
+  ]),
+);
+const infrastructureFiles = {
+  'an HTTP adapter': INFRASTRUCTURE,
+  'a persistence adapter': PERSISTENCE,
+} as const;
+const acceptedDevicePackages = Object.fromEntries(
+  Object.entries(infrastructureFiles).map(([where, filePath]) => [
+    where,
+    registerAll(deviceImports, asWritten, filePath),
+  ]),
+);
+
+/** `fetch`, which a module of the infrastructure layer alone may call. */
+const fetchCalls = {
+  'a call of fetch': "export const load = () => fetch('https://example.com');",
+  'a reference to fetch': 'export const send = fetch;',
+} as const;
+
+const fetchMembers = {
+  'globalThis.fetch': "export const load = () => globalThis.fetch('https://example.com');",
+  'global.fetch': "export const load = () => global.fetch('https://example.com');",
+  'window.fetch': "export const load = () => window.fetch('https://example.com');",
+  'self.fetch': "export const load = () => self.fetch('https://example.com');",
+} as const;
+
+const fetchRejectedFiles = {
+  domain: DOMAIN,
+  application: APPLICATION,
+  'test support of the application': TEST_SUPPORT,
+  presentation: SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+  'the composition root': DI,
+  app: ROUTE,
+  'an adapter other than the HTTP client': INFRASTRUCTURE,
+  'a persistence adapter': PERSISTENCE,
+} as const;
+
+const rejectedFetch = Object.fromEntries(
+  Object.entries(fetchRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(fetchCalls, asWritten, filePath),
+  ]),
+);
+const acceptedFetch = {
+  'the HTTP client': registerAll(fetchCalls, asWritten, HTTP_CLIENT),
+  'a test of the infrastructure': registerAll(fetchCalls, asWritten, INFRASTRUCTURE_TEST),
+  'test support of the infrastructure': registerAll(
+    fetchCalls,
+    asWritten,
+    INFRASTRUCTURE_TEST_SUPPORT,
+  ),
+};
+const rejectedFetchMembers = Object.fromEntries(
+  Object.entries({
+    ...fetchRejectedFiles,
+    'the HTTP client': HTTP_CLIENT,
+    'a test of the infrastructure': INFRASTRUCTURE_TEST,
+  }).map(([where, filePath]) => [where, registerAll(fetchMembers, asWritten, filePath)]),
+);
+
 let findings: Finding[][] = [];
 
 beforeAll(() => {
@@ -539,6 +638,13 @@ function reported(snippet: Snippet): Finding[] {
   return messages.filter(
     (message) => message.ruleId !== null && CONVENTION_RULES.has(message.ruleId),
   );
+}
+
+/** What the rule on the ambient globals reports for a snippet, after checking that it parsed. */
+function reportedGlobals(snippet: Snippet): Finding[] {
+  const messages = findings[snippets.indexOf(snippet)] ?? [];
+  expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
+  return messages.filter((message) => message.ruleId !== null && GLOBAL_RULES.has(message.ruleId));
 }
 
 /** What the dependency policies report for a snippet, after checking that it parsed. */
@@ -736,4 +842,59 @@ describe('State libraries lint rules', () => {
       expect(reportedBoundaries(snippet)).toEqual([]);
     });
   });
+});
+
+describe('Native modules of the device lint rules', () => {
+  describe.each(Object.entries(rejectedDevicePackages))('in %s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s', (_name, snippet) => {
+      const messages = reportedBoundaries(snippet).map(({ message }) => message);
+
+      expect(messages).toContainEqual(
+        expect.stringContaining('only be imported from src/infrastructure'),
+      );
+    });
+  });
+
+  describe.each(Object.entries(acceptedDevicePackages))('in %s', (_where, cases) => {
+    it.each(cases)('accepts the import of %s', (_name, snippet) => {
+      expect(reportedBoundaries(snippet)).toEqual([]);
+    });
+  });
+});
+
+describe('The fetch lint rules', () => {
+  describe.each(Object.entries(rejectedFetch))('in %s', (_where, cases) => {
+    it.each(cases)('rejects %s', (_name, snippet) => {
+      expect(reportedGlobals(snippet).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe.each(Object.entries(acceptedFetch))('in %s', (_where, cases) => {
+    it.each(cases)('accepts %s', (_name, snippet) => {
+      expect(reportedGlobals(snippet)).toEqual([]);
+      expect(reported(snippet)).toEqual([]);
+    });
+  });
+
+  it('names the one module that may call it', () => {
+    const snippet = named(
+      rejectedFetch['an adapter other than the HTTP client'] ?? [],
+      'a call of fetch',
+    );
+
+    expect(reportedGlobals(snippet).map(({ message }) => message)).toEqual([
+      expect.stringContaining('src/infrastructure/http/HttpClient.ts'),
+    ]);
+  });
+
+  describe.each(Object.entries(rejectedFetchMembers))(
+    'through a global object, in %s',
+    (_where, cases) => {
+      it.each(cases)('rejects %s', (_name, snippet) => {
+        expect(reported(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringContaining('src/infrastructure/http/HttpClient.ts'),
+        );
+      });
+    },
+  );
 });

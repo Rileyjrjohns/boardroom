@@ -5,8 +5,14 @@
 // - "core"    : src/domain and src/application, in a plain node environment with no React Native
 //               or Expo setup at all. If either layer ever reaches for a framework API, its tests
 //               fail here, which keeps both layers framework free.
-// - "infra"   : src/infrastructure and src/di, on the jest-expo preset, which mocks the native
-//               side of the Expo modules the adapters rely on.
+// - "infra"   : src/infrastructure and src/di, in a plain node environment (see `infraTransform`
+//               below). The HTTP adapters are tested against MSW, which needs the `fetch`,
+//               `Request` and `Response` of Node, and the SQLite adapters against `node:sqlite`,
+//               which only Node has: the jest-expo preset replaces the first with the native
+//               ones of Expo, which do not run in Jest. The native modules of Expo that the
+//               device adapters wrap are never loaded here: the composition root asks for them
+//               late, and the tests of the thin wrappers replace each module with a stand-in,
+//               each with a comment that says why.
 // - "ui"      : src/presentation, on the jest-expo preset with React Native Testing Library.
 // - "tooling" : tooling/, in a plain node environment. Checks of the repository configuration.
 //
@@ -73,20 +79,48 @@ const coverageThreshold = {
 };
 
 /**
+ * Babel, with the Expo preset, for the projects that run without a React Native preset.
+ * @type {[string, Record<string, unknown>]}
+ */
+const babelTransformer = [
+  'babel-jest',
+  {
+    babelrc: false,
+    configFile: false,
+    presets: [require.resolve('expo/internal/babel-preset')],
+    caller: { name: 'metro', bundler: 'jest', platform: 'ios' },
+  },
+];
+
+/**
  * Babel transform for the projects that run without a React Native preset.
  * @type {import('jest').Config['transform']}
  */
-const nodeTransform = {
-  '\\.[jt]sx?$': [
-    'babel-jest',
-    {
-      babelrc: false,
-      configFile: false,
-      presets: [require.resolve('expo/internal/babel-preset')],
-      caller: { name: 'metro', bundler: 'jest', platform: 'ios' },
-    },
-  ],
-};
+const nodeTransform = { '\\.[jt]sx?$': babelTransformer };
+
+/**
+ * The transform of the "infra" project: the same, for `.mjs` files too. MSW 3 and the packages it
+ * is made of are ES modules only, and Jest 29 runs CommonJS: Babel turns them into CommonJS like
+ * the rest of the code, which needs the transform to know `.mjs` and the packages to be let
+ * through `transformIgnorePatterns`. Nothing else is transformed in node_modules. A package that
+ * MSW starts to depend on and that is ESM only shows up as a "Cannot use import statement outside
+ * a module" error when a test imports `msw`: add it to the list.
+ * @type {import('jest').Config['transform']}
+ */
+const infraTransform = { '\\.m?[jt]sx?$': babelTransformer };
+
+const MSW_PACKAGES = [
+  'msw',
+  '@msw',
+  '@mswjs',
+  '@open-draft',
+  'until-async',
+  'rettime',
+  'cookie',
+  'headers-polyfill',
+  'outvariant',
+  'strict-event-emitter',
+];
 
 /** @type {import('jest').Config} */
 const config = {
@@ -112,10 +146,12 @@ const config = {
     },
     {
       displayName: 'infra',
-      preset: 'jest-expo',
+      testEnvironment: 'node',
       roots: ['<rootDir>/src/infrastructure', '<rootDir>/src/di'],
       testMatch: TEST_FILES,
       moduleNameMapper,
+      transform: infraTransform,
+      transformIgnorePatterns: [`/node_modules/(?!(${MSW_PACKAGES.join('|')})/)`],
     },
     {
       displayName: 'ui',

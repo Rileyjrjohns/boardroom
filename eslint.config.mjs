@@ -16,8 +16,10 @@ import boundaries from 'eslint-plugin-boundaries';
  *   di              -> domain, application, infrastructure, di
  *
  * domain, application and di import no external module at all. app, infrastructure and
- * presentation may import external modules, except `zod`, which only infrastructure may use, and
- * TanStack Query and Zustand, which only presentation may use.
+ * presentation may import external modules, except `zod` and the native modules of the device
+ * (SQLite, secure storage, biometrics, network), which only infrastructure may use, and TanStack
+ * Query and Zustand, which only presentation may use. `fetch` is used by one module only, the HTTP
+ * client.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
  * `@domain/*`-style aliases are classified like relative imports.
  *
@@ -81,6 +83,25 @@ const externalModule = { module: { origin: 'external' } };
 /** The packages that hold state, with their subpaths: reserved to the presentation layer. */
 const STATE_LIBRARIES = ['@tanstack/**', 'zustand', 'zustand/**'];
 
+/**
+ * The native modules of the device, with their subpaths: reserved to the infrastructure layer, where
+ * the adapters wrap them behind a port (and, for the ones that hold a secret or a decision, behind
+ * a seam that the tests replace).
+ */
+const DEVICE_PACKAGES = [
+  'expo-sqlite',
+  'expo-sqlite/**',
+  'expo-secure-store',
+  'expo-secure-store/**',
+  'expo-local-authentication',
+  'expo-local-authentication/**',
+  'expo-network',
+  'expo-network/**',
+];
+
+/** The one module allowed to call `fetch`: everything that reaches the network goes through it. */
+const HTTP_CLIENT_FILE = 'src/infrastructure/http/HttpClient.ts';
+
 const dependencyPolicies = [
   {
     from: element('app'),
@@ -111,6 +132,14 @@ const dependencyPolicies = [
     from: element('app', 'domain', 'application', 'presentation', 'di'),
     disallow: { to: { module: { origin: 'external', source: 'zod' } } },
     message: 'The "zod" package may only be imported from src/infrastructure.',
+  },
+  // The native modules of the device belong to the adapters of the infrastructure layer: the other
+  // layers reach the device through a port.
+  {
+    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    disallow: { to: { module: { origin: 'external', source: DEVICE_PACKAGES } } },
+    message:
+      'The native modules of the device (expo-sqlite, expo-secure-store, expo-local-authentication, expo-network) may only be imported from src/infrastructure: the other layers reach the device through a port.',
   },
   // Server state (TanStack Query) and interface state (Zustand) are presentation concerns: the
   // other layers hold no framework state, and a route file only mounts what the presentation gives it.
@@ -176,7 +205,15 @@ const additionalDependencyNodes = [
 const NON_LITERAL_SPECIFIER_MESSAGE =
   'Use a string literal as module specifier: the architecture rules cannot check a computed one.';
 
+/** `globalThis.fetch(...)` and its relatives get round the rule on the `fetch` global. */
+const FETCH_MESSAGE = `Do not call fetch here: every request to the network goes through ${HTTP_CLIENT_FILE}.`;
+
 const nonLiteralSpecifierRestrictions = [
+  {
+    selector:
+      'MemberExpression[property.name="fetch"][object.name=/^(?:globalThis|global|window|self)$/]',
+    message: FETCH_MESSAGE,
+  },
   { selector: 'ImportExpression[source.type!="Literal"]', message: NON_LITERAL_SPECIFIER_MESSAGE },
   {
     selector: 'CallExpression[callee.name="require"][arguments.0.type!="Literal"]',
@@ -747,6 +784,16 @@ export default defineConfig([
     ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
     rules: {
       'no-restricted-syntax': restrictSyntax(noThrowRestrictions, noSystemClockRestrictions),
+    },
+  },
+
+  {
+    // One module talks to the network. (domain and application restrict `fetch` among every other
+    // ambient global in the block below, which comes later and replaces these options for them.)
+    files: APPLICATION_CODE,
+    ignores: [HTTP_CLIENT_FILE, ...TEST_FILES, ...TEST_SUPPORT_FILES],
+    rules: {
+      'no-restricted-globals': ['error', { name: 'fetch', message: FETCH_MESSAGE }],
     },
   },
 
