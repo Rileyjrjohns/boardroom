@@ -29,6 +29,7 @@ const SAME_IN_BOTH_LANGUAGES = [
   'meeting.pageCount_one', // "page" in both.
   'meeting.pageCount_other', // "pages" in both.
   'confidentiality.public', // "Public" in both.
+  'app.name', // The name of the app, a brand, is not translated.
 ];
 
 // French puts a no-break space before a colon, a semicolon, a question mark and an exclamation

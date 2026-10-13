@@ -68,3 +68,15 @@ export const statusBarStyle = 'dark-content' as const;
 
 /** How faded a pressed element is. */
 export const pressedOpacity = 0.6;
+
+/** How faded a control that cannot be used is. */
+export const disabledOpacity = 0.4;
+
+/** How much of the screen shows through behind a dialog: dark enough to put it in the background. */
+export const dimmedOpacity = 0.55;
+
+/** The widest a form or a dialog gets, in points, so that it stays readable on a tablet. */
+export const maxContentWidth = {
+  form: 480,
+  dialog: 420,
+} as const;

@@ -1,4 +1,12 @@
-import { colors, fontWeights, pressedOpacity, spacing, touchTarget } from './tokens';
+import {
+  colors,
+  dimmedOpacity,
+  disabledOpacity,
+  fontWeights,
+  pressedOpacity,
+  spacing,
+  touchTarget,
+} from './tokens';
 
 describe('the design tokens', () => {
   it('keeps the smallest touch target at 44 points', () => {
@@ -8,6 +16,12 @@ describe('the design tokens', () => {
   it('keeps a pressed element visibly faded, and still readable', () => {
     expect(pressedOpacity).toBeGreaterThan(0.3);
     expect(pressedOpacity).toBeLessThan(1);
+  });
+
+  it('fades what cannot be used more than what is pressed, and dims behind a dialog without hiding the screen', () => {
+    expect(disabledOpacity).toBeLessThan(pressedOpacity);
+    expect(dimmedOpacity).toBeGreaterThan(0.3);
+    expect(dimmedOpacity).toBeLessThan(0.8);
   });
 
   it('spaces things in growing steps', () => {
