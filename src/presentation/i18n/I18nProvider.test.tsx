@@ -10,7 +10,7 @@ import { setDeviceLanguages } from './testing/setDeviceLanguages';
 
 function Message() {
   const { t } = useTranslation();
-  return <Text>{t('placeholder.message')}</Text>;
+  return <Text>{t('navigation.meetings')}</Text>;
 }
 
 function provider(language?: SupportedLanguage) {
@@ -29,7 +29,7 @@ describe('I18nProvider', () => {
   it('follows the device language', () => {
     render(provider());
 
-    expect(screen.getByText(en.placeholder.message)).toBeTruthy();
+    expect(screen.getByText(en.navigation.meetings)).toBeTruthy();
   });
 
   it('translates in French on a French device', () => {
@@ -37,7 +37,7 @@ describe('I18nProvider', () => {
 
     render(provider());
 
-    expect(screen.getByText(fr.placeholder.message)).toBeTruthy();
+    expect(screen.getByText(fr.navigation.meetings)).toBeTruthy();
   });
 
   it('falls back to English on a device in an unsupported language', () => {
@@ -45,7 +45,7 @@ describe('I18nProvider', () => {
 
     render(provider());
 
-    expect(screen.getByText(en.placeholder.message)).toBeTruthy();
+    expect(screen.getByText(en.navigation.meetings)).toBeTruthy();
   });
 
   it('lets a forced language win over the device language', () => {
@@ -53,13 +53,13 @@ describe('I18nProvider', () => {
 
     render(provider('en'));
 
-    expect(screen.getByText(en.placeholder.message)).toBeTruthy();
+    expect(screen.getByText(en.navigation.meetings)).toBeTruthy();
   });
 
   it('follows the device when its language changes', async () => {
     setDeviceLanguages('en-US');
     const { rerender } = render(provider());
-    expect(screen.getByText(en.placeholder.message)).toBeTruthy();
+    expect(screen.getByText(en.navigation.meetings)).toBeTruthy();
 
     setDeviceLanguages('fr-FR');
     // i18next applies the new language asynchronously, so the update is awaited.
@@ -67,7 +67,7 @@ describe('I18nProvider', () => {
       rerender(provider());
     });
 
-    expect(screen.getByText(fr.placeholder.message)).toBeTruthy();
-    expect(screen.queryByText(en.placeholder.message)).toBeNull();
+    expect(screen.getByText(fr.navigation.meetings)).toBeTruthy();
+    expect(screen.queryByText(en.navigation.meetings)).toBeNull();
   });
 });

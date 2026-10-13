@@ -13,7 +13,7 @@ describe('createI18n', () => {
     const i18n = createI18n('fr');
 
     expect(i18n.isInitialized).toBe(true);
-    expect(i18n.t('placeholder.message')).toBe(fr.placeholder.message);
+    expect(i18n.t('navigation.meetings')).toBe(fr.navigation.meetings);
   });
 
   it.each(SUPPORTED_LANGUAGES)('starts in %s', (language) => {
@@ -24,7 +24,7 @@ describe('createI18n', () => {
     const i18n = createI18n();
 
     expect(i18n.language).toBe(FALLBACK_LANGUAGE);
-    expect(i18n.t('placeholder.message')).toBe(en.placeholder.message);
+    expect(i18n.t('navigation.meetings')).toBe(en.navigation.meetings);
   });
 
   it('declares the fallback and the supported languages', () => {
@@ -39,7 +39,7 @@ describe('createI18n', () => {
 
     await i18n.changeLanguage('fr');
 
-    expect(i18n.t('placeholder.message')).toBe(fr.placeholder.message);
+    expect(i18n.t('navigation.meetings')).toBe(fr.navigation.meetings);
   });
 
   it('returns independent instances', async () => {
@@ -49,8 +49,8 @@ describe('createI18n', () => {
     await english.changeLanguage('fr');
     await french.changeLanguage('en');
 
-    expect(english.t('placeholder.message')).toBe(fr.placeholder.message);
-    expect(french.t('placeholder.message')).toBe(en.placeholder.message);
+    expect(english.t('navigation.meetings')).toBe(fr.navigation.meetings);
+    expect(french.t('navigation.meetings')).toBe(en.navigation.meetings);
   });
 
   it('types the translation keys', () => {
@@ -59,7 +59,7 @@ describe('createI18n', () => {
     // @ts-expect-error A key that no resource defines must fail the typecheck.
     t('does.not.exist');
     // @ts-expect-error A group of keys is not a translation.
-    t('placeholder');
+    t('navigation');
 
     expect(t('app.name')).toBe(en.app.name);
   });
@@ -91,10 +91,10 @@ describe('createI18n', () => {
   it('gives each instance its own copy of a whole resource bundle', () => {
     const first = createI18n('en');
 
-    first.addResourceBundle('en', DEFAULT_NAMESPACE, { placeholder: { message: 'x' } }, true, true);
+    first.addResourceBundle('en', DEFAULT_NAMESPACE, { navigation: { meetings: 'x' } }, true, true);
 
-    expect(first.t('placeholder.message')).toBe('x');
-    expect(createI18n('en').t('placeholder.message')).toBe(en.placeholder.message);
-    expect(en.placeholder.message).not.toBe('x');
+    expect(first.t('navigation.meetings')).toBe('x');
+    expect(createI18n('en').t('navigation.meetings')).toBe(en.navigation.meetings);
+    expect(en.navigation.meetings).not.toBe('x');
   });
 });

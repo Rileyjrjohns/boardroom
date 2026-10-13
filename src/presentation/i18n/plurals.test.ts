@@ -7,7 +7,7 @@ import { RESOURCES } from './resources';
 import { en } from './resources/en';
 import { fr } from './resources/fr';
 
-// The pluralised key `meetings.count` proves the whole plural pipeline before a real feature
+// The pluralised key `meeting.pageCount` proves the whole plural pipeline before a real feature
 // relies on it. Each case runs twice: with the Intl.PluralRules of the engine (Node.js here) and
 // without it, like on Hermes, where the fallback of intlPluralRulesFallback.ts takes over.
 
@@ -15,14 +15,14 @@ type Category = 'one' | 'many' | 'other';
 
 const PLURAL_FORMS: Record<SupportedLanguage, Record<Category, string>> = {
   en: {
-    one: en.meetings.count_one,
-    many: en.meetings.count_many,
-    other: en.meetings.count_other,
+    one: en.meeting.pageCount_one,
+    many: en.meeting.pageCount_many,
+    other: en.meeting.pageCount_other,
   },
   fr: {
-    one: fr.meetings.count_one,
-    many: fr.meetings.count_many,
-    other: fr.meetings.count_other,
+    one: fr.meeting.pageCount_one,
+    many: fr.meeting.pageCount_many,
+    other: fr.meeting.pageCount_other,
   },
 };
 
@@ -81,28 +81,30 @@ describe.each([
     it.each(EXPECTED_CATEGORIES[language])('uses the right form for %s', (count, category) => {
       const { t } = createI18n(language);
 
-      expect(t('meetings.count', { count })).toBe(
+      expect(t('meeting.pageCount', { count })).toBe(
         PLURAL_FORMS[language][category].replace('{{count}}', String(count)),
       );
     });
   });
 
-  it('never falls back to the English text in French, whatever the count', () => {
+  it('never falls back to the English text in French, for the counts where the two differ', () => {
     const english = createI18n('en');
     const french = createI18n('fr');
 
-    for (const [count] of EXPECTED_CATEGORIES.fr) {
-      expect(french.t('meetings.count', { count })).not.toBe(
-        english.t('meetings.count', { count }),
+    // "page" is the same word in both languages, so the texts only differ where the plural forms
+    // do: zero and a fraction are singular in French, a multiple of a million takes "de".
+    for (const count of [0, 1.5, 1_000_000, 2_000_000]) {
+      expect(french.t('meeting.pageCount', { count })).not.toBe(
+        english.t('meeting.pageCount', { count }),
       );
     }
   });
 
   it('pluralises French and English differently for zero', () => {
-    expect(createI18n('en').t('meetings.count', { count: 0 })).not.toBe(
-      createI18n('fr').t('meetings.count', { count: 0 }),
+    expect(createI18n('en').t('meeting.pageCount', { count: 0 })).not.toBe(
+      createI18n('fr').t('meeting.pageCount', { count: 0 }),
     );
-    expect(createI18n('fr').t('meetings.count', { count: 0 })).toContain(
+    expect(createI18n('fr').t('meeting.pageCount', { count: 0 })).toContain(
       PLURAL_FORMS.fr.one.replace('{{count}}', '0'),
     );
   });
@@ -114,8 +116,8 @@ describe('why the fallback exists', () => {
     const bare = createInstance();
     await bare.init({ lng: 'fr', resources: RESOURCES, initAsync: false });
 
-    // "0 réunion" is the correct French. Without Intl.PluralRules, i18next gives "0 réunions".
-    expect(bare.t('meetings.count', { count: 0 })).toContain(
+    // "0 page" is the correct French. Without Intl.PluralRules, i18next gives "0 pages".
+    expect(bare.t('meeting.pageCount', { count: 0 })).toContain(
       PLURAL_FORMS.fr.other.replace('{{count}}', '0'),
     );
   });

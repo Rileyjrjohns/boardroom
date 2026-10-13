@@ -43,7 +43,7 @@ describe('translation resources', () => {
 
   it('types a language resource against the English one', () => {
     // @ts-expect-error A key missing from a resource must fail the typecheck.
-    const missingKey: TranslationResource = { ...fr, placeholder: {} };
+    const missingKey: TranslationResource = { ...fr, navigation: {} };
     const extraKey: TranslationResource = {
       ...fr,
       // @ts-expect-error A key that the English resource does not define must fail the typecheck.

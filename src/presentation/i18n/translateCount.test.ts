@@ -10,8 +10,8 @@ describe('translateCount', () => {
   it.each(SUPPORTED_LANGUAGES)('translates the plural key for a count in %s', (language) => {
     const { t } = createI18n(language);
 
-    expect(translateCount(t, 'meetings.count', 1)).toBe(t('meetings.count', { count: 1 }));
-    expect(translateCount(t, 'meetings.count', 2)).toBe(t('meetings.count', { count: 2 }));
+    expect(translateCount(t, 'meeting.pageCount', 1)).toBe(t('meeting.pageCount', { count: 1 }));
+    expect(translateCount(t, 'meeting.pageCount', 2)).toBe(t('meeting.pageCount', { count: 2 }));
   });
 
   it('uses the plural form of the language', () => {
@@ -19,11 +19,11 @@ describe('translateCount', () => {
     const french = createI18n('fr');
 
     // Zero is singular in French and plural in English.
-    expect(translateCount(french.t, 'meetings.count', 0)).toBe(
-      fr.meetings.count_one.replace(COUNT_PLACEHOLDER, '0'),
+    expect(translateCount(french.t, 'meeting.pageCount', 0)).toBe(
+      fr.meeting.pageCount_one.replace(COUNT_PLACEHOLDER, '0'),
     );
-    expect(translateCount(english.t, 'meetings.count', 0)).toBe(
-      en.meetings.count_other.replace(COUNT_PLACEHOLDER, '0'),
+    expect(translateCount(english.t, 'meeting.pageCount', 0)).toBe(
+      en.meeting.pageCount_other.replace(COUNT_PLACEHOLDER, '0'),
     );
   });
 
@@ -31,14 +31,14 @@ describe('translateCount', () => {
     const { t } = createI18n('en');
 
     // @ts-expect-error A count read from a route parameter is a string: parse it first.
-    translateCount(t, 'meetings.count', '1');
+    translateCount(t, 'meeting.pageCount', '1');
     // @ts-expect-error A key without plural forms is not a plural key.
     translateCount(t, 'app.name', 1);
     // @ts-expect-error A key that no resource defines.
     translateCount(t, 'does.not.exist', 1);
 
-    const key: PluralKey = 'meetings.count';
-    expect(translateCount(t, key, 1)).toBe(t('meetings.count', { count: 1 }));
+    const key: PluralKey = 'meeting.pageCount';
+    expect(translateCount(t, key, 1)).toBe(t('meeting.pageCount', { count: 1 }));
   });
 
   it('is needed: t alone renders the raw key when the count is not a number', () => {
@@ -47,7 +47,7 @@ describe('translateCount', () => {
     // that has gone through a cast, like a route parameter would.
     const fromRoute = JSON.parse('"1"') as number;
 
-    expect(t('meetings.count', { count: fromRoute })).toBe('meetings.count');
-    expect(t('meetings.count', { count: Number(fromRoute) })).not.toBe('meetings.count');
+    expect(t('meeting.pageCount', { count: fromRoute })).toBe('meeting.pageCount');
+    expect(t('meeting.pageCount', { count: Number(fromRoute) })).not.toBe('meeting.pageCount');
   });
 });
