@@ -18,7 +18,6 @@ import { SimulatedNetwork } from '@infrastructure/in-memory/SimulatedNetwork';
 import type { NetworkControl } from '@infrastructure/in-memory/SimulatedNetwork';
 import { ConsoleMonitoring } from '@infrastructure/monitoring/ConsoleMonitoring';
 
-import { MOCK_SESSION_LIFETIME } from './config';
 import type { MockConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { mockDataInvalid } from './errors';
@@ -29,6 +28,11 @@ import type { Ports } from './Ports';
 export interface MockControls {
   /** Takes the simulated server offline and online, and sets how long it takes to answer. */
   readonly network: NetworkControl;
+  /**
+   * The screen protection of the simulation: whether it is on, and a way to report a screenshot or
+   * a recording to whoever subscribed.
+   */
+  readonly screenProtection: InMemoryScreenProtection;
 }
 
 interface MockWiring {
@@ -61,15 +65,18 @@ export function createMockPorts(
     clock,
     network,
     accounts: seed.value.accounts,
-    sessionLifetime: MOCK_SESSION_LIFETIME,
+    sessionLifetime: config.sessionLifetime,
   });
   if (config.startSignedIn) {
     const opened = auth.openSessionFor(seed.value.demoUser);
     if (isErr(opened)) return err(mockDataInvalid(JSON.stringify(opened.error)));
   }
 
-  const backend = new InMemoryBackend({ clock, auth, network, content: seed.value.content });
+  const created = InMemoryBackend.create({ clock, auth, network, content: seed.value.content });
+  if (isErr(created)) return err(mockDataInvalid(JSON.stringify(created.error)));
+  const backend = created.value;
   const documentContent = new InMemoryDocumentContent();
+  const screenProtection = new InMemoryScreenProtection();
 
   return ok({
     ports: {
@@ -77,7 +84,7 @@ export function createMockPorts(
       monitoring,
       auth,
       biometricGate: new InMemoryBiometricGate(),
-      screenProtection: new InMemoryScreenProtection(),
+      screenProtection,
       meetings: new InMemoryMeetingRepository(backend),
       meetingCache: new InMemoryMeetingCache(),
       documents: new InMemoryDocumentRepository(backend, documentContent),
@@ -85,6 +92,6 @@ export function createMockPorts(
       votes: new InMemoryVoteRepository(backend),
       outbox: new InMemoryVoteOutbox(),
     },
-    controls: { network: backend.network },
+    controls: { network: backend.network, screenProtection },
   });
 }

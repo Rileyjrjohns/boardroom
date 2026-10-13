@@ -9,7 +9,9 @@ const ROOT = path.resolve(__dirname, '..');
 const ROOT_LAYOUT = path.join('app', '_layout.tsx');
 const SOURCE_FILE = /\.(ts|tsx)$/;
 const TEST_FILE = /\.(test|spec)\.tsx?$/;
-const ENVIRONMENT_READ = /process\.env\b/g;
+/** Not global: a global regular expression remembers where it stopped, and skips the next file. */
+const ENVIRONMENT_READ = /process\.env\b/;
+const ENVIRONMENT_READS = /process\.env\b/g;
 const PUBLIC_VARIABLE = /process\.env\.(EXPO_PUBLIC_[A-Z0-9_]+)/g;
 
 function sourceFiles(directory: string): string[] {
@@ -27,19 +29,42 @@ const appCode = [...sourceFiles('app'), ...sourceFiles('src')].filter(
 
 const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
+/** The files, among those given with their source, that read the environment. */
+function filesReadingEnvironment(sources: Readonly<Record<string, string>>): string[] {
+  return Object.entries(sources)
+    .filter(([, source]) => ENVIRONMENT_READ.test(source))
+    .map(([file]) => file);
+}
+
 describe('the environment', () => {
   it('is read in the root layout and nowhere else', () => {
-    const readers = appCode.filter((file) => ENVIRONMENT_READ.test(read(file)));
-    ENVIRONMENT_READ.lastIndex = 0;
+    const readers = filesReadingEnvironment(
+      Object.fromEntries(appCode.map((file) => [file, read(file)])),
+    );
 
     expect(readers).toEqual([ROOT_LAYOUT]);
+  });
+
+  it('catches a second read in the file scanned right after the root layout', () => {
+    const read = 'const setting = process.env.EXPO_PUBLIC_OTHER;';
+
+    expect(
+      filesReadingEnvironment({
+        [ROOT_LAYOUT]: read,
+        'src/di/zzz.ts': read,
+        'src/di/yyy.ts': read,
+      }),
+    ).toEqual([ROOT_LAYOUT, 'src/di/zzz.ts', 'src/di/yyy.ts']);
+    expect(
+      filesReadingEnvironment({ [ROOT_LAYOUT]: read, 'src/di/zzz.ts': 'export const a = 1;' }),
+    ).toEqual([ROOT_LAYOUT]);
   });
 
   it('is read once in the root layout, as a static expression Metro can replace', () => {
     const reads = read(ROOT_LAYOUT).match(PUBLIC_VARIABLE) ?? [];
 
     expect(reads).toEqual(['process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS']);
-    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READ)).toHaveLength(1);
+    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READS)).toHaveLength(1);
   });
 
   it('has every variable the app reads documented in .env.example, with a default', () => {

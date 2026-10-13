@@ -34,4 +34,10 @@ export interface UseCaseSettings {
   readonly maxCacheAge: Duration;
   readonly maxAttempts: number;
   readonly gracePeriod: Duration;
+  /**
+   * Whether the app is locked when it is built. A real cold start is (the session that is
+   * restored must be unlocked with the biometrics); a configuration that opens a session by
+   * itself, as if the user had just signed in, is not.
+   */
+  readonly startsLocked: boolean;
 }

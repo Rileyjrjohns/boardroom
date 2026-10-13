@@ -3,6 +3,7 @@ import type { Adapters } from './adapters';
 /** Why the composition root could not hand over a container. Plain data, like every error. */
 export const CONTAINER_ERROR_CODE = {
   InvalidAdaptersSetting: 'invalidAdaptersSetting',
+  MissingAdaptersSetting: 'missingAdaptersSetting',
   ConfigurationNotAvailable: 'configurationNotAvailable',
   MockDataInvalid: 'mockDataInvalid',
 } as const;
@@ -12,6 +13,15 @@ export interface InvalidAdaptersSettingError {
   readonly code: typeof CONTAINER_ERROR_CODE.InvalidAdaptersSetting;
   /** What was found, trimmed. It is configuration, not personal data. */
   readonly received: string;
+}
+
+/**
+ * The environment names no way of wiring, outside of a development build. The mock adapters are a
+ * default for development only: a release build that was not told what to talk to must not start
+ * on a simulated server.
+ */
+export interface MissingAdaptersSettingError {
+  readonly code: typeof CONTAINER_ERROR_CODE.MissingAdaptersSetting;
 }
 
 /**
@@ -30,10 +40,17 @@ export interface MockDataInvalidError {
 }
 
 export type ContainerError =
-  InvalidAdaptersSettingError | ConfigurationNotAvailableError | MockDataInvalidError;
+  | InvalidAdaptersSettingError
+  | MissingAdaptersSettingError
+  | ConfigurationNotAvailableError
+  | MockDataInvalidError;
 
 export function invalidAdaptersSetting(received: string): InvalidAdaptersSettingError {
   return { code: CONTAINER_ERROR_CODE.InvalidAdaptersSetting, received };
+}
+
+export function missingAdaptersSetting(): MissingAdaptersSettingError {
+  return { code: CONTAINER_ERROR_CODE.MissingAdaptersSetting };
 }
 
 export function configurationNotAvailable(adapters: Adapters): ConfigurationNotAvailableError {

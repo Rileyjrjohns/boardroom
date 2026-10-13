@@ -26,9 +26,21 @@ import { ADAPTERS } from './adapters';
 import { MEETINGS_PAGE_SIZE } from './config';
 import { defaultMockConfiguration } from './configuration';
 import type { MockConfiguration } from './configuration';
+import type { ContainerRuntime } from './ContainerRuntime';
 import { createContainer, startContainer } from './createContainer';
 import type { MockContainer } from './createContainer';
 import { CONTAINER_ERROR_CODE } from './errors';
+
+/**
+ * What the container reads from the outside, replaced: a clock that stands still, a network that
+ * does not wait, and a monitoring that writes nowhere, so that a test prints nothing to the console.
+ */
+const silentRuntime = (overrides: ContainerRuntime = {}): ContainerRuntime => ({
+  clock: new FakeClock(),
+  sleep: immediateSleep,
+  monitoring: new FakeMonitoring(),
+  ...overrides,
+});
 
 const ALICE = 'alice.martin@boardroom.example';
 const BRUNO = 'bruno.durand@boardroom.example';
@@ -43,7 +55,7 @@ function aContainer(config: MockConfiguration = mock()): {
   clock: FakeClock;
 } {
   const clock = new FakeClock();
-  const created = createContainer(config, { clock, sleep: immediateSleep });
+  const created = createContainer(config, silentRuntime({ clock }));
   if (!created.ok) throw new Error(`The container was not built: ${JSON.stringify(created.error)}`);
   return { container: created.value, clock };
 }
@@ -149,15 +161,12 @@ describe('createContainer, mock configuration', () => {
   });
 
   it('generates its content from the clock it is given', async () => {
-    const early = unwrap(parseInstant(NOW));
-    const clock = new FakeClock(early);
-    const created = createContainer(mock(), { clock, sleep: immediateSleep });
+    const created = createContainer(mock(), silentRuntime({ clock: new FakeClock(NOW) }));
     const container = valueOf(created);
 
     const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
-    clock.advance(40 * MILLIS_PER_DAY);
 
-    expect(upcoming.scheduledAt - early).toBeLessThan(5 * MILLIS_PER_DAY);
+    expect(upcoming.scheduledAt - NOW).toBeLessThan(5 * MILLIS_PER_DAY);
   });
 
   it('starts with the demo user signed in, behind the named option', async () => {
@@ -301,7 +310,99 @@ describe('createContainer, mock configuration', () => {
     expect(!second.ok && second.error.code).toBe(VOTING_ERROR_CODE.AlreadyVoted);
   });
 
+  describe('the lock of the app', () => {
+    it('is open when the configuration opened the session itself, as after a sign-in', async () => {
+      const { container } = aContainer(mock({ startSignedIn: true }));
+
+      const listed = await container.useCases.listMeetings.execute({
+        period: MEETING_PERIOD.Upcoming,
+        request: page,
+      });
+
+      expect(listed.ok).toBe(true);
+    });
+
+    it('is closed by the restore of the session, for every use case, until the biometrics succeed', async () => {
+      const { container } = aContainer();
+      const { useCases } = container;
+      const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
+
+      await useCases.restoreSession.execute();
+
+      const locked = [
+        await useCases.getMeeting.execute({ meetingId: upcoming.id }),
+        await useCases.listMeetings.execute({ period: MEETING_PERIOD.Upcoming, request: page }),
+        await useCases.listPendingVotes.execute(),
+        await useCases.syncPendingVotes.execute(),
+      ];
+      expect(locked.map((result) => !result.ok && result.error.code)).toEqual(
+        locked.map(() => AUTHENTICATION_ERROR_CODE.AppLocked),
+      );
+
+      await useCases.unlockApp.execute();
+      expect((await useCases.getMeeting.execute({ meetingId: upcoming.id })).ok).toBe(true);
+      expect((await useCases.listPendingVotes.execute()).ok).toBe(true);
+    });
+
+    it('starts closed when there is no session to open, and a sign-in opens it', async () => {
+      const { container } = aContainer(mock({ startSignedIn: false }));
+      await container.useCases.signIn.execute({ email: ALICE, password: DEMO_PASSWORD });
+
+      expect((await container.useCases.listPendingVotes.execute()).ok).toBe(true);
+    });
+  });
+
   describe('single shared instances', () => {
+    it('shares the screen protection coordinator: closing one view of two leaves the screen protected', async () => {
+      const { container } = aContainer();
+      const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
+      const meeting = valueOf(
+        await container.useCases.getMeeting.execute({ meetingId: upcoming.id }),
+      ).data;
+      const confidential = meeting.documents.find(
+        ({ confidentiality }) => confidentiality === CONFIDENTIALITY_LEVEL.Confidential,
+      );
+      if (confidential === undefined) throw new Error('The meeting has no confidential document.');
+      const { screenProtection } = container.controls;
+      const input = { documentId: confidential.id };
+
+      await container.useCases.openDocument.execute(input);
+      await container.useCases.openDocument.execute(input);
+      expect(screenProtection.isEnabled()).toBe(true);
+
+      await container.useCases.closeDocument.execute(input);
+      expect(screenProtection.isEnabled()).toBe(true);
+
+      await container.useCases.closeDocument.execute(input);
+      expect(screenProtection.isEnabled()).toBe(false);
+    });
+
+    it('keeps the screen protected while another confidential document is open', async () => {
+      const { container } = aContainer();
+      const documents = [];
+      for (const period of [MEETING_PERIOD.Upcoming, MEETING_PERIOD.Past]) {
+        const summary = await firstMeetingOf(container, period);
+        const meeting = valueOf(
+          await container.useCases.getMeeting.execute({ meetingId: summary.id }),
+        ).data;
+        const confidential = meeting.documents.find(
+          ({ confidentiality }) => confidentiality === CONFIDENTIALITY_LEVEL.Confidential,
+        );
+        if (confidential !== undefined) documents.push(confidential);
+      }
+      const [first, second] = documents;
+      if (first === undefined || second === undefined) throw new Error('Two documents are needed.');
+      const { screenProtection } = container.controls;
+      await container.useCases.openDocument.execute({ documentId: first.id });
+      await container.useCases.openDocument.execute({ documentId: second.id });
+
+      await container.useCases.closeDocument.execute({ documentId: first.id });
+      expect(screenProtection.isEnabled()).toBe(true);
+
+      await container.useCases.closeDocument.execute({ documentId: second.id });
+      expect(screenProtection.isEnabled()).toBe(false);
+    });
+
     it('shares CastVote: a second vote on the same resolution cast at the same time is refused', async () => {
       const { container } = aContainer();
       const { meeting, resolution } = await anOpenResolution(container);
@@ -328,7 +429,7 @@ describe('createContainer, mock configuration', () => {
       const first = aContainer().container;
       const second = aContainer().container;
       const upcoming = await firstMeetingOf(first, MEETING_PERIOD.Upcoming);
-      first.controls.network.goOffline();
+      first.controls.network.setOnline(false);
 
       expect(second.controls.network.online).toBe(true);
       expect(first.useCases.listMeetings).not.toBe(second.useCases.listMeetings);
@@ -343,18 +444,17 @@ describe('createContainer, mock configuration', () => {
 
   describe('the simulated network', () => {
     it('can be taken offline: a meeting seen before is then served from the cache, flagged stale', async () => {
-      const { container, clock } = aContainer();
+      const { container } = aContainer();
       const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
       await container.useCases.getMeeting.execute({ meetingId: upcoming.id });
-      clock.advance(60_000);
 
-      container.controls.network.goOffline();
+      container.controls.network.setOnline(false);
       const stale = valueOf(
         await container.useCases.getMeeting.execute({ meetingId: upcoming.id }),
       );
 
       expect(stale.source).toEqual({ freshness: FRESHNESS.Stale, cachedAt: NOW });
-      container.controls.network.goOnline();
+      container.controls.network.setOnline(true);
       expect(
         valueOf(await container.useCases.getMeeting.execute({ meetingId: upcoming.id })).source,
       ).toEqual({ freshness: FRESHNESS.Fresh });
@@ -362,7 +462,7 @@ describe('createContainer, mock configuration', () => {
 
     it('fails with networkUnavailable offline for what was never seen', async () => {
       const { container } = aContainer();
-      container.controls.network.goOffline();
+      container.controls.network.setOnline(false);
 
       const result = await container.useCases.listMeetings.execute({
         period: MEETING_PERIOD.Upcoming,
@@ -375,7 +475,7 @@ describe('createContainer, mock configuration', () => {
     it('queues a vote cast offline, and sends it when the network is back', async () => {
       const { container } = aContainer();
       const { meeting, resolution } = await anOpenResolution(container);
-      container.controls.network.goOffline();
+      container.controls.network.setOnline(false);
 
       const cast = valueOf(
         await container.useCases.castVote.execute({
@@ -387,7 +487,7 @@ describe('createContainer, mock configuration', () => {
       expect(cast.status).toBe(CAST_VOTE_STATUS.Queued);
       expect(valueOf(await container.useCases.listPendingVotes.execute()).pending).toHaveLength(1);
 
-      container.controls.network.goOnline();
+      container.controls.network.setOnline(true);
       const sync = valueOf(await container.useCases.syncPendingVotes.execute());
       expect(sync.outcome).toBe(SYNC_OUTCOME.Completed);
       expect(valueOf(await container.useCases.listPendingVotes.execute()).pending).toEqual([]);
@@ -395,10 +495,7 @@ describe('createContainer, mock configuration', () => {
 
     it('waits for the latency of the configuration through the sleep it was given', async () => {
       const { sleep, requested } = recordingSleep();
-      const created = createContainer(mock({ latency: aDuration(250) }), {
-        clock: new FakeClock(),
-        sleep,
-      });
+      const created = createContainer(mock({ latency: aDuration(250) }), silentRuntime({ sleep }));
       const container = valueOf(created);
 
       await container.useCases.listMeetings.execute({
@@ -413,12 +510,10 @@ describe('createContainer, mock configuration', () => {
 
   it('reports what the use cases swallow to the monitoring it was given', async () => {
     const monitoring = new FakeMonitoring();
-    const container = valueOf(
-      createContainer(mock(), { clock: new FakeClock(), sleep: immediateSleep, monitoring }),
-    );
+    const container = valueOf(createContainer(mock(), silentRuntime({ monitoring })));
     const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
     await container.useCases.getMeeting.execute({ meetingId: upcoming.id });
-    container.controls.network.goOffline();
+    container.controls.network.setOnline(false);
 
     await container.useCases.getMeeting.execute({ meetingId: upcoming.id });
 
@@ -428,7 +523,7 @@ describe('createContainer, mock configuration', () => {
   it('answers mockDataInvalid, not an exception, when the clock leaves no room for the seed', () => {
     const clock = new FakeClock(unwrap(parseInstant(1000)));
 
-    const created = createContainer(mock(), { clock, sleep: immediateSleep });
+    const created = createContainer(mock(), silentRuntime({ clock }));
 
     expect(created.ok).toBe(false);
     expect(!created.ok && created.error.code).toBe(CONTAINER_ERROR_CODE.MockDataInvalid);
@@ -437,7 +532,7 @@ describe('createContainer, mock configuration', () => {
   it('answers mockDataInvalid when the session of the demo user cannot be opened', () => {
     const clock = new FakeClock(unwrap(parseInstant(8_640_000_000_000_000)));
 
-    const created = createContainer(mock(), { clock, sleep: immediateSleep });
+    const created = createContainer(mock(), silentRuntime({ clock }));
 
     expect(!created.ok && created.error.code).toBe(CONTAINER_ERROR_CODE.MockDataInvalid);
   });
@@ -454,31 +549,48 @@ describe('createContainer, http configuration', () => {
   });
 });
 
+const DEVELOPMENT = { development: true };
+
 describe('startContainer', () => {
   it('builds the mock container when the setting is missing', () => {
-    const created = startContainer(undefined, { clock: new FakeClock(), sleep: immediateSleep });
+    const created = startContainer(undefined, DEVELOPMENT, silentRuntime());
 
     expect(created.ok && created.value.kind).toBe(ADAPTERS.Mock);
   });
 
   it('builds the mock container when the setting says mock', () => {
-    const created = startContainer(' Mock ', { clock: new FakeClock(), sleep: immediateSleep });
+    const created = startContainer(' Mock ', DEVELOPMENT, silentRuntime());
 
     expect(created.ok && created.value.kind).toBe(ADAPTERS.Mock);
   });
 
   it('reports that http is not available yet', () => {
-    const created = startContainer('http');
+    const created = startContainer('http', DEVELOPMENT);
 
     expect(!created.ok && created.error.code).toBe(CONTAINER_ERROR_CODE.ConfigurationNotAvailable);
   });
 
   it('reports a value it does not know instead of guessing', () => {
-    const created = startContainer('mokc');
+    const created = startContainer('mokc', DEVELOPMENT);
 
     expect(created).toEqual({
       ok: false,
       error: { code: CONTAINER_ERROR_CODE.InvalidAdaptersSetting, received: 'mokc' },
     });
+  });
+
+  it('refuses to start without a setting outside of a development build, instead of starting the mock adapters', () => {
+    const created = startContainer(undefined, { development: false }, silentRuntime());
+
+    expect(created).toEqual({
+      ok: false,
+      error: { code: CONTAINER_ERROR_CODE.MissingAdaptersSetting },
+    });
+  });
+
+  it('starts the mock adapters outside of a development build when the setting says so', () => {
+    const created = startContainer('mock', { development: false }, silentRuntime());
+
+    expect(created.ok && created.value.kind).toBe(ADAPTERS.Mock);
   });
 });

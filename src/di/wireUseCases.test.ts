@@ -1,6 +1,7 @@
 import { SYNC_OUTCOME } from '@application/use-cases/votes/SyncPendingVotes';
 import { createFakes } from '@application/testing/createFakes';
 import { OUTBOX_STATUS } from '@domain/entities/OutboxVote';
+import { appLocked } from '@domain/errors/AuthenticationError';
 import { unexpected } from '@domain/errors/RepositoryError';
 import { VOTE_DELIVERY_ERROR_CODE } from '@domain/errors/VoteDeliveryError';
 import { err, ok } from '@domain/shared/Result';
@@ -14,6 +15,7 @@ import {
   aMeeting,
   aMeetingId,
   aPendingVote,
+  aSession,
   aVote,
   at,
   unwrap,
@@ -28,6 +30,7 @@ const SETTINGS: UseCaseSettings = {
   maxCacheAge: aDuration(10 * MILLIS_PER_MINUTE),
   maxAttempts: 2,
   gracePeriod: aDuration(MILLIS_PER_MINUTE),
+  startsLocked: false,
 };
 
 /** The fakes, as the ports a configuration would build. */
@@ -159,5 +162,56 @@ describe('wireUseCases', () => {
     expect(first.castVote).not.toBe(second.castVote);
     expect(first.syncPendingVotes).not.toBe(second.syncPendingVotes);
     expect(first.listMeetings).not.toBe(second.listMeetings);
+  });
+
+  describe('the lock of the app', () => {
+    it('is built open or closed as the settings say', async () => {
+      const fakes = createFakes();
+      fakes.meetings.addMeeting(aMeeting());
+      const open = wireUseCases(fakes, { ...SETTINGS, startsLocked: false });
+      const closed = wireUseCases(fakes, { ...SETTINGS, startsLocked: true });
+
+      expect((await open.getMeeting.execute({ meetingId: aMeetingId() })).ok).toBe(true);
+      expect(await closed.getMeeting.execute({ meetingId: aMeetingId() })).toEqual(
+        err(appLocked()),
+      );
+    });
+
+    it('is one state shared by every use case: the unlock of one opens them all', async () => {
+      const fakes = createFakes();
+      fakes.meetings.addMeeting(aMeeting());
+      const useCases = wireUseCases(fakes, { ...SETTINGS, startsLocked: true });
+      const listed = () =>
+        useCases.listMeetings.execute({ period: MEETING_PERIOD.Upcoming, request: firstPage });
+      expect(await listed()).toEqual(err(appLocked()));
+      expect(await useCases.listPendingVotes.execute()).toEqual(err(appLocked()));
+
+      await useCases.unlockApp.execute();
+
+      expect((await listed()).ok).toBe(true);
+      expect((await useCases.getMeeting.execute({ meetingId: aMeetingId() })).ok).toBe(true);
+      expect((await useCases.listPendingVotes.execute()).ok).toBe(true);
+    });
+
+    it('is closed again by the restore of a session, the lock of the grace period and the sign-out', async () => {
+      const fakes = createFakes();
+      const useCases = wireUseCases(fakes, { ...SETTINGS, startsLocked: false });
+      const isOpen = async () => (await useCases.listPendingVotes.execute()).ok;
+      expect(await isOpen()).toBe(true);
+
+      await useCases.restoreSession.execute();
+      expect(await isOpen()).toBe(false);
+
+      await useCases.unlockApp.execute();
+      fakes.clock.advance(SETTINGS.gracePeriod);
+      await useCases.evaluateAppLock.execute({ backgroundedAt: NOW });
+      expect(await isOpen()).toBe(false);
+
+      await useCases.unlockApp.execute();
+      expect(await isOpen()).toBe(true);
+      await useCases.signOut.execute();
+      fakes.auth.session = aSession();
+      expect(await isOpen()).toBe(false);
+    });
   });
 });

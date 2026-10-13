@@ -9,7 +9,7 @@ import {
   MEETINGS_PAGE_SIZE,
 } from './config';
 import { parseAdaptersSetting } from './configuration';
-import type { Configuration, MockConfiguration } from './configuration';
+import type { BuildEnvironment, Configuration, MockConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { configurationNotAvailable } from './errors';
 import type { ContainerError } from './errors';
@@ -40,11 +40,15 @@ export interface MockContainer {
  */
 export type Container = MockContainer;
 
-const USE_CASE_SETTINGS: UseCaseSettings = {
-  maxCacheAge: MAX_CACHE_AGE,
-  maxAttempts: MAX_VOTE_DELIVERY_ATTEMPTS,
-  gracePeriod: APP_LOCK_GRACE_PERIOD,
-};
+/** The values of `config.ts` that the use cases take, and whether the app starts locked. */
+function settingsOfUseCases(startsLocked: boolean): UseCaseSettings {
+  return {
+    maxCacheAge: MAX_CACHE_AGE,
+    maxAttempts: MAX_VOTE_DELIVERY_ATTEMPTS,
+    gracePeriod: APP_LOCK_GRACE_PERIOD,
+    startsLocked,
+  };
+}
 
 function createMockContainer(
   config: MockConfiguration,
@@ -55,7 +59,9 @@ function createMockContainer(
 
   return ok({
     kind: ADAPTERS.Mock,
-    useCases: wireUseCases(wiring.value.ports, USE_CASE_SETTINGS),
+    // A session opened by the configuration itself stands for a sign-in the user has just made:
+    // it is unlocked. Without one, the app starts locked, as a cold start does.
+    useCases: wireUseCases(wiring.value.ports, settingsOfUseCases(!config.startSignedIn)),
     settings: { meetingsPageSize: MEETINGS_PAGE_SIZE },
     controls: wiring.value.controls,
   });
@@ -85,13 +91,14 @@ export function createContainer(
 
 /**
  * `createContainer` for the raw value of the environment variable that selects the adapters
- * (see `parseAdaptersSetting`): what the root layout calls, with the value it read.
+ * (see `parseAdaptersSetting`) and the kind of build: what the root layout calls, with what it read.
  */
 export function startContainer(
   adaptersSetting: string | undefined,
+  environment: BuildEnvironment,
   runtime: ContainerRuntime = {},
 ): Result<Container, ContainerError> {
-  return andThen(parseAdaptersSetting(adaptersSetting), (config) =>
+  return andThen(parseAdaptersSetting(adaptersSetting, environment), (config) =>
     createContainer(config, runtime),
   );
 }
