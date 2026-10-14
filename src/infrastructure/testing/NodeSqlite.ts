@@ -1,5 +1,5 @@
 import type { DatabaseOpener, EngineConnection } from '../persistence/DatabaseOpener';
-import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from '../persistence/SqlDatabase';
+import type { SqlParams, SqlRow, SqlRunResult } from '../persistence/SqlDatabase';
 
 // Test support, not production code: the SQLite engine of the tests, which is the one that comes
 // with Node (`node:sqlite`), so the adapters run real SQL in Jest. It stands in for `expo-sqlite`,
@@ -89,10 +89,6 @@ export class NodeSqliteOpener implements DatabaseOpener {
     } catch (error) {
       return Promise.reject(error as Error);
     }
-  }
-
-  openScratch(): Promise<SqlConnection> {
-    return Promise.resolve(new NodeSqliteConnection(IN_MEMORY_DATABASE));
   }
 
   remove(name: string): Promise<void> {

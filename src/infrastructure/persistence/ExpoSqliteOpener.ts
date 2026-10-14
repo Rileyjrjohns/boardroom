@@ -1,7 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 
 import type { DatabaseOpener, EngineConnection } from './DatabaseOpener';
-import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from './SqlDatabase';
+import type { SqlParams, SqlRow, SqlRunResult } from './SqlDatabase';
 
 // The device side of the database: `expo-sqlite`, built with SQLCipher (the `useSQLCipher` option
 // of its config plugin, in app.config.ts). It is as thin as it can be: raw calls to the module and
@@ -10,8 +10,6 @@ import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from './SqlDataba
 // encryption itself has been run on no device. What to do with a key, with a file that does not
 // unlock and with a file in the way is in `unlockDatabase` and `openProtectedDatabase`, which are
 // tested against SQLite.
-
-const IN_MEMORY = ':memory:';
 
 /** What the module says when it is asked to delete a database that is not there. */
 const NOT_FOUND = /not found/i;
@@ -40,10 +38,6 @@ class ExpoSqliteConnection implements EngineConnection {
 export class ExpoSqliteOpener implements DatabaseOpener {
   async open(name: string): Promise<EngineConnection> {
     return new ExpoSqliteConnection(await SQLite.openDatabaseAsync(name));
-  }
-
-  async openScratch(): Promise<SqlConnection> {
-    return new ExpoSqliteConnection(await SQLite.openDatabaseAsync(IN_MEMORY));
   }
 
   /**

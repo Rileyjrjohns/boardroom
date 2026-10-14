@@ -1,5 +1,5 @@
 import type { DatabaseOpener, EngineConnection } from '../persistence/DatabaseOpener';
-import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from '../persistence/SqlDatabase';
+import type { SqlParams, SqlRow, SqlRunResult } from '../persistence/SqlDatabase';
 
 // Test support, not production code: the one thing of an encrypted database that Node's SQLite
 // cannot do, answering "file is not a database" to a key that is not the one the file was created
@@ -56,10 +56,6 @@ export class SimulatedCipherOpener implements DatabaseOpener {
       throw new Error(CANNOT_OPEN);
     }
     return new SimulatedConnection(await this.inner.open(name), name, this);
-  }
-
-  openScratch(): Promise<SqlConnection> {
-    return this.inner.openScratch();
   }
 
   async remove(name: string): Promise<void> {

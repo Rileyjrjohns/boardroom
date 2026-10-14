@@ -10,13 +10,7 @@ import type { SerialQueue } from '../shared/serialQueue';
 import { SECURE_STORAGE_KEY } from '../secure-storage/SecureStorage';
 import type { SecureStorage } from '../secure-storage/SecureStorage';
 
-import {
-  FIRST_GENERATION,
-  KEY_FORMAT,
-  databaseFileName,
-  formatKeyState,
-  parseKeyState,
-} from './databaseKey';
+import { FIRST_GENERATION, databaseFileName, formatKeyState, parseKeyState } from './databaseKey';
 import type { KeyState } from './databaseKey';
 import { CONNECTION_PRAGMAS } from './DatabaseOpener';
 import type { DatabaseOpener } from './DatabaseOpener';
@@ -24,6 +18,8 @@ import { RESET_REASON, markLocalDataReset } from './localDataReset';
 import type { ResetReason } from './localDataReset';
 import { MIGRATION_FAILURE, runMigrations } from './migrate';
 import type { Migration } from './migrations';
+import { KEY_BYTES, keyFromBytes } from './randomKey';
+import type { RandomBytes } from './randomKey';
 import { createSqlDatabase } from './SqlDatabase';
 import type { SqlConnection, SqlDatabase } from './SqlDatabase';
 import { UNLOCK_FAILURE, unlockDatabase } from './unlockDatabase';
@@ -58,10 +54,6 @@ export interface DatabaseUnavailable {
   readonly reason: DatabaseFailureReason;
 }
 
-const KEY_BYTES = 32;
-const RANDOM_KEY = `SELECT lower(hex(randomblob(${KEY_BYTES}))) AS key`;
-const KEY_COLUMN = 'key';
-
 const unavailable = (reason: DatabaseFailureReason): DatabaseUnavailable => ({
   code: DATABASE_ERROR_CODE.Unavailable,
   reason,
@@ -71,6 +63,8 @@ export interface ProtectedDatabaseOptions {
   readonly opener: DatabaseOpener;
   /** Where the key lives. */
   readonly storage: SecureStorage;
+  /** Where the bits of a key come from: the secure random generator of the platform. */
+  readonly randomBytes: RandomBytes;
   readonly monitoring: Monitoring;
   /** The name of the first database file (see `databaseFileName`). */
   readonly name: string;
@@ -100,8 +94,8 @@ function queueOf(storage: SecureStorage): SerialQueue {
  * schema up to date. It is the one place that decides what to do with the key. Starts are one at a
  * time for a keychain (see `startsOfKeychain`).
  *
- * - **First start.** There is no key and no file. A key is made (256 random bits, see
- *   `randomKey`), stored first, then the database is created with it. If the app stops in between,
+ * - **First start.** There is no key and no file. A key is made (256 random bits from the secure
+ *   generator of the platform, see `randomKey`), stored first, then the database is created with it. If the app stops in between,
  *   the next start finds a key and no file, and creates it.
  * - **Every start after.** The key is read and the database opened with it.
  * - **A keychain that cannot be trusted.** What is stored under the key of the database is there
@@ -303,7 +297,7 @@ async function makeState(
   generation: number,
   timeout: number,
 ): Promise<Result<KeyState, DatabaseUnavailable>> {
-  const key = await randomKey(options.opener, timeout);
+  const key = await randomKey(options.randomBytes, timeout);
   if (!key.ok) return key;
 
   const state: KeyState = { generation, key: key.value };
@@ -315,26 +309,17 @@ async function makeState(
 }
 
 /**
- * 256 random bits as hexadecimal digits. The platform gives no secure random number to JavaScript
- * that the app can use without a dependency (Hermes has no `crypto.getRandomValues`, and the Expo
- * module that has one is not part of this app), so the bits come from the engine: the
- * `randomblob()` function of SQLite, whose generator is seeded from the operating system
- * (`/dev/urandom`) and falls back on a weaker seed if that cannot be opened (see the README). They
- * are asked of a scratch database in memory, never of the database that is being protected.
+ * 256 random bits as hexadecimal digits (`keyFromBytes`), drawn from the secure generator of the
+ * platform that the options hand over (`expo-crypto` on a device). That generator rejects when it
+ * cannot do its job, and never answers with weaker bytes, so there is nothing to detect here but
+ * an answer that is not a key: which is a failure of the key storage like any other, and nothing
+ * is made, stored or opened.
  */
 async function randomKey(
-  opener: DatabaseOpener,
+  randomBytes: RandomBytes,
   timeout: number,
 ): Promise<Result<string, DatabaseUnavailable>> {
-  const scratch = await attempt(() => opener.openScratch(), timeout);
-  if (!scratch.ok) return err(unavailable(DATABASE_FAILURE.KeyStorage));
-  try {
-    const drawn = await attempt(() => scratch.value.all(RANDOM_KEY, []), timeout);
-    const key = drawn.ok ? drawn.value[0]?.[KEY_COLUMN] : undefined;
-    return typeof key === 'string' && KEY_FORMAT.test(key)
-      ? ok(key)
-      : err(unavailable(DATABASE_FAILURE.KeyStorage));
-  } finally {
-    await attempt(() => scratch.value.close(), timeout);
-  }
+  const drawn = await attempt(() => randomBytes(KEY_BYTES), timeout);
+  const key = drawn.ok ? keyFromBytes(drawn.value) : undefined;
+  return key === undefined ? err(unavailable(DATABASE_FAILURE.KeyStorage)) : ok(key);
 }

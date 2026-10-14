@@ -25,12 +25,6 @@ export interface DatabaseOpener {
   open(name: string): Promise<EngineConnection>;
 
   /**
-   * A database in memory, which never touches the disk and is not encrypted. It is where random
-   * numbers come from (see `randomKey`). The caller closes it.
-   */
-  openScratch(): Promise<SqlConnection>;
-
-  /**
    * Removes the file of a database. Removing a file that is not there succeeds. Only the main file
    * is promised to go: what the engine keeps beside it (a journal, which exists only if the app
    * stopped in the middle of a write) is not. Nothing relies on it: a database is never created

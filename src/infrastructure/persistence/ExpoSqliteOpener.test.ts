@@ -56,14 +56,6 @@ describe('ExpoSqliteOpener', () => {
     await expect(new ExpoSqliteOpener().open(NAME)).rejects.toThrow('disk full');
   });
 
-  it('opens a scratch database in memory, which is not a file', async () => {
-    const scratch = await new ExpoSqliteOpener().openScratch();
-
-    expect(await createSqlDatabase(scratch).all('SELECT 1 AS one')).toEqual([{ one: 1 }]);
-    expect(fakeExpoSqlite.statements).toEqual(['SELECT 1 AS one']);
-    expect(fakeExpoSqlite.files.size).toBe(0);
-  });
-
   describe('removing a database', () => {
     it('deletes the file of a database that is closed', async () => {
       const opener = new ExpoSqliteOpener();

@@ -3,6 +3,7 @@ import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import { FakeMonitoring } from '@application/testing/FakeMonitoring';
 
 import { MemorySecureStorage } from '../testing/MemorySecureStorage';
+import { nodeRandomBytes } from '../testing/nodeRandomBytes';
 import { NodeSqliteOpener, nodeFileSystem } from '../testing/NodeSqlite';
 import { SimulatedCipherOpener } from '../testing/SimulatedCipherOpener';
 import { databaseDirectory } from '../testing/testDatabase';
@@ -34,7 +35,15 @@ function aDevice(overrides: Partial<ProtectedDatabaseOptions> = {}) {
   const nodeFiles = new NodeSqliteOpener(directory, files);
   const opener = new SimulatedCipherOpener(nodeFiles);
   const name = `protected-${counter}.db`;
-  const options = { opener, storage, monitoring, name, migrations: MIGRATIONS, ...overrides };
+  const options = {
+    opener,
+    storage,
+    randomBytes: nodeRandomBytes,
+    monitoring,
+    name,
+    migrations: MIGRATIONS,
+    ...overrides,
+  };
   return {
     storage,
     monitoring,
@@ -165,6 +174,7 @@ describe('openProtectedDatabase', () => {
       const first = await openProtectedDatabase({
         opener: device.opener,
         storage: device.storage,
+        randomBytes: nodeRandomBytes,
         monitoring: device.monitoring,
         name: device.name,
         migrations: MIGRATIONS.slice(0, 1),
@@ -588,46 +598,116 @@ describe('openProtectedDatabase', () => {
     });
   });
 
-  describe('when no random key can be made', () => {
-    it('does not start when the scratch database cannot be opened', async () => {
-      const device = aDevice();
-      jest.spyOn(device.opener, 'openScratch').mockRejectedValue(new Error('no memory'));
-
-      const opened = await device.start();
-
-      expect(opened).toEqual({
-        ok: false,
-        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+  describe('where the key comes from', () => {
+    it('draws 32 bytes from the random source it is given, and keeps them as 64 lower-case hexadecimal digits', async () => {
+      const asked: number[] = [];
+      const bytes = Uint8Array.from({ length: 32 }, (_, index) => 0xa0 + index);
+      const device = aDevice({
+        randomBytes: (count) => {
+          asked.push(count);
+          return Promise.resolve(bytes);
+        },
       });
+
+      await started(device);
+
+      expect(asked).toEqual([32]);
+      expect(keyOf(device)).toBe(
+        `0:${'a0a1a2a3a4a5a6a7a8a9aaabacadaeaf'}${'b0b1b2b3b4b5b6b7b8b9babbbcbdbebf'}`,
+      );
     });
 
-    it('does not start with a key that is not what it should be', async () => {
-      const device = aDevice();
-      const scratch = await device.opener.openScratch();
-      jest.spyOn(scratch, 'all').mockResolvedValue([{ key: '0000' }]);
-      jest.spyOn(device.opener, 'openScratch').mockResolvedValue(scratch);
-
-      const opened = await device.start();
-
-      expect(opened).toEqual({
-        ok: false,
-        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+    it('draws again for the key of the next file when the database is reset', async () => {
+      const asked: number[] = [];
+      const device = aDevice({
+        randomBytes: (count) => {
+          asked.push(count);
+          return nodeRandomBytes(count);
+        },
       });
+      const first = await started(device);
+      await first.close();
+      device.opener.corrupt(device.name);
+
+      await started(device);
+
+      expect(asked).toEqual([32, 32]);
+    });
+
+    it('opens a database made by an earlier version, whose key was made by SQLite in the same form', async () => {
+      const device = aDevice();
+      const database = await started(device);
+      await mark(database);
+      await database.close();
+      const kept = keyOf(device);
+
+      const again = await started(device);
+
+      expect(await rowsOf(again)).toBe(1);
+      expect(keyOf(device)).toBe(kept);
+    });
+  });
+
+  describe('when no random key can be made', () => {
+    const failed = {
+      ok: false,
+      error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+    };
+
+    const generators: [string, () => Promise<unknown>][] = [
+      ['the generator rejects', () => Promise.reject(new Error('no entropy'))],
+      [
+        'the generator throws',
+        () => {
+          throw new Error('no entropy');
+        },
+      ],
+      ['it answers too few bytes', () => Promise.resolve(new Uint8Array(16).fill(7))],
+      ['it answers too many bytes', () => Promise.resolve(new Uint8Array(33).fill(7))],
+      ['it answers nothing', () => Promise.resolve(new Uint8Array(0))],
+      ['it answers zeros', () => Promise.resolve(new Uint8Array(32))],
+      ['it answers something that is not bytes', () => Promise.resolve('0'.repeat(64))],
+      [
+        'it answers an array of numbers',
+        () => Promise.resolve(Array.from({ length: 32 }, () => 7)),
+      ],
+    ];
+
+    it.each(generators)(
+      'does not start, and stores and creates nothing, when %s',
+      async (_name, generator) => {
+        const device = aDevice({
+          randomBytes: generator as ProtectedDatabaseOptions['randomBytes'],
+        });
+
+        const opened = await device.start();
+
+        expect(opened).toEqual(failed);
+        expect(device.storage.snapshot()).toEqual({});
+        expect(device.opener.has(device.name)).toBe(false);
+      },
+    );
+
+    it('does not wait for ever for a generator that does not answer', async () => {
+      const device = aDevice({ randomBytes: () => new Promise<Uint8Array>(() => undefined) });
+
+      const opened = await device.start({ timeoutMillis: 20 });
+
+      expect(opened).toEqual(failed);
       expect(device.storage.snapshot()).toEqual({});
     });
 
-    it('does not start when the scratch database cannot be asked for a number', async () => {
-      const device = aDevice();
-      const scratch = await device.opener.openScratch();
-      jest.spyOn(scratch, 'all').mockRejectedValue(new Error('broken'));
-      jest.spyOn(device.opener, 'openScratch').mockResolvedValue(scratch);
-
-      const opened = await device.start();
-
-      expect(opened).toEqual({
-        ok: false,
-        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+    it('starts when the generator works again', async () => {
+      let failing = true;
+      const device = aDevice({
+        randomBytes: (count) =>
+          failing ? Promise.reject(new Error('no entropy')) : nodeRandomBytes(count),
       });
+      expect(await device.start()).toEqual(failed);
+
+      failing = false;
+
+      expect((await device.start()).ok).toBe(true);
     });
   });
 
