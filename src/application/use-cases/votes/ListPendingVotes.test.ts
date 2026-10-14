@@ -1,4 +1,9 @@
-import { notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
+import {
+  appLocked,
+  notAuthenticated,
+  sessionChanged,
+  sessionExpired,
+} from '@domain/errors/AuthenticationError';
 import { storageReadFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
 import {
@@ -7,6 +12,7 @@ import {
   aRejectedVote,
   aResolutionId,
   aSession,
+  aUser,
   aUserId,
   aVote,
   at,
@@ -91,6 +97,25 @@ describe('ListPendingVotes', () => {
 
     fakes.auth.session = aSession({ expiresAt: NOW });
     expect(await new ListPendingVotes(fakes).execute()).toEqual(err(sessionExpired()));
+  });
+
+  it('never returns the entries of a user once somebody else is signed in', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seed(FIRST, REJECTED);
+    fakes.outbox.seedUnreadable(aUserId(), 'k1');
+    fakes.outbox.onRequest = () => {
+      fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+    };
+
+    expect(await new ListPendingVotes(fakes).execute()).toEqual(err(sessionChanged()));
+  });
+
+  it('never returns the entries of a user once the app is locked', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seed(FIRST);
+    fakes.outbox.onRequest = () => fakes.appLock.lock();
+
+    expect(await new ListPendingVotes(fakes).execute()).toEqual(err(appLocked()));
   });
 
   it('returns the storage error when the outbox cannot be read', async () => {

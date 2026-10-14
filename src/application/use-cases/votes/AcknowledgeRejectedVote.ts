@@ -1,4 +1,5 @@
 import { isPending } from '@domain/entities/OutboxVote';
+import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import type { StorageError } from '@domain/errors/StorageError';
 import { voteNotRejected } from '@domain/errors/VoteDeliveryError';
 import type { VoteNotRejectedError } from '@domain/errors/VoteDeliveryError';
@@ -7,7 +8,7 @@ import type { Result } from '@domain/shared/Result';
 import type { ResolutionId } from '@domain/value-objects/ids';
 
 import type { VoteOutbox } from '../../ports/VoteOutbox';
-import { requireSession } from '../../shared/requireSession';
+import { requireSameUser, requireSession } from '../../shared/requireSession';
 import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 
 export interface AcknowledgeRejectedVoteDeps extends RequireSessionDeps {
@@ -19,7 +20,7 @@ export interface AcknowledgeRejectedVoteInput {
 }
 
 export type AcknowledgeRejectedVoteError =
-  SessionRequiredError | StorageError | VoteNotRejectedError;
+  SessionRequiredError | SessionChangedError | StorageError | VoteNotRejectedError;
 
 /**
  * The user has seen that their vote on a resolution was rejected: deletes it from the outbox.
@@ -27,6 +28,10 @@ export type AcknowledgeRejectedVoteError =
  * is still pending is not touched (`voteNotRejected`): it is deleted by being sent, never by
  * acknowledging. A resolution with no vote in the outbox is not an error (nothing to do), so a
  * double tap is harmless.
+ *
+ * The user is checked again once the outbox has answered (`requireSameUser`): if somebody else is
+ * signed in by then, or the app is locked, nothing is deleted and the answer is `sessionChanged`
+ * (or `appLocked`).
  */
 export class AcknowledgeRejectedVote {
   constructor(private readonly deps: AcknowledgeRejectedVoteDeps) {}
@@ -41,6 +46,9 @@ export class AcknowledgeRejectedVote {
 
     const found = await outbox.findByResolution(input.resolutionId, session.value.user.id);
     if (isErr(found)) return found;
+
+    const stillTheUser = await requireSameUser(this.deps, session.value.user.id);
+    if (isErr(stillTheUser)) return stillTheUser;
 
     const entry = found.value[0];
     if (entry === undefined) return ok(undefined);

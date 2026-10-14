@@ -2,16 +2,11 @@ import { withVoteRecorded } from '@domain/entities/Meeting';
 import type { Vote } from '@domain/entities/Vote';
 import { isErr } from '@domain/shared/Result';
 
-import type { MeetingCache } from '../ports/MeetingCache';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '../ports/Monitoring';
-import type { Monitoring } from '../ports/Monitoring';
 
 import { CACHE_RESOURCE } from './CacheResource';
-
-export interface RecordVoteInCacheDeps {
-  readonly meetingCache: MeetingCache;
-  readonly monitoring: Monitoring;
-}
+import { requireSameUser } from './requireSession';
+import type { RequireSessionDeps } from './requireSession';
 
 /**
  * Once the server has recorded a vote, records it on the cached copy of its meeting too
@@ -21,8 +16,13 @@ export interface RecordVoteInCacheDeps {
  * A meeting that is not cached is fine, there is nothing to update. A cache that cannot be read or
  * written is captured and does not fail anything: the server has recorded the vote and refuses a
  * second one anyway.
+ *
+ * The read and the write are two awaits, and a sign-out (which empties the caches) can happen
+ * between them. The voter is checked again in between (`requireSameUser`), and nothing is written
+ * unless the same user is still signed in and the app is not locked: writing the copy back would
+ * put the meeting of a user who left on the device again, after the purge that removed it.
  */
-export async function recordVoteInCache(deps: RecordVoteInCacheDeps, vote: Vote): Promise<void> {
+export async function recordVoteInCache(deps: RequireSessionDeps, vote: Vote): Promise<void> {
   const { meetingCache, monitoring } = deps;
   const attributes = {
     [LOG_ATTRIBUTE.MeetingId]: vote.meetingId,
@@ -35,6 +35,9 @@ export async function recordVoteInCache(deps: RecordVoteInCacheDeps, vote: Vote)
     return;
   }
   if (cached.value === undefined) return;
+
+  const stillTheVoter = await requireSameUser(deps, vote.voterId);
+  if (isErr(stillTheVoter)) return;
 
   const saved = await meetingCache.saveMeeting(
     vote.voterId,

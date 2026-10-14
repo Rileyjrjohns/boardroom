@@ -1,7 +1,12 @@
-import { appLocked, notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
+import {
+  appLocked,
+  notAuthenticated,
+  sessionChanged,
+  sessionExpired,
+} from '@domain/errors/AuthenticationError';
 import { storageWriteFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
-import { NOW, aPendingVote, aSession, aUserId, aVote } from '@domain/testing/builders';
+import { NOW, aPendingVote, aSession, aUser, aUserId, aVote } from '@domain/testing/builders';
 
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import { createFakes } from '../../testing/createFakes';
@@ -58,6 +63,25 @@ describe('DiscardUnreadableVotes', () => {
         attributes: { [LOG_ATTRIBUTE.Discarded]: 1 },
       },
     ]);
+  });
+
+  it('does not report the count to somebody else who signed in meanwhile', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seedUnreadable(OWN, 'k1');
+    fakes.outbox.onRequest = () => {
+      fakes.auth.session = aSession({ user: aUser({ id: OTHER }) });
+    };
+
+    expect(await new DiscardUnreadableVotes(fakes).execute()).toEqual(err(sessionChanged()));
+    expect(fakes.monitoring.logs).toEqual([]);
+  });
+
+  it('does not report the count once the app is locked', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seedUnreadable(OWN, 'k1');
+    fakes.outbox.onRequest = () => fakes.appLock.lock();
+
+    expect(await new DiscardUnreadableVotes(fakes).execute()).toEqual(err(appLocked()));
   });
 
   it('returns the storage error when the entries cannot be deleted, and they stay', async () => {

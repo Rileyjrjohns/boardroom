@@ -41,6 +41,13 @@ export class FakeVoteOutbox implements VoteOutbox {
   /** Makes `discardUnreadable` fail while set (nothing is discarded). */
   discardFailure: StorageWriteFailedError | undefined;
 
+  /**
+   * Called when `list`, `findByResolution` or `discardUnreadable` is asked, before the outbox
+   * answers: a test uses it to change the world while the read is in flight (another user signs
+   * in, say). The answer is still the one for the voter that was asked about.
+   */
+  onRequest: (() => void | Promise<void>) | undefined;
+
   private entries: OutboxVote[] = [];
   private unreadable: UnreadableEntry[] = [];
 
@@ -81,34 +88,33 @@ export class FakeVoteOutbox implements VoteOutbox {
     return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.Enqueued }));
   }
 
-  list(voterId: UserId): Promise<Result<OutboxListing, StorageReadFailedError>> {
-    if (this.listFailure !== undefined) return Promise.resolve(err(this.listFailure));
-    return Promise.resolve(
-      ok({
-        votes: copyPlain(this.entries.filter(({ vote }) => vote.voterId === voterId)),
-        unreadable: this.unreadable.filter((entry) => entry.voterId === voterId).length,
-      }),
-    );
+  async list(voterId: UserId): Promise<Result<OutboxListing, StorageReadFailedError>> {
+    await this.onRequest?.();
+    if (this.listFailure !== undefined) return err(this.listFailure);
+    return ok({
+      votes: copyPlain(this.entries.filter(({ vote }) => vote.voterId === voterId)),
+      unreadable: this.unreadable.filter((entry) => entry.voterId === voterId).length,
+    });
   }
 
-  discardUnreadable(voterId: UserId): Promise<Result<number, StorageWriteFailedError>> {
-    if (this.discardFailure !== undefined) return Promise.resolve(err(this.discardFailure));
+  async discardUnreadable(voterId: UserId): Promise<Result<number, StorageWriteFailedError>> {
+    await this.onRequest?.();
+    if (this.discardFailure !== undefined) return err(this.discardFailure);
     const before = this.unreadable.length;
     this.unreadable = this.unreadable.filter((entry) => entry.voterId !== voterId);
-    return Promise.resolve(ok(before - this.unreadable.length));
+    return ok(before - this.unreadable.length);
   }
 
-  findByResolution(
+  async findByResolution(
     resolutionId: ResolutionId,
     voterId: UserId,
   ): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
-    if (this.findFailure !== undefined) return Promise.resolve(err(this.findFailure));
-    return Promise.resolve(
-      ok(
-        copyPlain(
-          this.entries.filter(
-            ({ vote }) => vote.resolutionId === resolutionId && vote.voterId === voterId,
-          ),
+    await this.onRequest?.();
+    if (this.findFailure !== undefined) return err(this.findFailure);
+    return ok(
+      copyPlain(
+        this.entries.filter(
+          ({ vote }) => vote.resolutionId === resolutionId && vote.voterId === voterId,
         ),
       ),
     );

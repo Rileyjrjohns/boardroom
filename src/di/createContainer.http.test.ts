@@ -3,6 +3,7 @@ import type { ConnectivityStatus } from '@application/ports/Connectivity';
 import { FRESHNESS } from '@application/shared/Loaded';
 import { MONITORING_EVENT } from '@application/ports/Monitoring';
 import { FakeMonitoring } from '@application/testing/FakeMonitoring';
+import { HoldingMeetingCache } from '@application/testing/HoldingMeetingCache';
 import { SESSION_RESTORE } from '@application/use-cases/auth/RestoreSession';
 import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
 import { SYNC_OUTCOME } from '@application/use-cases/votes/SyncPendingVotes';
@@ -34,13 +35,21 @@ import { SimulatedCipherOpener } from '@infrastructure/testing/SimulatedCipherOp
 import { databaseDirectory } from '@infrastructure/testing/testDatabase';
 import { TEST_PASSWORD } from '@infrastructure/testing/testServer';
 
-import { DATABASE_NAME } from './config';
+import {
+  APP_LOCK_GRACE_PERIOD,
+  DATABASE_NAME,
+  MAX_CACHE_AGE,
+  MAX_VOTE_DELIVERY_ATTEMPTS,
+} from './config';
+import { parseConfiguration } from './configuration';
 import type { RawSettings } from './configuration';
 import { ADAPTERS } from './adapters';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { startContainer } from './createContainer';
 import type { HttpContainer } from './createContainer';
 import { CONTAINER_ERROR_CODE } from './errors';
+import { createHttpPorts } from './httpPorts';
+import { wireUseCases } from './wireUseCases';
 
 // The http configuration, end to end: the real container, wired to the real HTTP adapters, the real
 // SQLite adapters over Node's SQLite, the secure storage in memory, the biometrics and the network
@@ -348,6 +357,87 @@ describe('createContainer, http configuration, end to end', () => {
 
     expect(sync.outcome).toBe(SYNC_OUTCOME.Completed);
     expect(server.backend.recordedVotes()).toHaveLength(1);
+  });
+});
+
+/** The app on a device whose cache of meetings is slow, signed in, with a meeting saved on it. */
+async function aSlowCache() {
+  const world = aWorld();
+  const parsed = valueOf(
+    parseConfiguration(
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
+      { development: true },
+    ),
+  );
+  if (parsed.kind !== ADAPTERS.Http) throw new Error('Expected the http configuration.');
+  // The real adapters of the configuration (HTTP, SQLite over Node, the secure storage), wired by
+  // hand so that the SQLite cache of meetings has a slow storage in front of it.
+  const wiring = valueOf(
+    await createHttpPorts(parsed, {
+      clock: world.server.clock,
+      monitoring: world.monitoring,
+      platform: world.device.platform,
+      biometricPromptText: promptText,
+    }),
+  );
+  const cache = new HoldingMeetingCache(wiring.ports.meetingCache);
+  const useCases = wireUseCases(
+    { ...wiring.ports, meetingCache: cache },
+    {
+      maxCacheAge: MAX_CACHE_AGE,
+      maxAttempts: MAX_VOTE_DELIVERY_ATTEMPTS,
+      gracePeriod: APP_LOCK_GRACE_PERIOD,
+      startsLocked: false,
+    },
+  );
+  const session = valueOf(await useCases.signIn.execute(world.credentials));
+  valueOf(await useCases.getMeeting.execute({ meetingId: MEETING }));
+  const copy = async () => valueOf(await cache.readMeeting(session.user.id, MEETING));
+  expect(await copy()).toBeDefined();
+  return { ...world, cache, useCases, copy };
+}
+
+describe('createContainer, http configuration, a vote recorded while the user signs out', () => {
+  it('does not write the meeting of the user who left back to the file once the vote is submitted', async () => {
+    const { cache, useCases, copy } = await aSlowCache();
+    const read = cache.holdNextRead();
+
+    const casting = useCases.castVote.execute({
+      meetingId: MEETING,
+      resolutionId: FIRST,
+      choice: VOTE_CHOICE.For,
+    });
+    await read.hasAnswered;
+    valueOf(await useCases.signOut.execute());
+    expect(await copy()).toBeUndefined();
+    read.release();
+
+    expect(valueOf(await casting).status).toBe(CAST_VOTE_STATUS.Submitted);
+    expect(await copy()).toBeUndefined();
+  });
+
+  it('does not write it back either when a synchronisation sends the queued vote', async () => {
+    const { cache, useCases, copy, goOffline, goOnline } = await aSlowCache();
+    goOffline();
+    const queued = valueOf(
+      await useCases.castVote.execute({
+        meetingId: MEETING,
+        resolutionId: FIRST,
+        choice: VOTE_CHOICE.For,
+      }),
+    );
+    expect(queued.status).toBe(CAST_VOTE_STATUS.Queued);
+    goOnline();
+    const read = cache.holdNextRead();
+
+    const syncing = useCases.syncPendingVotes.execute();
+    await read.hasAnswered;
+    valueOf(await useCases.signOut.execute());
+    expect(await copy()).toBeUndefined();
+    read.release();
+
+    expect(valueOf(await syncing).outcome).toBeDefined();
+    expect(await copy()).toBeUndefined();
   });
 });
 

@@ -1,11 +1,12 @@
 import { isPending, isRejected } from '@domain/entities/OutboxVote';
 import type { PendingVote, RejectedVote } from '@domain/entities/OutboxVote';
+import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import type { StorageReadFailedError } from '@domain/errors/StorageError';
 import { isErr, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
 import type { VoteOutbox } from '../../ports/VoteOutbox';
-import { requireSession } from '../../shared/requireSession';
+import { requireSameUser, requireSession } from '../../shared/requireSession';
 import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 
 export interface ListPendingVotesDeps extends RequireSessionDeps {
@@ -25,13 +26,19 @@ export interface OutboxContent {
   readonly unreadable: number;
 }
 
-export type ListPendingVotesError = SessionRequiredError | StorageReadFailedError;
+export type ListPendingVotesError =
+  SessionRequiredError | SessionChangedError | StorageReadFailedError;
 
 /**
  * The votes of the signed-in user that wait in the outbox, and the ones that ended rejected. The
  * outbox is shared by everybody who signs in on the device: the votes of another user are never
  * read (the port is scoped by voter). It also says how many entries of the user cannot be read:
  * the user is told, and decides whether to discard them.
+ *
+ * The read takes time, and the user can sign out (or somebody else sign in) while it is in flight:
+ * the session is checked again once it answers (`requireSameUser`), and the entries are returned
+ * to nobody else than the user they belong to (`sessionChanged`, or `appLocked` if the app was
+ * locked meanwhile).
  */
 export class ListPendingVotes {
   constructor(private readonly deps: ListPendingVotesDeps) {}
@@ -42,6 +49,9 @@ export class ListPendingVotes {
 
     const listed = await this.deps.outbox.list(session.value.user.id);
     if (isErr(listed)) return listed;
+
+    const stillTheUser = await requireSameUser(this.deps, session.value.user.id);
+    if (isErr(stillTheUser)) return stillTheUser;
 
     const { votes, unreadable } = listed.value;
     return ok({

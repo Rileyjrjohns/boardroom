@@ -1,4 +1,9 @@
-import { notAuthenticated, sessionExpired } from '@domain/errors/AuthenticationError';
+import {
+  appLocked,
+  notAuthenticated,
+  sessionChanged,
+  sessionExpired,
+} from '@domain/errors/AuthenticationError';
 import { storageReadFailed, storageWriteFailed } from '@domain/errors/StorageError';
 import { voteNotRejected } from '@domain/errors/VoteDeliveryError';
 import { err, ok } from '@domain/shared/Result';
@@ -8,6 +13,7 @@ import {
   aRejectedVote,
   aResolutionId,
   aSession,
+  aUser,
   aUserId,
   aVote,
 } from '@domain/testing/builders';
@@ -77,6 +83,26 @@ describe('AcknowledgeRejectedVote', () => {
 
     fakes.auth.session = aSession({ expiresAt: NOW });
     expect(await useCase.execute(INPUT)).toEqual(err(sessionExpired()));
+    expect(fakes.outbox.snapshot()).toEqual([REJECTED]);
+  });
+
+  it('deletes nothing once somebody else is signed in', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seed(REJECTED);
+    fakes.outbox.onRequest = () => {
+      fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+    };
+
+    expect(await new AcknowledgeRejectedVote(fakes).execute(INPUT)).toEqual(err(sessionChanged()));
+    expect(fakes.outbox.snapshot()).toEqual([REJECTED]);
+  });
+
+  it('deletes nothing once the app is locked', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seed(REJECTED);
+    fakes.outbox.onRequest = () => fakes.appLock.lock();
+
+    expect(await new AcknowledgeRejectedVote(fakes).execute(INPUT)).toEqual(err(appLocked()));
     expect(fakes.outbox.snapshot()).toEqual([REJECTED]);
   });
 

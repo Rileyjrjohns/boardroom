@@ -6,6 +6,7 @@ import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
 import { SYNC_OUTCOME } from '@application/use-cases/votes/SyncPendingVotes';
 import { FakeClock } from '@application/testing/FakeClock';
 import { FakeMonitoring } from '@application/testing/FakeMonitoring';
+import { HoldingMeetingCache } from '@application/testing/HoldingMeetingCache';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { findResolution } from '@domain/entities/Meeting';
 import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
@@ -25,13 +26,20 @@ import { DEMO_PASSWORD } from '@infrastructure/in-memory/seed';
 import { immediateSleep, recordingSleep } from '@infrastructure/testing/sleep';
 
 import { ADAPTERS } from './adapters';
-import { MEETINGS_PAGE_SIZE } from './config';
+import {
+  APP_LOCK_GRACE_PERIOD,
+  MAX_CACHE_AGE,
+  MAX_VOTE_DELIVERY_ATTEMPTS,
+  MEETINGS_PAGE_SIZE,
+} from './config';
 import { defaultMockConfiguration } from './configuration';
 import type { MockConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { createContainer, startContainer } from './createContainer';
 import type { MockContainer } from './createContainer';
 import { CONTAINER_ERROR_CODE } from './errors';
+import { createMockPorts } from './mockPorts';
+import { wireUseCases } from './wireUseCases';
 
 /**
  * What the container reads from the outside, replaced: a clock that stands still, a network that
@@ -71,7 +79,7 @@ async function aContainer(config: MockConfiguration = mock()): Promise<{
 
 const page = unwrap(createPageRequest({ limit: MEETINGS_PAGE_SIZE }));
 
-async function firstMeetingOf(container: MockContainer, period: MeetingPeriod) {
+async function firstMeetingOf(container: Pick<MockContainer, 'useCases'>, period: MeetingPeriod) {
   const listed = await container.useCases.listMeetings.execute({ period, request: page });
   if (!listed.ok) throw new Error(`The list failed: ${JSON.stringify(listed.error)}`);
   const first = listed.value.data.items[0];
@@ -85,7 +93,7 @@ function valueOf<T, E>(result: Result<T, E>): T {
 }
 
 /** A meeting of the first page of the upcoming ones that has an open resolution nobody voted on. */
-async function anOpenResolution(container: MockContainer) {
+async function anOpenResolution(container: Pick<MockContainer, 'useCases'>) {
   const upcoming = await firstMeetingOf(container, MEETING_PERIOD.Upcoming);
   const meeting = valueOf(
     await container.useCases.getMeeting.execute({ meetingId: upcoming.id }),
@@ -621,6 +629,80 @@ const DEVELOPMENT = { development: true };
 
 /** The raw settings of the environment, for the mock adapters. */
 const MOCK_SETTINGS = { adapters: ADAPTERS.Mock, apiBaseUrl: undefined } as const;
+
+describe('createContainer, mock configuration, a vote recorded while the user signs out', () => {
+  /**
+   * The mock adapters, wired by hand so that the cache of meetings is a slow one: the use cases
+   * are the ones of the container, on the same adapters, signed in as the first demo account.
+   */
+  async function slowCache() {
+    const wiring = valueOf(createMockPorts(mock({ startSignedIn: false }), silentRuntime()));
+    const cache = new HoldingMeetingCache(wiring.ports.meetingCache);
+    const useCases = wireUseCases(
+      { ...wiring.ports, meetingCache: cache },
+      {
+        maxCacheAge: MAX_CACHE_AGE,
+        maxAttempts: MAX_VOTE_DELIVERY_ATTEMPTS,
+        gracePeriod: APP_LOCK_GRACE_PERIOD,
+        startsLocked: false,
+      },
+    );
+    const session = valueOf(
+      await useCases.signIn.execute({ email: ALICE, password: DEMO_PASSWORD }),
+    );
+    return { cache, controls: wiring.controls, useCases, owner: session.user.id };
+  }
+
+  const cachedCopy = async (
+    world: Awaited<ReturnType<typeof slowCache>>,
+    meeting: { readonly id: Parameters<HoldingMeetingCache['readMeeting']>[1] },
+  ) => valueOf(await world.cache.readMeeting(world.owner, meeting.id));
+
+  it('does not put the meeting of the user who left back in the cache once the vote is submitted', async () => {
+    const world = await slowCache();
+    const { meeting, resolution } = await anOpenResolution(world);
+    expect(await cachedCopy(world, meeting)).toBeDefined();
+    const read = world.cache.holdNextRead();
+
+    const casting = world.useCases.castVote.execute({
+      meetingId: meeting.id,
+      resolutionId: resolution.id,
+      choice: VOTE_CHOICE.For,
+    });
+    await read.hasAnswered;
+    valueOf(await world.useCases.signOut.execute());
+    expect(await cachedCopy(world, meeting)).toBeUndefined();
+    read.release();
+
+    expect(valueOf(await casting).status).toBe(CAST_VOTE_STATUS.Submitted);
+    expect(await cachedCopy(world, meeting)).toBeUndefined();
+  });
+
+  it('does not put it back either when the vote was queued and a synchronisation sends it', async () => {
+    const world = await slowCache();
+    const { meeting, resolution } = await anOpenResolution(world);
+    world.controls.network.setOnline(false);
+    const queued = valueOf(
+      await world.useCases.castVote.execute({
+        meetingId: meeting.id,
+        resolutionId: resolution.id,
+        choice: VOTE_CHOICE.For,
+      }),
+    );
+    expect(queued.status).toBe(CAST_VOTE_STATUS.Queued);
+    world.controls.network.setOnline(true);
+    const read = world.cache.holdNextRead();
+
+    const syncing = world.useCases.syncPendingVotes.execute();
+    await read.hasAnswered;
+    valueOf(await world.useCases.signOut.execute());
+    expect(await cachedCopy(world, meeting)).toBeUndefined();
+    read.release();
+
+    expect(valueOf(await syncing).outcome).toBeDefined();
+    expect(await cachedCopy(world, meeting)).toBeUndefined();
+  });
+});
 
 describe('startContainer', () => {
   it('builds the mock container when the setting is missing in a development build', async () => {
