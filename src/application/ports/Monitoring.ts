@@ -34,10 +34,28 @@ export const MONITORING_EVENT = {
   OutboxReadFailed: 'outboxReadFailed',
   /** A row of the local database no longer reads back as what was stored: it is dropped. */
   StoredRowDiscarded: 'storedRowDiscarded',
+  /**
+   * An entry of the outbox of votes no longer reads back as a vote: it is kept, out of the queue,
+   * until the user discards it.
+   */
+  StoredRowQuarantined: 'storedRowQuarantined',
   /** The server answered something that does not have the shape of the API. */
   ResponseInvalid: 'responseInvalid',
-  /** The local database could not be opened with its key and was created again, empty. */
+  /**
+   * The local database could not be opened with its key: the file was set aside, unread, and a new
+   * one was created, empty. Votes that waited in the old one are not in the new one.
+   */
   DatabaseRecreated: 'databaseRecreated',
+  /** A listener of the connectivity threw, which it must not. The others were told all the same. */
+  ConnectivityListenerFailed: 'connectivityListenerFailed',
+  /** The build lacks what the platform needs to ask for the biometrics (a usage description on iOS). */
+  BiometricMisconfigured: 'biometricMisconfigured',
+  /** The user asked for the entries of the outbox that cannot be read to be deleted. */
+  UnreadableVotesDiscarded: 'unreadableVotesDiscarded',
+  /** The record that local data was reset could not be read, so the user may not be told. */
+  ResetNoticeUnreadable: 'resetNoticeUnreadable',
+  /** The user has been told local data was reset, and the record of it could not be cleared. */
+  ResetNoticeNotCleared: 'resetNoticeNotCleared',
 } as const;
 
 export type MonitoringEvent = ValueOf<typeof MONITORING_EVENT>;
@@ -61,6 +79,7 @@ export const LOG_ATTRIBUTE = {
   Synced: 'synced',
   Rejected: 'rejected',
   Remaining: 'remaining',
+  Discarded: 'discarded',
   /** The places a payload broke the schema (`agenda.0.status`), never what it held. */
   IssuePaths: 'issuePaths',
   /** Why something happened, as one of the const sets of the code that reports it. */

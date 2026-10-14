@@ -18,6 +18,11 @@ export interface OutboxContent {
   readonly pending: readonly PendingVote[];
   /** Refused or given up, with the reason. They stay until the user acknowledges them. */
   readonly rejected: readonly RejectedVote[];
+  /**
+   * How many entries of the user are kept but cannot be read as a vote any more. They are neither
+   * sent nor shown, and stay until the user discards them (`DiscardUnreadableVotes`).
+   */
+  readonly unreadable: number;
 }
 
 export type ListPendingVotesError = SessionRequiredError | StorageReadFailedError;
@@ -25,7 +30,8 @@ export type ListPendingVotesError = SessionRequiredError | StorageReadFailedErro
 /**
  * The votes of the signed-in user that wait in the outbox, and the ones that ended rejected. The
  * outbox is shared by everybody who signs in on the device: the votes of another user are never
- * read (the port is scoped by voter).
+ * read (the port is scoped by voter). It also says how many entries of the user cannot be read:
+ * the user is told, and decides whether to discard them.
  */
 export class ListPendingVotes {
   constructor(private readonly deps: ListPendingVotesDeps) {}
@@ -37,9 +43,11 @@ export class ListPendingVotes {
     const listed = await this.deps.outbox.list(session.value.user.id);
     if (isErr(listed)) return listed;
 
+    const { votes, unreadable } = listed.value;
     return ok({
-      pending: listed.value.filter(isPending),
-      rejected: listed.value.filter(isRejected),
+      pending: votes.filter(isPending),
+      rejected: votes.filter(isRejected),
+      unreadable,
     });
   }
 }

@@ -22,7 +22,11 @@ describe('the values of the application', () => {
       AlreadyRunning: 'alreadyRunning',
     });
     expect(SESSION_RESTORE).toEqual({ None: 'none', UnlockRequired: 'unlockRequired' });
-    expect(ENQUEUE_OUTCOME).toEqual({ Enqueued: 'enqueued', AlreadyQueued: 'alreadyQueued' });
+    expect(ENQUEUE_OUTCOME).toEqual({
+      Enqueued: 'enqueued',
+      AlreadyQueued: 'alreadyQueued',
+      HeldByUnreadable: 'heldByUnreadable',
+    });
   });
 
   it('are those of the reasons and kinds that cross the ports', () => {
@@ -63,8 +67,14 @@ describe('the values of the application', () => {
       VoteSyncInterrupted: 'voteSyncInterrupted',
       OutboxReadFailed: 'outboxReadFailed',
       StoredRowDiscarded: 'storedRowDiscarded',
+      StoredRowQuarantined: 'storedRowQuarantined',
       ResponseInvalid: 'responseInvalid',
       DatabaseRecreated: 'databaseRecreated',
+      ConnectivityListenerFailed: 'connectivityListenerFailed',
+      BiometricMisconfigured: 'biometricMisconfigured',
+      UnreadableVotesDiscarded: 'unreadableVotesDiscarded',
+      ResetNoticeUnreadable: 'resetNoticeUnreadable',
+      ResetNoticeNotCleared: 'resetNoticeNotCleared',
     });
     expect(LOG_ATTRIBUTE).toEqual({
       UserId: 'userId',
@@ -81,6 +91,7 @@ describe('the values of the application', () => {
       Synced: 'synced',
       Rejected: 'rejected',
       Remaining: 'remaining',
+      Discarded: 'discarded',
       IssuePaths: 'issuePaths',
       Reason: 'reason',
     });

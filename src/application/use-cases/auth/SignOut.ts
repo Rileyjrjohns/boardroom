@@ -6,7 +6,7 @@ import type { DocumentCache } from '../../ports/DocumentCache';
 import type { MeetingCache } from '../../ports/MeetingCache';
 import type { Monitoring } from '../../ports/Monitoring';
 import type { AppLock } from '../../shared/AppLock';
-import { purgeCaches } from '../../shared/purgeCaches';
+import { closeSession } from '../../shared/endSession';
 
 export interface SignOutDeps {
   readonly auth: AuthSession;
@@ -32,8 +32,6 @@ export class SignOut {
   constructor(private readonly deps: SignOutDeps) {}
 
   async execute(): Promise<Result<void, StorageWriteFailedError>> {
-    this.deps.appLock.lock();
-    await purgeCaches(this.deps);
-    return this.deps.auth.signOut();
+    return closeSession(this.deps);
   }
 }

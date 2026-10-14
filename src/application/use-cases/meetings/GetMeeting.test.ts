@@ -220,6 +220,9 @@ describe('GetMeeting', () => {
       expect(await fakes.meetingCache.readMeeting(aUserId(), aMeetingId())).toEqual(ok(undefined));
 
       fakes.meetings.failure = undefined;
+      // The refused session is over: the user signs in again, and finds no saved copy.
+      fakes.auth.session = aSession();
+      fakes.appLock.unlock();
       fakes.network.goOffline();
       expect(await useCase.execute({ meetingId: aMeetingId() })).toEqual(err(networkUnavailable()));
     });

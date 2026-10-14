@@ -518,6 +518,42 @@ describe('SyncPendingVotes', () => {
       expect(fakes.votes.received).toEqual([FIRST.vote]);
       expect(fakes.outbox.snapshot()).toEqual([FIRST, SECOND]);
     });
+
+    it('ends the session on the device and keeps the votes for the next time their voter signs in', async () => {
+      const { fakes, useCase } = setup(FIRST, SECOND);
+      fakes.votes.answerNext(err(unauthorized()));
+
+      await useCase.execute();
+
+      expect(fakes.auth.signOutCalls).toBe(1);
+      expect(fakes.auth.session).toBeUndefined();
+      expect(fakes.appLock.isLocked()).toBe(true);
+      expect(fakes.outbox.snapshot()).toEqual([FIRST, SECOND]);
+    });
+
+    it('does not sign out somebody else who signed in meanwhile: that session was not refused', async () => {
+      const { fakes, useCase } = setup(FIRST, SECOND);
+      fakes.votes.onReceive = () => {
+        fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+      };
+      fakes.votes.answerNext(err(unauthorized()));
+
+      await useCase.execute();
+
+      expect(fakes.auth.signOutCalls).toBe(0);
+      expect(fakes.auth.session?.user.id).toBe('user-2');
+    });
+
+    it('captures a session that cannot be forgotten, and still reports the interruption', async () => {
+      const { fakes, useCase } = setup(FIRST);
+      fakes.auth.signOutFailure = storageWriteFailed();
+      fakes.votes.answerNext(err(unauthorized()));
+
+      const result = await useCase.execute();
+
+      expect(result.ok && result.value).toMatchObject({ interruptedBy: unauthorized() });
+      expect(fakes.monitoring.capturedEvents()).toContain(MONITORING_EVENT.SignOutFailed);
+    });
   });
 
   describe('when the server fails unexpectedly on one vote', () => {

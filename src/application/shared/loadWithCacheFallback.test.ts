@@ -299,6 +299,42 @@ describe('loadWithCacheFallback', () => {
       expect(removals() + revocations()).toBe(0);
     });
 
+    it('ends the session on the device: the user is signed out and the app is locked', async () => {
+      const deps = setup();
+      const { source } = scriptedSource({ fetch: Promise.resolve(err(unauthorized())) });
+
+      await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(deps.auth.signOutCalls).toBe(1);
+      expect(deps.auth.session).toBeUndefined();
+      expect(deps.appLock.isLocked()).toBe(true);
+    });
+
+    it('captures a session that cannot be forgotten, and returns the refusal all the same', async () => {
+      const deps = setup();
+      deps.auth.signOutFailure = storageWriteFailed();
+      const { source } = scriptedSource({ fetch: Promise.resolve(err(unauthorized())) });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(unauthorized()));
+      expect(deps.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.SignOutFailed]);
+    });
+
+    it('does not sign out somebody else, who signed in while the request was on its way', async () => {
+      const deps = setup();
+      const { source } = scriptedSource({
+        fetch: Promise.resolve(err(unauthorized())).then((result) => {
+          deps.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+          return result;
+        }),
+      });
+
+      const result = await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(result).toEqual(err(sessionChanged()));
+      expect(deps.auth.signOutCalls).toBe(0);
+      expect(deps.auth.session).toBeDefined();
+    });
+
     it('captures a purge that fails, and returns the error', async () => {
       const deps = setup();
       deps.meetingCache.purgeFailure = storageWriteFailed();

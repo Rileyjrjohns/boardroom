@@ -32,7 +32,7 @@ describe('ListPendingVotes', () => {
     fakes.outbox.seed(FIRST, SECOND);
 
     expect(await new ListPendingVotes(fakes).execute()).toEqual(
-      ok({ pending: [FIRST, SECOND], rejected: [] }),
+      ok({ pending: [FIRST, SECOND], rejected: [], unreadable: 0 }),
     );
   });
 
@@ -41,7 +41,7 @@ describe('ListPendingVotes', () => {
     fakes.outbox.seed(FIRST, REJECTED, SECOND);
 
     expect(await new ListPendingVotes(fakes).execute()).toEqual(
-      ok({ pending: [FIRST, SECOND], rejected: [REJECTED] }),
+      ok({ pending: [FIRST, SECOND], rejected: [REJECTED], unreadable: 0 }),
     );
   });
 
@@ -50,14 +50,38 @@ describe('ListPendingVotes', () => {
     fakes.outbox.seed(FIRST, OTHERS, OTHERS_REJECTED, SECOND);
 
     expect(await new ListPendingVotes(fakes).execute()).toEqual(
-      ok({ pending: [FIRST, SECOND], rejected: [] }),
+      ok({ pending: [FIRST, SECOND], rejected: [], unreadable: 0 }),
     );
   });
 
   it('lists nothing when the outbox is empty', async () => {
     expect(await new ListPendingVotes(createFakes()).execute()).toEqual(
-      ok({ pending: [], rejected: [] }),
+      ok({ pending: [], rejected: [], unreadable: 0 }),
     );
+  });
+
+  it('says how many entries of the user cannot be read as a vote, and lists the others', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seed(FIRST);
+    fakes.outbox.seedUnreadable(aUserId(), 'k1');
+    fakes.outbox.seedUnreadable(aUserId(), 'k2');
+    fakes.outbox.seedUnreadable(aUserId('user-2'), 'k3');
+
+    expect(await new ListPendingVotes(fakes).execute()).toEqual(
+      ok({ pending: [FIRST], rejected: [], unreadable: 2 }),
+    );
+  });
+
+  it('does not delete what it cannot read: asking again says the same', async () => {
+    const fakes = createFakes();
+    fakes.outbox.seedUnreadable(aUserId(), 'k1');
+    const useCase = new ListPendingVotes(fakes);
+
+    await useCase.execute();
+    const again = await useCase.execute();
+
+    expect(again.ok && again.value.unreadable).toBe(1);
+    expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
   });
 
   it('requires a valid session', async () => {

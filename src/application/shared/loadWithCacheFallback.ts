@@ -20,6 +20,7 @@ import type { LogAttributes } from '../ports/Monitoring';
 import type { CacheResource } from './CacheResource';
 import { FRESHNESS } from './Loaded';
 import type { Loaded } from './Loaded';
+import { endRefusedSession } from './endSession';
 import { purgeCaches } from './purgeCaches';
 import { requireSameUser } from './requireSession';
 import type { RequireSessionDeps, SessionRequiredError } from './requireSession';
@@ -65,8 +66,10 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
  *    and return what it holds `Stale`, with the instant it was cached. A cache that cannot be read
  *    is captured and treated as a miss. On a miss the original network error is returned. An entry
  *    older than `maxCacheAge`, or dated in the future, counts as a miss (see `isWithinMaxAge`).
- * 4. `unauthorized` means the session is no longer valid, for anything: both caches are emptied,
- *    for every owner. `forbidden` and `notFound` concern one item: it is dropped from the cache
+ * 4. `unauthorized` means the session is no longer valid, for anything: the session is ended on
+ *    the device (`endRefusedSession`: the app is locked, both caches are emptied for every owner,
+ *    and the user is signed out, so that a restart does not restore it). `forbidden` and
+ *    `notFound` concern one item: it is dropped from the cache
  *    with what hangs off it (`revoke`). A removal that fails is captured and falls back on the
  *    full purge, so that a copy the server refused is never served afterwards; a purge that fails
  *    is captured. The error is returned in every case, and the cache is never read.
@@ -104,7 +107,7 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
 
   const { code } = remote.error;
   if (code === REPOSITORY_ERROR_CODE.Unauthorized) {
-    await purgeCaches(deps);
+    await endRefusedSession(deps, owner);
     return remote;
   }
   if (code === REPOSITORY_ERROR_CODE.Forbidden || code === REPOSITORY_ERROR_CODE.NotFound) {

@@ -14,6 +14,7 @@ import type {
   UnexpectedError,
 } from '@domain/errors/RepositoryError';
 import type { SessionChangedError } from '@domain/errors/AuthenticationError';
+import { storageWriteFailed } from '@domain/errors/StorageError';
 import type { StorageError } from '@domain/errors/StorageError';
 import { voteInProgress, votePreviouslyRejected } from '@domain/errors/VoteDeliveryError';
 import type {
@@ -36,6 +37,7 @@ import { ENQUEUE_OUTCOME } from '../../ports/VoteOutbox';
 import type { VoteOutbox } from '../../ports/VoteOutbox';
 import type { VoteRepository } from '../../ports/VoteRepository';
 import { confirmWithBiometrics } from '../../shared/confirmWithBiometrics';
+import { endRefusedSession } from '../../shared/endSession';
 import { loadMeeting } from '../../shared/loadMeeting';
 import type { LoadMeetingDeps } from '../../shared/loadMeeting';
 import { recordVoteInCache } from '../../shared/recordVoteInCache';
@@ -79,6 +81,9 @@ export type CastVoteError =
   | VoteInProgressError
   | VotePreviouslyRejectedError;
 
+/** Why a vote could not be queued: an entry of the outbox that cannot be read holds its key. */
+const UNREADABLE_ENTRY_CAUSE = 'unreadable entry holds the key';
+
 /** The answers of the server that say nothing about the vote: it is kept and sent again later. */
 type Undelivered = NetworkUnavailableError | UnexpectedError;
 
@@ -104,9 +109,12 @@ type Undelivered = NetworkUnavailableError | UnexpectedError;
  * Submitted: `status: 'submitted'`, and the cached copy of the meeting records the vote. The
  * network is down, or the server failed in a way that says nothing about the vote
  * (`unexpected`: it may have recorded it): the vote is put in the outbox and the status is
- * `queued`; the idempotency key makes the later replay safe. A refusal (`unauthorized`, or a
- * business rejection such as `resolutionClosed` or `alreadyVoted`) is returned as an error and
- * nothing is queued. If the outbox itself refuses the vote, the failure is captured and returned.
+ * `queued`; the idempotency key makes the later replay safe. A business rejection (such as
+ * `resolutionClosed` or `alreadyVoted`) is returned as an error and nothing is queued. So is
+ * `unauthorized`, the server no longer accepting the session: it ends the session on the device
+ * (see `endRefusedSession`), and the vote is not queued: the user signs in again and casts it again.
+ * If the outbox itself refuses the vote, the failure is captured
+ * and returned.
  *
  * The guard of step 1 is a field of the instance, set before the first `await`, and released
  * whatever happens: the composition root must share one instance. It does not cover two instances
@@ -194,6 +202,8 @@ export class CastVote {
         ...attributes,
         [LOG_ATTRIBUTE.ErrorCode]: error.code,
       });
+    } else if (error.code === REPOSITORY_ERROR_CODE.Unauthorized) {
+      await endRefusedSession(this.deps, vote.voterId);
     }
     return err(error);
   }
@@ -221,6 +231,14 @@ export class CastVote {
       return enqueued;
     }
 
+    if (enqueued.value.outcome === ENQUEUE_OUTCOME.HeldByUnreadable) {
+      // An entry nobody can read sits under the key of this vote. It is not overwritten: the vote
+      // is not queued, and the failure says why. The user can discard the entry from the list of
+      // pending votes, and cast the vote again.
+      const blocked = storageWriteFailed(UNREADABLE_ENTRY_CAUSE);
+      monitoring.captureError(MONITORING_EVENT.VoteEnqueueFailed, blocked, attributes);
+      return err(blocked);
+    }
     if (enqueued.value.outcome === ENQUEUE_OUTCOME.AlreadyQueued) {
       const { existing } = enqueued.value;
       return err(

@@ -321,6 +321,9 @@ describe('OpenDocument', () => {
       expect(await fakes.documentCache.read(aUserId(), CONFIDENTIAL.id)).toEqual(ok(undefined));
 
       fakes.documents.failure = undefined;
+      // The refused session is over: the user signs in again, and finds no saved copy.
+      fakes.auth.session = aSession();
+      fakes.appLock.unlock();
       fakes.network.goOffline();
       expect(await useCase.execute({ documentId: CONFIDENTIAL.id })).toEqual(
         err(networkUnavailable()),

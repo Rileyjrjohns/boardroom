@@ -1,4 +1,5 @@
 import { createMeeting, findResolution } from '@domain/entities/Meeting';
+import { idempotencyKeyOf } from '@domain/entities/Vote';
 import { OUTBOX_STATUS } from '@domain/entities/OutboxVote';
 import { PARTICIPANT_ROLE } from '@domain/entities/Participant';
 import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
@@ -433,6 +434,70 @@ describe('CastVote', () => {
       expect(await useCase.execute(INPUT)).toEqual(err(unauthorized()));
       expect(fakes.outbox.snapshot()).toEqual([]);
       expect(fakes.monitoring.logs).toEqual([]);
+    });
+
+    it('ends the session on the device: the user is signed out, the app locked, the caches emptied', async () => {
+      const { fakes, useCase } = setup();
+      fakes.votes.answerNext(err(unauthorized()));
+
+      await useCase.execute(INPUT);
+
+      expect(fakes.auth.signOutCalls).toBe(1);
+      expect(fakes.auth.session).toBeUndefined();
+      expect(fakes.appLock.isLocked()).toBe(true);
+      expect(fakes.meetingCache.isEmpty()).toBe(true);
+    });
+
+    it('does not sign out somebody else who signed in meanwhile: that session was not refused', async () => {
+      const { fakes, useCase } = setup();
+      fakes.votes.onReceive = () => {
+        fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+      };
+      fakes.votes.answerNext(err(unauthorized()));
+
+      expect(await useCase.execute(INPUT)).toEqual(err(unauthorized()));
+
+      expect(fakes.auth.signOutCalls).toBe(0);
+      expect(fakes.auth.session?.user.id).toBe('user-2');
+      expect(fakes.appLock.isLocked()).toBe(false);
+    });
+
+    it('captures a session that cannot be forgotten, and still returns unauthorized', async () => {
+      const { fakes, useCase } = setup();
+      fakes.auth.signOutFailure = storageWriteFailed();
+      fakes.votes.answerNext(err(unauthorized()));
+
+      expect(await useCase.execute(INPUT)).toEqual(err(unauthorized()));
+      expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.SignOutFailed]);
+    });
+  });
+
+  describe('an entry of the outbox that cannot be read holds the key of the vote', () => {
+    it('does not overwrite it, queues nothing, and says the vote could not be stored', async () => {
+      const { fakes, useCase } = setup();
+      await fakes.meetingCache.saveMeeting(aUserId(), aMeeting(), NOW);
+      fakes.network.goOffline();
+      fakes.outbox.seedUnreadable(aUserId(), idempotencyKeyOf(INPUT.resolutionId, aUserId()));
+
+      const result = await useCase.execute(INPUT);
+
+      expect(result).toEqual(err(storageWriteFailed('unreadable entry holds the key')));
+      expect(fakes.outbox.snapshot()).toEqual([]);
+      expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
+      expect(fakes.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.VoteEnqueueFailed]);
+    });
+
+    it('queues the vote once the entry is discarded', async () => {
+      const { fakes, useCase } = setup();
+      await fakes.meetingCache.saveMeeting(aUserId(), aMeeting(), NOW);
+      fakes.network.goOffline();
+      fakes.outbox.seedUnreadable(aUserId(), idempotencyKeyOf(INPUT.resolutionId, aUserId()));
+      await useCase.execute(INPUT);
+      await fakes.outbox.discardUnreadable(aUserId());
+
+      const result = await useCase.execute(INPUT);
+
+      expect(result.ok && result.value.status).toBe(CAST_VOTE_STATUS.Queued);
     });
   });
 

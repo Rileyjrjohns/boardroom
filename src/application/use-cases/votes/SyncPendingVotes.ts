@@ -19,6 +19,7 @@ import type { ResolutionId, UserId } from '@domain/value-objects/ids';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import type { VoteOutbox } from '../../ports/VoteOutbox';
 import type { VoteRepository } from '../../ports/VoteRepository';
+import { endRefusedSession } from '../../shared/endSession';
 import { recordVoteInCache } from '../../shared/recordVoteInCache';
 import { requireSession } from '../../shared/requireSession';
 import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
@@ -118,7 +119,9 @@ type Settlement =
  *   `voteUndeliverable`, so that the user sees it and one bad vote cannot block the others for ever.
  * - `networkUnavailable` and `unauthorized` concern every vote, not this one: the run stops at once
  *   and the vote and the ones after it stay pending. No attempt is counted, so being offline never
- *   makes a vote undeliverable.
+ *   makes a vote undeliverable. `unauthorized` is the server no longer accepting the session: it
+ *   also ends the session on the device (see `endRefusedSession`), the votes staying in the outbox
+ *   for the next time their voter signs in.
  * - The session is checked again before each vote. If nobody is signed in any more, or somebody
  *   else is, the run stops: the votes of a user are never sent under another
  *   session. (The adapter backs this up: it answers `unauthorized` to a vote whose voter is not
@@ -170,7 +173,7 @@ export class SyncPendingVotes {
 
     const listed = await outbox.list(voterId);
     if (isErr(listed)) return listed;
-    const queue = listed.value.filter(isPending);
+    const queue = listed.value.votes.filter(isPending);
 
     const synced: ResolutionId[] = [];
     const rejected: RejectedSync[] = [];
@@ -236,7 +239,7 @@ export class SyncPendingVotes {
       monitoring.captureError(MONITORING_EVENT.OutboxReadFailed, listed.error);
       return fallback;
     }
-    return listed.value.filter(isPending).length;
+    return listed.value.votes.filter(isPending).length;
   }
 
   /** Sends one vote and brings the outbox in line with the answer. */
@@ -247,6 +250,9 @@ export class SyncPendingVotes {
     const { error } = submission;
     if (isVotingError(error)) return this.reject(pending, error);
     if (error.code === REPOSITORY_ERROR_CODE.Unexpected) return this.deferOrGiveUp(pending, error);
+    if (error.code === REPOSITORY_ERROR_CODE.Unauthorized) {
+      await endRefusedSession(this.deps, pending.vote.voterId);
+    }
     return { kind: SETTLEMENT.Interrupted, cause: error };
   }
 
