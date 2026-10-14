@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import { StatusBar } from 'react-native';
 import { renderRouter } from 'expo-router/testing-library';
@@ -6,7 +6,13 @@ import { renderRouter } from 'expo-router/testing-library';
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { createI18n } from '../i18n/createI18n';
 import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
-import { TEST_IDS } from '../testIds';
+import {
+  TEST_IDS,
+  demoAccountTestId,
+  resolutionTestId,
+  voteChoiceTestId,
+  voteOutcomeTestId,
+} from '../testIds';
 import { MEETING_ROW_TEST_ID_PATTERN } from '../testing/meetingFixtures';
 import { statusBarStyle } from '../theme/tokens';
 
@@ -68,8 +74,84 @@ function headerTitles(): string[] {
   return titles;
 }
 
+const ALICE = 'alice.martin@boardroom.example';
+
+/**
+ * Signs in as the first demo account, with the helper of the sign-in screen that the mock
+ * configuration offers, and waits for the meetings list.
+ */
+async function signInAsAlice(): Promise<void> {
+  fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
+  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+}
+
+/** Signs in and waits for the rows of the list. */
+async function openTheList() {
+  await signInAsAlice();
+  return screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+}
+
 describe('root layout', () => {
   describe('with the mock adapters, which is the default', () => {
+    it.each(SUPPORTED_LANGUAGES)(
+      'starts signed out, on the sign-in screen with the accounts of the demo, in %s',
+      async (language) => {
+        setDeviceLanguages(language);
+        const { t } = createI18n(language);
+
+        const { getPathname } = renderRouter();
+
+        expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+        expect(getPathname()).toBe('/sign-in');
+        expect(screen.getByRole('header', { name: t('signIn.title') })).toBeTruthy();
+        expect(screen.getByTestId(demoAccountTestId(ALICE))).toBeTruthy();
+        expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+        expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
+      },
+    );
+
+    it('signs in with the demo account, and lands on the list unlocked, with the demo switch and the header actions', async () => {
+      setDeviceLanguages('en');
+      const { getPathname } = renderRouter();
+
+      const rows = await openTheList();
+
+      expect(rows.length).toBeGreaterThan(0);
+      expect(getPathname()).toBe('/');
+      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.signOutButton)).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.pendingVotesButton)).toBeTruthy();
+    });
+
+    it('refuses the wrong password of a demo account with a message, and stays on the sign-in screen', async () => {
+      setDeviceLanguages('en');
+      const { t } = createI18n('en');
+      renderRouter();
+      fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
+      fireEvent.changeText(screen.getByTestId(TEST_IDS.signInPassword), 'not the password');
+
+      fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+
+      expect(await screen.findByTestId(TEST_IDS.signInError)).toHaveTextContent(
+        t('errors.invalidCredentials'),
+      );
+      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+    });
+
+    it('signs out from the header, after a confirmation, and returns to the sign-in screen', async () => {
+      setDeviceLanguages('en');
+      renderRouter();
+      await openTheList();
+
+      fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
+      await act(async () => {
+        fireEvent.press(await screen.findByTestId(TEST_IDS.signOutConfirm));
+      });
+
+      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+      expect(screen.queryAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).toEqual([]);
+    });
+
     it.each(SUPPORTED_LANGUAGES)(
       'provides the translations, the use cases and the stores to the meetings list in %s',
       async (language) => {
@@ -77,11 +159,11 @@ describe('root layout', () => {
         const { t } = createI18n(language);
 
         renderRouter();
+        const rows = await openTheList();
 
         expect(
           await screen.findByRole('tab', { name: t('meetings.period.upcoming'), selected: true }),
         ).toBeTruthy();
-        const rows = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
         expect(rows.length).toBeGreaterThan(0);
         expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
       },
@@ -93,19 +175,19 @@ describe('root layout', () => {
       const english = createI18n('en');
 
       renderRouter();
+      await openTheList();
 
       expect(
         await screen.findByRole('tab', { name: french.t('meetings.period.past') }),
       ).toBeTruthy();
       expect(screen.queryByRole('tab', { name: english.t('meetings.period.past') })).toBeNull();
-      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
     });
 
     it('opens the detail of a meeting that is tapped, and shows it', async () => {
       setDeviceLanguages('en');
       const { t } = createI18n('en');
       const { getPathname } = renderRouter();
-      const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      const [row] = await openTheList();
 
       fireEvent.press(row!);
 
@@ -117,7 +199,7 @@ describe('root layout', () => {
     it('opens the detail of a meeting once, however many times its row is tapped', async () => {
       setDeviceLanguages('en');
       const { getPathname } = renderRouter();
-      const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      const [row] = await openTheList();
 
       fireEvent.press(row!);
       fireEvent.press(row!);
@@ -142,7 +224,7 @@ describe('root layout', () => {
         setDeviceLanguages(language);
         const { t } = createI18n(language);
         renderRouter();
-        const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+        const [row] = await openTheList();
         expect(headerTitles()).toEqual([listTitle]);
 
         fireEvent.press(row!);
@@ -156,7 +238,9 @@ describe('root layout', () => {
     it('asks for dark system bar content on the list and on the detail of a meeting', async () => {
       setDeviceLanguages('en');
       renderRouter();
-      const [row] = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+      expect(statusBarStyles()).toEqual([statusBarStyle]);
+      const [row] = await openTheList();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
 
       fireEvent.press(row!);
@@ -165,10 +249,11 @@ describe('root layout', () => {
       expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
 
-    it('asks for dark system bar content once the session has ended', async () => {
+    it('sends the user to the sign-in screen, with the reason, once the session has expired, and asks for dark system bar content there too', async () => {
       setDeviceLanguages('en');
+      const { t } = createI18n('en');
       renderRouter();
-      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      await openTheList();
       // A working day later the session of the simulated server has expired.
       act(() => {
         jest.setSystemTime(Date.now() + 9 * 3_600_000);
@@ -178,7 +263,11 @@ describe('root layout', () => {
         screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
       });
 
-      await screen.findByTestId(TEST_IDS.sessionEnded);
+      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(
+        t('errors.sessionExpired'),
+      );
+      expect(screen.queryAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).toEqual([]);
       expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
 
@@ -186,7 +275,7 @@ describe('root layout', () => {
       setDeviceLanguages('en');
       const { t } = createI18n('en');
       renderRouter();
-      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      await openTheList();
 
       // A deep link to a meeting that the server does not know.
       act(() => {
@@ -195,6 +284,87 @@ describe('root layout', () => {
 
       await screen.findByTestId(TEST_IDS.meetingNotFound);
       expect(screen.getByText(t('errors.notFound'))).toBeTruthy();
+    });
+  });
+
+  describe('the offline scenario, with the real composition root', () => {
+    /** The id of the resolution of the first choice button on the screen, if there is one. */
+    function votableResolution(): string | undefined {
+      const choice = screen
+        .queryAllByTestId(/^vote-choice-.*-for$/)
+        .map((button) => String(button.props.testID))[0];
+      return choice?.replace(/^vote-choice-/, '').replace(/-for$/, '');
+    }
+
+    /** Opens the meetings of the list in turn until one has a resolution the user may vote on. */
+    async function openAMeetingToVoteOn(): Promise<{ meetingPath: string; resolutionId: string }> {
+      const { getPathname } = currentApp;
+      const rows = await openTheList();
+      for (const row of rows.slice(0, 6)) {
+        fireEvent.press(row);
+        await screen.findByTestId(TEST_IDS.meetingDetail);
+        await waitFor(() => {
+          expect(screen.queryByTestId(TEST_IDS.votingLoading)).toBeNull();
+        });
+        const resolutionId = votableResolution();
+        if (resolutionId !== undefined) return { meetingPath: getPathname(), resolutionId };
+        act(() => {
+          router.back();
+        });
+        await screen.findByTestId(TEST_IDS.meetingsList);
+      }
+      throw new Error('No meeting of the first rows has a resolution to vote on.');
+    }
+
+    let currentApp: ReturnType<typeof renderRouter>;
+
+    it('goes offline, votes on a meeting already seen, sees the vote queued, goes online and sees it sent', async () => {
+      setDeviceLanguages('en');
+      const { t } = createI18n('en');
+      currentApp = renderRouter();
+      const { meetingPath, resolutionId } = await openAMeetingToVoteOn();
+      act(() => {
+        router.back();
+      });
+      await screen.findByTestId(TEST_IDS.meetingsList);
+
+      // The connection is cut with the switch of the demo; the meeting was seen, so it is saved.
+      fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+      expect(await screen.findByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
+      act(() => {
+        router.push(meetingPath as '/');
+      });
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+      const choice = await screen.findByTestId(voteChoiceTestId(resolutionId as never, 'for'));
+
+      // The vote is confirmed, then queued: the detail says it is waiting.
+      fireEvent.press(choice);
+      fireEvent.press(await screen.findByTestId(TEST_IDS.voteConfirm));
+      expect(await screen.findByTestId(voteOutcomeTestId(resolutionId as never))).toHaveTextContent(
+        t('voting.queued'),
+      );
+      const resolution = screen.getByTestId(resolutionTestId(resolutionId));
+      expect(
+        await within(resolution).findByText(
+          t('meeting.resolutionYourVoteQueued', { choice: t('voteChoice.for') }),
+        ),
+      ).toBeTruthy();
+
+      // The connection is back: the vote is sent by itself, and the detail shows it recorded.
+      fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+      });
+      expect(
+        within(await screen.findByTestId(TEST_IDS.syncSummary)).getByText(
+          t('banner.sent', { count: 1, formattedCount: '1' }),
+        ),
+      ).toBeTruthy();
+      expect(
+        await within(screen.getByTestId(resolutionTestId(resolutionId))).findByText(
+          t('meeting.resolutionYourVote', { choice: t('voteChoice.for') }),
+        ),
+      ).toBeTruthy();
     });
   });
 
@@ -210,7 +380,7 @@ describe('root layout', () => {
       expect(screen.getByTestId(TEST_IDS.startupLoading)).toBeTruthy();
       expect(screen.getByRole('progressbar', { name: text })).toBeTruthy();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
-      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      await screen.findByTestId(TEST_IDS.signInScreen);
       expect(screen.queryByTestId(TEST_IDS.startupLoading)).toBeNull();
     });
   });
@@ -276,7 +446,7 @@ describe('root layout', () => {
 
       renderRouter();
 
-      await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
+      await screen.findByTestId(TEST_IDS.signInScreen);
       expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
     });
   });

@@ -30,6 +30,14 @@ describe('the routes', () => {
     );
   });
 
+  it('names the screens of the session after their files', () => {
+    expect(fileOf(ROUTES.signIn)).toBe(path.join(APP, `${ROUTE_NAMES.signIn}${FILE_EXTENSION}`));
+    expect(fileOf(ROUTES.lock)).toBe(path.join(APP, `${ROUTE_NAMES.lock}${FILE_EXTENSION}`));
+    expect(fileOf(ROUTES.pendingVotes)).toBe(
+      path.join(APP, `${ROUTE_NAMES.pendingVotes}${FILE_EXTENSION}`),
+    );
+  });
+
   it('names each parameter after the bracketed segment of its route', () => {
     expect(ROUTES.meetingDetail).toContain(`[${ROUTE_PARAMS.meetingId}]`);
   });

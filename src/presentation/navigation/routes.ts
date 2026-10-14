@@ -8,12 +8,21 @@ export const ROUTES = {
   meetings: '/',
   /** The detail of a meeting: `app/meetings/[meetingId].tsx`. */
   meetingDetail: '/meetings/[meetingId]',
+  /** The votes waiting to be sent and the rejected ones: `app/pending-votes.tsx`. */
+  pendingVotes: '/pending-votes',
+  /** The sign-in form: `app/sign-in.tsx`. */
+  signIn: '/sign-in',
+  /** The lock screen: `app/lock.tsx`. */
+  lock: '/lock',
 } as const;
 
 /** The name of each route in the stack, as expo-router derives it from the file path. */
 export const ROUTE_NAMES = {
   meetings: 'index',
   meetingDetail: 'meetings/[meetingId]',
+  pendingVotes: 'pending-votes',
+  signIn: 'sign-in',
+  lock: 'lock',
 } as const;
 
 /** The dynamic segments of the routes: the name inside the brackets of the file name. */

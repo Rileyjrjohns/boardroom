@@ -14,4 +14,7 @@ export type RouteName = ValueOf<typeof ROUTE_NAMES>;
 export const SCREEN_TITLE_KEYS = {
   [ROUTE_NAMES.meetings]: 'navigation.meetings',
   [ROUTE_NAMES.meetingDetail]: 'navigation.meeting',
+  [ROUTE_NAMES.pendingVotes]: 'navigation.pendingVotes',
+  [ROUTE_NAMES.signIn]: 'navigation.signIn',
+  [ROUTE_NAMES.lock]: 'navigation.locked',
 } as const satisfies Record<RouteName, TranslationKey>;
