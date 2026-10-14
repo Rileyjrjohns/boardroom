@@ -106,6 +106,9 @@ export const en = {
     message:
       'The app is not configured correctly, or the data saved on this device cannot be opened. Check the EXPO_PUBLIC_BOARDROOM_ADAPTERS setting, which accepts mock or http, and for http the EXPO_PUBLIC_BOARDROOM_API_BASE_URL setting: an https address, or http for this computer only. A development build uses mock when the first one is missing; any other build needs it.',
     code: 'Technical code: {{code}}',
+    forgetExplanation:
+      'If trying again does not help, you can sign out on this device and sign in again. Votes waiting to be sent stay on this device.',
+    forget: 'Sign out on this device',
   },
   biometric: {
     unlockApp: 'Unlock Boardroom',

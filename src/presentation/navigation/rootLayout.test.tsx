@@ -36,6 +36,15 @@ function setDevelopmentFlag(value: boolean): void {
   Object.assign(globalThis, { __DEV__: value });
 }
 
+// The real composition root writes its events to the console, through `ConsoleMonitoring`, at the
+// level of information (a vote queued, a synchronisation completed...). The root layout is the one
+// place that builds it with no way to hand it another monitoring, so the channel it writes to is
+// silenced here: only information, which React and React Native do not use for their warnings, so
+// that a real warning is still printed and can still be asserted on.
+beforeEach(() => {
+  jest.spyOn(console, 'info').mockImplementation(() => undefined);
+});
+
 afterEach(() => {
   setDevelopmentFlag(initialDevelopment);
   // renderRouter switches to fake timers.
@@ -76,6 +85,9 @@ function headerTitles(): string[] {
 
 const ALICE = 'alice.martin@boardroom.example';
 
+/** What React says when something updates the state of a component before it was ever mounted. */
+const NOT_MOUNTED_YET_WARNING = "hasn't mounted yet";
+
 /**
  * Signs in as the first demo account, with the helper of the sign-in screen that the mock
  * configuration offers, and waits for the meetings list.
@@ -109,6 +121,21 @@ describe('root layout', () => {
         expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
       },
     );
+
+    it('starts without React warning that a component that has not mounted yet was updated', async () => {
+      // The warning came from the router, at start-up, before the sign-in screen: see
+      // `src/presentation/navigation/systemLinks.ts`.
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      setDeviceLanguages('en');
+
+      renderRouter();
+      await screen.findByTestId(TEST_IDS.signInScreen);
+
+      const warnings = error.mock.calls.filter(([message]) =>
+        String(message).includes(NOT_MOUNTED_YET_WARNING),
+      );
+      expect(warnings).toEqual([]);
+    });
 
     it('signs in with the demo account, and lands on the list unlocked, with the demo switch and the header actions', async () => {
       setDeviceLanguages('en');
@@ -365,6 +392,9 @@ describe('root layout', () => {
           t('meeting.resolutionYourVote', { choice: t('voteChoice.for') }),
         ),
       ).toBeTruthy();
+      // Sent: the words "saved on this device" are gone with the wait.
+      expect(screen.queryByTestId(voteOutcomeTestId(resolutionId as never))).toBeNull();
+      expect(screen.queryByText(t('voting.queued'))).toBeNull();
     });
   });
 

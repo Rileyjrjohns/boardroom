@@ -11,12 +11,14 @@ import type { BiometricAvailabilityError, BiometricError } from '@domain/errors/
 import { storageWriteFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
 import { BIOMETRIC_REASON } from '@application/ports/BiometricGate';
+import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import { createFakes } from '@application/testing/createFakes';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import type { TranslationKey } from '../i18n/translationKeys';
 import { ACCESS } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
+import { epochOf } from '../testing/accessEpoch';
 import { renderScreen } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
@@ -86,7 +88,7 @@ describe('LockScreen', () => {
     it('says why the app is locked when a failure is what sent the user here', () => {
       const { uiStore, t } = renderLock({ access: ACCESS.Unlocked });
       act(() => {
-        uiStore.getState().endSession('appLocked');
+        uiStore.getState().endSession('appLocked', epochOf(uiStore));
       });
 
       expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(t('errors.appLocked'));
@@ -267,6 +269,39 @@ describe('LockScreen', () => {
       await press(TEST_IDS.lockUnlock);
 
       expect(screen.getByTestId(TEST_IDS.lockError)).toHaveTextContent(t('errors.unexpected'));
+    });
+  });
+
+  describe('a device that is offline', () => {
+    it('says so at the top, and nothing when the connection is there', () => {
+      const { t, uiStore } = renderLock();
+      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+
+      act(() => {
+        uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
+      });
+
+      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+      act(() => {
+        uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Online);
+      });
+      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    });
+
+    it('offers the switch of the demo in the mock configuration only', () => {
+      const demo = renderLock({ demo: true });
+      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+      demo.unmount();
+
+      renderLock();
+      expect(screen.queryByTestId(TEST_IDS.demoOfflineSwitch)).toBeNull();
+    });
+
+    it('keeps the unlock and the sign-out where they were', () => {
+      renderLock({ demo: true });
+
+      expect(screen.getByTestId(TEST_IDS.lockUnlock)).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.lockSignOut)).toBeTruthy();
     });
   });
 

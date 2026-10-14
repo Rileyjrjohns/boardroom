@@ -4,6 +4,7 @@ import { aPendingVote, aRejectedVote, aResolutionId, aVote } from '@domain/testi
 import { createFakes } from '@application/testing/createFakes';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
+import { translateCount } from '../i18n/translateCount';
 import { ACCESS } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
 import { renderScreen } from '../testing/renderScreen';
@@ -77,13 +78,15 @@ describe('HeaderActions', () => {
   it('asks for a confirmation before signing out, which says how many votes are kept', async () => {
     const fakes = createFakes();
     fakes.outbox.seed(aPendingVote(aVote({ resolutionId: aResolutionId('r1') })));
-    const { t, uiStore } = renderScreen(<HeaderActions />, { fakes });
+    const { t, format, uiStore } = renderScreen(<HeaderActions />, { fakes });
     await settle();
 
     fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
 
     expect(screen.getByRole('header', { name: t('signOut.title') })).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(/^1 vote is waiting/);
+    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(
+      translateCount(t, 'signOut.pending', 1, format.number),
+    );
     expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
   });
 

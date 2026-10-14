@@ -23,13 +23,16 @@ import {
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
+import { createFormatters } from '../format/formatters';
 import { createI18n } from '../i18n/createI18n';
+import { translateCount } from '../i18n/translateCount';
 import { queryKeys } from '../query/queryKeys';
 import { TEST_IDS, meetingRowTestId, pendingVoteTestId, rejectedVoteTestId } from '../testIds';
 import { driveAppState } from '../testing/appState';
 import { renderApp } from '../testing/renderApp';
 import type { RenderAppOptions } from '../testing/renderApp';
 import { TEST_GRACE_PERIOD_MILLIS } from '../testing/renderScreen';
+import { APP_STATE } from '../session/appState';
 
 // The session flow through the real navigator and the real route files of the app: where the user
 // lands at the start, what a link can reach, what the back stack holds, and what is left of the
@@ -180,34 +183,31 @@ describe('the start of the app', () => {
 });
 
 describe('the titles of the header', () => {
-  it.each([
-    ['en', 'Sign in', 'Locked', 'Meetings', 'Pending votes'],
-    ['fr', 'Connexion', 'Verrouillé', 'Réunions', 'Votes en attente'],
-  ] as const)(
-    'are in the language of the user, in %s',
-    async (language, signInTitle, lockTitle, listTitle, pendingTitle) => {
-      const fakes = createFakes();
-      fakes.auth.session = undefined;
-      fakes.appLock.lock();
-      startApp({ fakes, language });
-      await screen.findByTestId(TEST_IDS.signInScreen);
-      expect(headerTitles()).toEqual([signInTitle]);
+  it.each(SUPPORTED_LANGUAGES)('are in the language of the user, in %s', async (language) => {
+    const { t } = createI18n(language);
+    const signInTitle = t('navigation.signIn');
+    const listTitle = t('navigation.meetings');
+    const pendingTitle = t('navigation.pendingVotes');
+    const fakes = createFakes();
+    fakes.auth.session = undefined;
+    fakes.appLock.lock();
+    startApp({ fakes, language });
+    await screen.findByTestId(TEST_IDS.signInScreen);
+    expect(headerTitles()).toEqual([signInTitle]);
 
-      await signIn();
-      await screen.findByTestId(TEST_IDS.meetingsList);
-      expect(headerTitles()).toEqual([listTitle]);
+    await signIn();
+    await screen.findByTestId(TEST_IDS.meetingsList);
+    expect(headerTitles()).toEqual([listTitle]);
 
-      await press(TEST_IDS.pendingVotesButton);
-      expect(headerTitles()).toEqual([listTitle, pendingTitle]);
-      expect(createI18n(language).t('navigation.locked')).toBe(lockTitle);
-    },
-  );
+    await press(TEST_IDS.pendingVotesButton);
+    expect(headerTitles()).toEqual([listTitle, pendingTitle]);
+  });
 
-  it('are those of the lock screen, in French', async () => {
-    startApp({ language: 'fr' });
+  it.each(SUPPORTED_LANGUAGES)('are those of the lock screen, in %s', async (language) => {
+    startApp({ language });
     await screen.findByTestId(TEST_IDS.lockScreen);
 
-    expect(headerTitles()).toEqual(['Verrouillé']);
+    expect(headerTitles()).toEqual([createI18n(language).t('navigation.locked')]);
   });
 });
 
@@ -362,23 +362,27 @@ describe('signing out', () => {
     expect(queryClient.getMutationCache().getAll()).toEqual([]);
   });
 
-  it('says when the session could not be forgotten, stays on the list, and leads to the lock screen at the next request: the use case has locked the app', async () => {
-    const { fakes } = await openList();
-    const { t } = createI18n('en');
+  it('goes to the lock screen when the session could not be forgotten, and offers to sign out again: the use case has locked the app', async () => {
+    const { fakes, queryClient } = await openList();
     fakes.auth.signOutFailure = storageWriteFailed();
 
     await press(TEST_IDS.signOutButton);
     await press(TEST_IDS.signOutConfirm);
 
-    expect(screen.getByTestId(TEST_IDS.signOutError)).toHaveTextContent(t('signOut.failed'));
-    expect(fakes.auth.session).toBeDefined();
-    await press(TEST_IDS.signOutCancel);
-    await act(async () => {
-      screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
-    });
-    await settle();
+    // Nothing of the user stays on display with nothing behind it: the app is locked, and says so.
     expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
     expect(screen.queryByText(MEETING.title)).toBeNull();
+    expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+    expect(queryClient.getQueryCache().getAll()).toEqual([]);
+    expect(fakes.appLock.isLocked()).toBe(true);
+    expect(fakes.auth.session).toBeDefined();
+
+    // Signing out is offered on the lock screen, and works once the storage does.
+    fakes.auth.signOutFailure = undefined;
+    await press(TEST_IDS.lockSignOut);
+    await press(TEST_IDS.signOutConfirm);
+    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+    expect(fakes.auth.session).toBeUndefined();
   });
 
   it('does not ask for anything once the user has left', async () => {
@@ -404,7 +408,9 @@ describe('signing out', () => {
 
     await press(TEST_IDS.signOutButton);
 
-    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(/^1 vote is waiting/);
+    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(
+      translateCount(createI18n('en').t, 'signOut.pending', 1, createFormatters('en').number),
+    );
     await press(TEST_IDS.signOutConfirm);
     await screen.findByTestId(TEST_IDS.signInScreen);
     expect(fakes.outbox.snapshot()).toHaveLength(1);
@@ -459,11 +465,11 @@ describe('the lock on the way back from the background', () => {
   }
 
   async function awayFor(app: ReturnType<typeof startApp>, away: number): Promise<void> {
-    act(() => app.appState.emit('inactive'));
-    act(() => app.appState.emit('background'));
+    act(() => app.appState.emit(APP_STATE.Inactive));
+    act(() => app.appState.emit(APP_STATE.Background));
     app.fakes.clock.advance(away);
     await act(async () => {
-      app.appState.emit('active');
+      app.appState.emit(APP_STATE.Active);
     });
     await settle();
   }
@@ -537,7 +543,7 @@ describe('the privacy cover', () => {
     await signIn();
     await screen.findByTestId(meetingRowTestId(MEETING.id));
 
-    act(() => app.appState.emit('inactive'));
+    act(() => app.appState.emit(APP_STATE.Inactive));
 
     expect(screen.getByTestId(TEST_IDS.privacyCover)).toBeTruthy();
     expect(screen.queryByTestId(meetingRowTestId(MEETING.id))).toBeNull();
@@ -547,9 +553,9 @@ describe('the privacy cover', () => {
     const app = startApp({ session: false });
     await signIn();
     await screen.findByTestId(meetingRowTestId(MEETING.id));
-    act(() => app.appState.emit('inactive'));
+    act(() => app.appState.emit(APP_STATE.Inactive));
 
-    act(() => app.appState.emit('active'));
+    act(() => app.appState.emit(APP_STATE.Active));
 
     expect(screen.queryByTestId(TEST_IDS.privacyCover)).toBeNull();
     expect(screen.getByTestId(meetingRowTestId(MEETING.id))).toBeTruthy();
@@ -559,7 +565,7 @@ describe('the privacy cover', () => {
     const app = startApp({ session: false });
     await screen.findByTestId(TEST_IDS.signInScreen);
 
-    act(() => app.appState.emit('background'));
+    act(() => app.appState.emit(APP_STATE.Background));
 
     expect(screen.getByTestId(TEST_IDS.privacyCover)).toBeTruthy();
   });

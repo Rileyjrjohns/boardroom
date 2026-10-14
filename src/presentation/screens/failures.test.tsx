@@ -13,6 +13,7 @@ import {
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
 import { discardSessionData } from '../query/createQueryClient';
+import { queryKeys } from '../query/queryKeys';
 import type { QueryClient } from '@tanstack/react-query';
 import { ACCESS } from '../state/uiStore';
 import { TEST_IDS, meetingRowTestId } from '../testIds';
@@ -219,6 +220,8 @@ describe('when a meeting that was on the screen is refused or gone', () => {
     expect(within(error).queryByRole('button')).toBeNull();
     expect(screen.queryByText(MEETING.title)).toBeNull();
     expect(screen.queryByTestId(TEST_IDS.meetingDetail)).toBeNull();
+    // Hidden on the screen and gone from the memory: the meeting is not the user's to hold any more.
+    expect(queryClient.getQueryData(queryKeys.meetings.detail(MEETING.id))).toBeUndefined();
   });
 
   it('shows that it does not exist in place of the meeting', async () => {
@@ -234,6 +237,7 @@ describe('when a meeting that was on the screen is refused or gone', () => {
     expect(within(missing).getByText(t('errors.notFound'))).toBeTruthy();
     expect(screen.queryByText(MEETING.title)).toBeNull();
     expect(screen.queryByTestId(TEST_IDS.meetingDetail)).toBeNull();
+    expect(queryClient.getQueryData(queryKeys.meetings.detail(MEETING.id))).toBeUndefined();
   });
 
   it('keeps the meeting, and offers the retry, for a failure that can pass', async () => {

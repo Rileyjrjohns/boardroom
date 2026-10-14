@@ -27,6 +27,6 @@ describe('StartupFailureScreen', () => {
     renderScreen(<StartupFailureScreen code="invalidAdaptersSetting" />, { language: 'fr' });
 
     expect(screen.getByRole('header', { name: 'Boardroom ne peut pas démarrer' })).toBeTruthy();
-    expect(screen.getByText('Code technique : invalidAdaptersSetting')).toBeTruthy();
+    expect(screen.getByText('Code technique\u00a0: invalidAdaptersSetting')).toBeTruthy();
   });
 });

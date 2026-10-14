@@ -53,13 +53,7 @@ export function StatusBanner({ staleSince }: StatusBannerProps) {
 
   return (
     <View style={styles.banner} testID={TEST_IDS.statusBanner}>
-      {offline ? (
-        <LiveText
-          message={t('banner.offline')}
-          style={styles.text}
-          testID={TEST_IDS.offlineBanner}
-        />
-      ) : null}
+      {offline ? <OfflineLine /> : null}
       {staleSince === undefined ? null : (
         <View testID={TEST_IDS.staleBanner}>
           <LiveText
@@ -107,6 +101,32 @@ export function StatusBanner({ staleSince }: StatusBannerProps) {
       )}
     </View>
   );
+}
+
+/** The line that says the device is offline: the same wherever the banner is shown. */
+function OfflineLine() {
+  const { t } = useTranslation();
+
+  return (
+    <LiveText message={t('banner.offline')} style={styles.text} testID={TEST_IDS.offlineBanner} />
+  );
+}
+
+/**
+ * The banner of the screens that are shown before the app is open, the sign-in and the lock screens:
+ * the one fact it can tell there is that the device is offline (a sign-in cannot succeed, and the
+ * demo's switch is what brings the connection back). There is no data to date, no
+ * synchronisation to report and nothing to read yet: the rest of the banner is for the open app.
+ * Nothing at all when the device is online.
+ */
+export function ConnectionBanner() {
+  const offline = useUiStore((state) => state.connectivity === CONNECTIVITY_STATUS.Offline);
+
+  return offline ? (
+    <View style={styles.banner} testID={TEST_IDS.statusBanner}>
+      <OfflineLine />
+    </View>
+  ) : null;
 }
 
 const styles = StyleSheet.create({

@@ -1,5 +1,7 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
+import { Modal } from 'react-native';
 
+import { storageWriteFailed } from '@domain/errors/StorageError';
 import { aPendingVote, aResolutionId, aVote } from '@domain/testing/builders';
 import { createFakes } from '@application/testing/createFakes';
 
@@ -107,5 +109,83 @@ describe('SignOutDialog', () => {
 
     expect(names).toEqual([TEST_IDS.signOutCancel, TEST_IDS.signOutConfirm]);
     expect(screen.getByRole('button', { name: t('signOut.action') })).toBeTruthy();
+  });
+
+  describe('while the sign-out is under way', () => {
+    /** The sign-out waits for the test: the session is only forgotten once it lets it through. */
+    function holdSignOut(fakes: ReturnType<typeof createFakes>) {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const signOut = fakes.auth.signOut.bind(fakes.auth);
+      fakes.auth.signOut = async () => {
+        await gate;
+        return signOut();
+      };
+      return () => release();
+    }
+
+    it('cannot be closed with the back button, nor with the cancel button', async () => {
+      const fakes = createFakes();
+      holdSignOut(fakes);
+      const onDismiss = jest.fn();
+      renderScreen(<SignOutDialog visible pendingCount={0} onDismiss={onDismiss} />, { fakes });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      act(() => {
+        screen.UNSAFE_getByType(Modal).props.onRequestClose();
+      });
+      fireEvent.press(screen.getByTestId(TEST_IDS.signOutCancel));
+
+      expect(onDismiss).not.toHaveBeenCalled();
+    });
+
+    it('can be closed again once it has ended', async () => {
+      const fakes = createFakes();
+      fakes.auth.signOutFailure = storageWriteFailed();
+      const onDismiss = jest.fn();
+      renderScreen(<SignOutDialog visible pendingCount={0} onDismiss={onDismiss} />, { fakes });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      act(() => {
+        screen.UNSAFE_getByType(Modal).props.onRequestClose();
+      });
+
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('when the session cannot be forgotten', () => {
+    it('follows the use case, which has locked the app, to the lock screen', async () => {
+      const fakes = createFakes();
+      fakes.auth.signOutFailure = storageWriteFailed();
+      const { uiStore, queryClient } = renderScreen(
+        <SignOutDialog visible pendingCount={0} onDismiss={jest.fn()} />,
+        { fakes },
+      );
+      queryClient.setQueryData(['rows'], 'the rows of the user');
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(0);
+      });
+
+      expect(fakes.appLock.isLocked()).toBe(true);
+      expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(queryClient.getQueryData(['rows'])).toBeUndefined();
+    });
   });
 });

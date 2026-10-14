@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text } from 'react-native';
 
 import { BIOMETRIC_ERROR_CODE } from '@domain/errors/BiometricError';
-import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import type { UnexpectedError } from '@domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import type { VoteChoice } from '@domain/value-objects/VoteChoice';
@@ -10,6 +9,7 @@ import type { CastVoteError } from '@application/use-cases/votes/CastVote';
 
 import { castVoteErrorText } from '../i18n/voteMessages';
 import { VOTE_CHOICE_KEYS } from '../i18n/translationKeys';
+import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights } from '../theme/tokens';
 
@@ -18,23 +18,22 @@ import { Dialog } from './Dialog';
 import { LiveText } from './LiveText';
 
 /**
- * The failures after which pressing "confirm" again can work: the prompt was cancelled or did not
- * recognise the user, the device refused to let them try for a while, the vote could not be saved.
- * Every other one is final for this vote (the resolution closed, the user voted elsewhere, the
- * device cannot do biometrics, the session is over): the only thing left to do is close the dialog.
+ * The failures after which pressing "confirm" again can work, beyond the ones a query may be tried
+ * again for (`isRetryableCode`: the connection, a fault of the server, a store that could not be
+ * read): the prompt was cancelled or did not recognise the user, the device refused to let them
+ * try for a while, the vote could not be saved. Every other one is final for this vote (the
+ * resolution closed, the user voted elsewhere, the device cannot do biometrics, the session is
+ * over): the only thing left to do is close the dialog.
  */
-const RETRYABLE_FAILURES: ReadonlySet<string> = new Set([
+const RETRYABLE_BY_THE_USER: ReadonlySet<string> = new Set([
   BIOMETRIC_ERROR_CODE.Cancelled,
   BIOMETRIC_ERROR_CODE.Failed,
   BIOMETRIC_ERROR_CODE.LockedOut,
   STORAGE_ERROR_CODE.WriteFailed,
-  STORAGE_ERROR_CODE.ReadFailed,
-  REPOSITORY_ERROR_CODE.NetworkUnavailable,
-  REPOSITORY_ERROR_CODE.Unexpected,
 ]);
 
-export function isRetryableVoteFailure(failure: CastVoteError | UnexpectedError): boolean {
-  return RETRYABLE_FAILURES.has(failure.code);
+function canConfirmAgain(failure: CastVoteError | UnexpectedError): boolean {
+  return isRetryableCode(failure.code) || RETRYABLE_BY_THE_USER.has(failure.code);
 }
 
 interface VoteDialogProps {
@@ -73,7 +72,7 @@ export function VoteDialog({
   const dismiss = () => {
     if (!pending) onDismiss();
   };
-  const final = failure !== undefined && !isRetryableVoteFailure(failure);
+  const final = failure !== undefined && !canConfirmAgain(failure);
 
   return (
     <Dialog

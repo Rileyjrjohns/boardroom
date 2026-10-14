@@ -6,6 +6,7 @@ import { MILLIS_PER_DAY, NOW, at } from '@domain/testing/builders';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { TEST_IDS } from '../testIds';
+import { epochOf } from '../testing/accessEpoch';
 import { renderScreen } from '../testing/renderScreen';
 
 import { StatusBanner } from './StatusBanner';
@@ -81,7 +82,7 @@ describe('StatusBanner', () => {
       const { uiStore, t } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 });
+        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(uiStore));
       });
 
       const summary = screen.getByTestId(TEST_IDS.syncSummary);
@@ -95,7 +96,7 @@ describe('StatusBanner', () => {
       const { uiStore, t } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 0, rejected: 2 });
+        uiStore.getState().showSyncSummary({ synced: 0, rejected: 2 }, epochOf(uiStore));
       });
 
       const summary = screen.getByTestId(TEST_IDS.syncSummary);
@@ -109,7 +110,7 @@ describe('StatusBanner', () => {
       const { uiStore } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 3, rejected: 1 });
+        uiStore.getState().showSyncSummary({ synced: 3, rejected: 1 }, epochOf(uiStore));
       });
 
       const alerts = within(screen.getByTestId(TEST_IDS.syncSummary)).getAllByRole('alert');
@@ -123,7 +124,7 @@ describe('StatusBanner', () => {
       const { uiStore } = renderScreen(<StatusBanner />);
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
-        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 });
+        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(uiStore));
       });
 
       fireEvent.press(screen.getByTestId(TEST_IDS.syncSummaryDismiss));
@@ -137,7 +138,7 @@ describe('StatusBanner', () => {
       const { uiStore } = renderScreen(<StatusBanner />, { language: 'fr' });
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 1200, rejected: 0 });
+        uiStore.getState().showSyncSummary({ synced: 1200, rejected: 0 }, epochOf(uiStore));
       });
 
       expect(screen.getByText(/1\s200 votes ont été envoyés\./)).toBeTruthy();

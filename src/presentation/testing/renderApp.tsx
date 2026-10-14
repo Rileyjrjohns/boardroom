@@ -10,10 +10,17 @@ import type { RenderScreenOptions } from './renderScreen';
 // Test support, not production code: only tests import it (a lint rule enforces it).
 
 /**
- * The route files of the app, relative to the directory the tests run from (the root of the
- * repository): the real ones, so that a route that stops working fails a test.
+ * The route files the scenario tests mount, relative to the directory the tests run from (the root
+ * of the repository): one file per route of `app/`, each re-exporting the real one, so that a route
+ * that stops working fails a test. They are listed apart from `app/` because the router's loader of
+ * a directory, in tests, does not leave out the file that rewrites the links the system hands the
+ * router (`app/+native-intent.tsx`: not a route, the router skips it by its path, which the loader
+ * does not keep). `tooling/routes.test.ts` checks that the two directories list the same routes.
  */
-const APP_DIR = 'app';
+const ROUTES_DIR = 'tooling/app-routes';
+
+/** The root layout, which the tests replace with their own. */
+const LAYOUT = '_layout';
 
 export interface RenderAppOptions extends RenderScreenOptions {
   /** The link the app is opened with. Without one it opens on its first route. */
@@ -43,7 +50,7 @@ export function renderApp(options: RenderAppOptions = {}) {
   }
 
   const rendered = renderRouter(
-    { appDir: APP_DIR, overrides: { _layout: Layout } },
+    { appDir: ROUTES_DIR, overrides: { [LAYOUT]: Layout } },
     initialUrl === undefined ? {} : { initialUrl },
   );
   return { ...rendered, ...harness };

@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, within } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform } from 'react-native';
 import { router } from 'expo-router';
 
 import { createFakes } from '@application/testing/createFakes';
@@ -25,8 +26,10 @@ import {
   rejectedVoteTestId,
   resolutionTestId,
   voteChoiceTestId,
+  voteNoticeTestId,
   voteOutcomeTestId,
 } from '../testIds';
+import { epochOf } from '../testing/accessEpoch';
 import { driveAppState } from '../testing/appState';
 import { renderApp } from '../testing/renderApp';
 
@@ -138,6 +141,9 @@ describe('the offline scenario', () => {
       ),
     ).toBeNull();
     expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    // The vote is sent: "saved on this device" is no longer true, and is no longer said.
+    expect(screen.queryByTestId(voteOutcomeTestId(RESOLUTION))).toBeNull();
+    expect(screen.queryByText(t('voting.queued'))).toBeNull();
   });
 
   it('shows the queued vote in the pending votes, with a badge in the header, until it is sent', async () => {
@@ -197,6 +203,12 @@ describe('the offline scenario', () => {
     ).toBeTruthy();
     expect(fakes.outbox.snapshot()).toHaveLength(1);
     expect(fakes.outbox.snapshot()[0]).toMatchObject({ status: 'rejected' });
+    // The vote was refused: it is no longer saved to be sent, and the detail no longer says so.
+    expect(screen.queryByText(t('voting.queued'))).toBeNull();
+    expect(screen.queryByTestId(voteOutcomeTestId(RESOLUTION))).toBeNull();
+    expect(screen.getByTestId(voteNoticeTestId(RESOLUTION))).toHaveTextContent(
+      t('voting.rejected', { reason: t('voting.reason.resolutionClosed') }),
+    );
 
     act(() => {
       router.back();
@@ -207,6 +219,73 @@ describe('the offline scenario', () => {
     expect(within(row).getByText(t('voting.reason.resolutionClosed'))).toBeTruthy();
   });
 
+  it('announces a change of the connection once, from the screen the user is looking at, not from the list under it', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    startOffline();
+    await signInAndOpenMeeting();
+    announce.mockClear();
+
+    await press(TEST_IDS.demoOfflineSwitch);
+
+    // The list is still mounted under the detail, with a banner of its own saying the same thing.
+    expect(announce.mock.calls.filter(([message]) => message === t('banner.offline'))).toHaveLength(
+      1,
+    );
+
+    act(() => {
+      router.back();
+    });
+    await screen.findByTestId(TEST_IDS.meetingsList);
+    await settle();
+
+    // Back on the list: what it shows was already said, and is not said again.
+    expect(announce.mock.calls.filter(([message]) => message === t('banner.offline'))).toHaveLength(
+      1,
+    );
+  });
+
+  it('lets the demo bring the connection back from the sign-in screen, after a sign-out while offline', async () => {
+    const { fakes } = startOffline();
+    await signInAndOpenMeeting();
+    await press(TEST_IDS.demoOfflineSwitch);
+    act(() => {
+      router.back();
+    });
+    await screen.findByTestId(TEST_IDS.meetingsList);
+
+    await press(TEST_IDS.signOutButton);
+    await press(TEST_IDS.signOutConfirm);
+
+    // Signed out and offline: the sign-in screen says so, and has the switch to undo it.
+    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+    expect(fakes.network.online).toBe(false);
+
+    await press(TEST_IDS.demoOfflineSwitch);
+
+    expect(fakes.network.online).toBe(true);
+    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+  });
+
+  it('lets the demo bring the connection back from the lock screen as well', async () => {
+    const { fakes, uiStore } = startOffline();
+    await signInAndOpenMeeting();
+    await press(TEST_IDS.demoOfflineSwitch);
+    act(() => {
+      uiStore.getState().locked(epochOf(uiStore));
+    });
+    fakes.appLock.lock();
+    await settle();
+
+    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
+    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
+    await press(TEST_IDS.demoOfflineSwitch);
+
+    expect(fakes.network.online).toBe(true);
+    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+  });
+
   it('does not send a waiting vote while the app is locked, and sends it once the user unlocks', async () => {
     const { fakes, uiStore } = startOffline();
     await signInAndOpenMeeting();
@@ -214,7 +293,7 @@ describe('the offline scenario', () => {
     await press(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
     await press(TEST_IDS.voteConfirm);
     act(() => {
-      uiStore.getState().locked();
+      uiStore.getState().locked(epochOf(uiStore));
     });
     fakes.appLock.lock();
     await settle();

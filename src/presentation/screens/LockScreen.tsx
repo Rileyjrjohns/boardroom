@@ -5,7 +5,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button } from '../components/Button';
 import { LiveText } from '../components/LiveText';
+import { DemoOfflineSwitch } from '../components/DemoControls';
 import { SessionNotice } from '../components/SessionNotice';
+import { ConnectionBanner } from '../components/StatusBanner';
 import { SignOutDialog } from '../components/SignOutDialog';
 import { useUnlockApp } from '../hooks/useUnlockApp';
 import { UNLOCK_ERROR_KEYS } from '../i18n/translationKeys';
@@ -22,7 +24,9 @@ import { colors, fontSizes, fontWeights, maxContentWidth, spacing } from '../the
  * not enrolled). The rule when the biometrics cannot be used is that nothing else unlocks the app:
  * the only way forward is to sign out and sign in again, which is why signing out is offered here,
  * always. The confirmation cannot say how many votes wait, since the outbox is out of reach while
- * the app is locked, and says in general terms that they are kept.
+ * the app is locked, and says in general terms that they are kept. A device that is offline says
+ * so at the top, and so does the switch of the demo in the mock configuration, as on the sign-in
+ * screen.
  */
 export function LockScreen() {
   const { t } = useTranslation();
@@ -32,41 +36,42 @@ export function LockScreen() {
   const [signingOut, setSigningOut] = useState(false);
 
   return (
-    <View
-      style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
-      testID={TEST_IDS.lockScreen}
-    >
-      <View style={styles.content}>
-        <Text accessibilityRole="header" style={styles.title}>
-          {t('lock.title')}
-        </Text>
-        <Text style={styles.message}>{t('lock.message')}</Text>
-        {endedBy === undefined ? null : <SessionNotice code={endedBy} />}
-        {unlock.failure === undefined ? null : (
-          <LiveText
-            message={t(UNLOCK_ERROR_KEYS[unlock.failure.code])}
-            style={styles.error}
-            testID={TEST_IDS.lockError}
+    <View style={[styles.screen, { paddingBottom: insets.bottom }]} testID={TEST_IDS.lockScreen}>
+      <ConnectionBanner />
+      <DemoOfflineSwitch />
+      <View style={styles.body}>
+        <View style={styles.content}>
+          <Text accessibilityRole="header" style={styles.title}>
+            {t('lock.title')}
+          </Text>
+          <Text style={styles.message}>{t('lock.message')}</Text>
+          {endedBy === undefined ? null : <SessionNotice code={endedBy} />}
+          {unlock.failure === undefined ? null : (
+            <LiveText
+              message={t(UNLOCK_ERROR_KEYS[unlock.failure.code])}
+              style={styles.error}
+              testID={TEST_IDS.lockError}
+            />
+          )}
+          <Button
+            title={unlock.isPending ? t('lock.unlocking') : t('lock.unlock')}
+            busy={unlock.isPending}
+            accessibilityHint={t('lock.unlockHint')}
+            onPress={() => {
+              unlock.run();
+            }}
+            testID={TEST_IDS.lockUnlock}
           />
-        )}
-        <Button
-          title={unlock.isPending ? t('lock.unlocking') : t('lock.unlock')}
-          busy={unlock.isPending}
-          accessibilityHint={t('lock.unlockHint')}
-          onPress={() => {
-            unlock.run();
-          }}
-          testID={TEST_IDS.lockUnlock}
-        />
-        <Button
-          title={t('signOut.action')}
-          variant="secondary"
-          accessibilityHint={t('signOut.hint')}
-          onPress={() => {
-            setSigningOut(true);
-          }}
-          testID={TEST_IDS.lockSignOut}
-        />
+          <Button
+            title={t('signOut.action')}
+            variant="secondary"
+            accessibilityHint={t('signOut.hint')}
+            onPress={() => {
+              setSigningOut(true);
+            }}
+            testID={TEST_IDS.lockSignOut}
+          />
+        </View>
       </View>
       <SignOutDialog
         visible={signingOut}
@@ -82,8 +87,11 @@ export function LockScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    justifyContent: 'center',
     backgroundColor: colors.background,
+  },
+  body: {
+    flex: 1,
+    justifyContent: 'center',
   },
   content: {
     width: '100%',

@@ -61,7 +61,7 @@ function OfflineSwitch({ network }: { readonly network: DemoNetwork }) {
           accessible={false}
           importantForAccessibility="no-hide-descendants"
           pointerEvents="none"
-          trackColor={{ false: colors.border, true: colors.primary }}
+          trackColor={{ false: colors.interactiveBorder, true: colors.primary }}
           value={offline}
         />
       </Pressable>

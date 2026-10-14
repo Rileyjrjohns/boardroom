@@ -89,8 +89,9 @@ interface PeriodListProps {
  *
  * Only an error that can pass is shown next to the list, with its retry. Every other error a list
  * can meet says the session is over (the server refused it, it expired, another user is signed in,
- * the app is locked), and ends the session for the whole app: `AppProviders` replaces the screens
- * with `SessionEndedScreen` and the cache is emptied, so no row of the list outlives it.
+ * the app is locked), and ends the session for the whole app: the store moves the user to the
+ * sign-in or the lock screen, with the reason, and the cache is emptied (`createAppState`), so no
+ * row of the list outlives it.
  */
 function PeriodList({ period, onOpenMeeting }: PeriodListProps) {
   const { t } = useTranslation();

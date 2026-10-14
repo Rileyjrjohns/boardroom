@@ -400,12 +400,12 @@ describe('MeetingDetailScreen', () => {
 
       expect(screen.getByRole('header', { name: 'Ordre du jour' })).toBeTruthy();
       expect(screen.getByRole('header', { name: 'Participants' })).toBeTruthy();
-      expect(screen.getByText('Président')).toBeTruthy();
-      expect(screen.getByText('Invité')).toBeTruthy();
+      expect(screen.getByText('Présidence')).toBeTruthy();
+      expect(screen.getByText('Personne invitée')).toBeTruthy();
       expect(screen.getByText('Confidentiel')).toBeTruthy();
       expect(screen.getByText('Ouverte')).toBeTruthy();
       expect(screen.getByText('Clôturée')).toBeTruthy();
-      expect(screen.getByText('Votre vote : Contre')).toBeTruthy();
+      expect(screen.getByText('Votre vote\u00a0: Contre')).toBeTruthy();
       expect(screen.getByText('12 pages')).toBeTruthy();
       expect(screen.getByText('1 page')).toBeTruthy();
       expect(await screen.findByText('Vous n’avez pas voté.')).toBeTruthy();

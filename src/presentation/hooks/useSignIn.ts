@@ -14,7 +14,9 @@ import { useUiStore } from '../state/uiStore';
  * dropped, and so is the password, which never becomes the input of the mutation. TanStack Query
  * keeps the variables of a mutation next to its state for as long as the screen observes it, so the
  * credentials are handed over in a reference that the mutation function empties as it reads it,
- * and the mutation itself takes no input.
+ * and the mutation itself takes no input. What is guaranteed, and tested, is that no mutation of the
+ * query client holds the password, as its variables or in its state; the string itself lives in the
+ * JavaScript runtime until it is collected.
  *
  * Failures are the errors of `SignIn`: a field the domain refuses (`validation`, with the field and
  * the rule), the credentials refused, the server unreachable, a fault of the server or of the

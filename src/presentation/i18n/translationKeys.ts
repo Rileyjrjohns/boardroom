@@ -26,7 +26,8 @@ import type { SignInError } from '@application/use-cases/auth/SignIn';
 import type { GetMeetingError } from '@application/use-cases/meetings/GetMeeting';
 import type { ListMeetingsError } from '@application/use-cases/meetings/ListMeetings';
 import type { AcknowledgeRejectedVoteError } from '@application/use-cases/votes/AcknowledgeRejectedVote';
-import type { CastVoteError } from '@application/use-cases/votes/CastVote';
+import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
+import type { CastVoteError, CastVoteStatus } from '@application/use-cases/votes/CastVote';
 import type { DiscardUnreadableVotesError } from '@application/use-cases/votes/DiscardUnreadableVotes';
 
 /** A key the typed `t` accepts: the keys of the English resource. */
@@ -179,14 +180,16 @@ export const ALREADY_VOTED_KEYS = {
   [ALREADY_VOTED_SOURCE.Queued]: 'voting.reason.alreadyVotedQueued',
 } as const satisfies Record<AlreadyVotedSource, TranslationKey>;
 
-/** What the confirmation of a vote says for each outcome of the biometric prompt. */
-export const VOTE_BIOMETRIC_KEYS = {
-  [BIOMETRIC_ERROR_CODE.Unavailable]: 'voteBiometric.biometricUnavailable',
-  [BIOMETRIC_ERROR_CODE.NotEnrolled]: 'voteBiometric.biometricNotEnrolled',
-  [BIOMETRIC_ERROR_CODE.Cancelled]: 'voteBiometric.biometricCancelled',
-  [BIOMETRIC_ERROR_CODE.Failed]: 'voteBiometric.biometricFailed',
-  [BIOMETRIC_ERROR_CODE.LockedOut]: 'voteBiometric.biometricLockedOut',
-} as const satisfies Record<BiometricError['code'], TranslationKey>;
+/**
+ * What a cast vote leaves to say once the choices are gone. A vote that the server recorded is told
+ * once, by a message of the screen. A vote that waits to be sent is not told by a message that
+ * outlives the wait: the state of the resolution says it for as long as it is true (see
+ * `ResolutionVoting`), so that the words go when the vote is sent or refused.
+ */
+export const CAST_OUTCOME_KEYS = {
+  [CAST_VOTE_STATUS.Submitted]: 'voting.submitted',
+  [CAST_VOTE_STATUS.Queued]: undefined,
+} as const satisfies Record<CastVoteStatus, TranslationKey | undefined>;
 
 /** Every way casting a vote can fail, and what the confirmation says about it. */
 export const CAST_VOTE_ERROR_KEYS = {
@@ -221,6 +224,7 @@ export const DISCARD_ERROR_KEYS = {
   [AUTHENTICATION_ERROR_CODE.NotAuthenticated]: 'errors.notAuthenticated',
   [AUTHENTICATION_ERROR_CODE.SessionExpired]: 'errors.sessionExpired',
   [AUTHENTICATION_ERROR_CODE.AppLocked]: 'errors.appLocked',
+  [AUTHENTICATION_ERROR_CODE.SessionChanged]: 'errors.sessionChanged',
   [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
   [STORAGE_ERROR_CODE.WriteFailed]: 'pendingVotes.discardFailed',
   [REPOSITORY_ERROR_CODE.Unexpected]: 'errors.unexpected',
@@ -231,6 +235,7 @@ export const ACKNOWLEDGE_ERROR_KEYS = {
   [AUTHENTICATION_ERROR_CODE.NotAuthenticated]: 'errors.notAuthenticated',
   [AUTHENTICATION_ERROR_CODE.SessionExpired]: 'errors.sessionExpired',
   [AUTHENTICATION_ERROR_CODE.AppLocked]: 'errors.appLocked',
+  [AUTHENTICATION_ERROR_CODE.SessionChanged]: 'errors.sessionChanged',
   [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
   [STORAGE_ERROR_CODE.WriteFailed]: 'voting.failure.storageWriteFailed',
   [VOTE_DELIVERY_ERROR_CODE.NotRejected]: 'voting.failure.voteNotRejected',

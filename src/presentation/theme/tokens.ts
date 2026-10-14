@@ -8,7 +8,14 @@
 export const colors = {
   background: '#ffffff',
   surface: '#f4f5f7',
+  /** The hairline between rows and around cards: decoration, which a screen reader does not need and the eye can do without. */
   border: '#d6d9df',
+  /**
+   * The edge of what the user operates: a field of text, the track of a switch, a group of
+   * segments. It marks where the control is, so it holds at least 3:1 against the background and the
+   * surface (WCAG 1.4.11), which `border` does not (about 1.4:1). `tokens.test.ts` pins the ratio.
+   */
+  interactiveBorder: '#767676',
   textPrimary: '#111111',
   textSecondary: '#555555',
   primary: '#1b4f8f',

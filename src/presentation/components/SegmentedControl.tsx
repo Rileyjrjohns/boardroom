@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: radii.md,
     borderWidth: borderWidths.hairline,
-    borderColor: colors.border,
+    borderColor: colors.interactiveBorder,
     backgroundColor: colors.surface,
   },
   segment: {

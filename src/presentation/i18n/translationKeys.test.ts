@@ -13,6 +13,7 @@ import { VOTING_STATE } from '@domain/policies/votingState';
 import { valuesOf } from '@domain/shared/constants';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
+import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
 
 import { SUPPORTED_LANGUAGES } from './constants';
 import { createI18n } from './createI18n';
@@ -20,8 +21,10 @@ import {
   ACKNOWLEDGE_ERROR_KEYS,
   ALREADY_VOTED_KEYS,
   BIOMETRIC_PROMPT_KEYS,
+  CAST_OUTCOME_KEYS,
   CAST_VOTE_ERROR_KEYS,
   CONFIDENTIALITY_KEYS,
+  DISCARD_ERROR_KEYS,
   EMAIL_RULE_KEYS,
   EMPTY_LIST_KEYS,
   MEETINGS_ERROR_KEYS,
@@ -30,7 +33,6 @@ import {
   PASSWORD_RULE_KEYS,
   SIGN_IN_ERROR_KEYS,
   UNLOCK_ERROR_KEYS,
-  VOTE_BIOMETRIC_KEYS,
   VOTE_CHOICE_KEYS,
   VOTING_DATE_KEYS,
   VOTING_REASON_KEYS,
@@ -76,7 +78,6 @@ const MAPS = {
     UNLOCK_ERROR_KEYS,
     [...valuesOf(BIOMETRIC_ERROR_CODE), REPOSITORY_ERROR_CODE.Unexpected],
   ],
-  VOTE_BIOMETRIC_KEYS: [VOTE_BIOMETRIC_KEYS, valuesOf(BIOMETRIC_ERROR_CODE)],
   VOTING_REASON_KEYS: [VOTING_REASON_KEYS, valuesOf(VOTING_ERROR_CODE)],
   ALREADY_VOTED_KEYS: [ALREADY_VOTED_KEYS, valuesOf(ALREADY_VOTED_SOURCE)],
   CAST_VOTE_ERROR_KEYS: [
@@ -100,8 +101,20 @@ const MAPS = {
       AUTHENTICATION_ERROR_CODE.NotAuthenticated,
       AUTHENTICATION_ERROR_CODE.SessionExpired,
       AUTHENTICATION_ERROR_CODE.AppLocked,
+      AUTHENTICATION_ERROR_CODE.SessionChanged,
       ...valuesOf(STORAGE_ERROR_CODE),
       VOTE_DELIVERY_ERROR_CODE.NotRejected,
+      REPOSITORY_ERROR_CODE.Unexpected,
+    ],
+  ],
+  DISCARD_ERROR_KEYS: [
+    DISCARD_ERROR_KEYS,
+    [
+      AUTHENTICATION_ERROR_CODE.NotAuthenticated,
+      AUTHENTICATION_ERROR_CODE.SessionExpired,
+      AUTHENTICATION_ERROR_CODE.AppLocked,
+      AUTHENTICATION_ERROR_CODE.SessionChanged,
+      ...valuesOf(STORAGE_ERROR_CODE),
       REPOSITORY_ERROR_CODE.Unexpected,
     ],
   ],
@@ -140,10 +153,25 @@ describe('the maps from codes to translation keys', () => {
     });
   });
 
+  describe('CAST_OUTCOME_KEYS', () => {
+    it('has an entry for every status of a cast vote, and for nothing else', () => {
+      expect(Object.keys(CAST_OUTCOME_KEYS).sort()).toEqual(Object.values(CAST_VOTE_STATUS).sort());
+    });
+
+    it('tells a recorded vote with a message, and a vote that waits with none: the resolution says that', () => {
+      expect(CAST_OUTCOME_KEYS[CAST_VOTE_STATUS.Submitted]).toBe('voting.submitted');
+      expect(CAST_OUTCOME_KEYS[CAST_VOTE_STATUS.Queued]).toBeUndefined();
+    });
+
+    it.each(SUPPORTED_LANGUAGES)('has the translation of the message in %s', (language) => {
+      expect(createI18n(language).exists(CAST_OUTCOME_KEYS[CAST_VOTE_STATUS.Submitted])).toBe(true);
+    });
+  });
+
   it('translates a code the way the screens do', () => {
     const { t } = createI18n('fr');
 
-    expect(t(PARTICIPANT_ROLE_KEYS[PARTICIPANT_ROLE.Chair])).toBe('Président');
+    expect(t(PARTICIPANT_ROLE_KEYS[PARTICIPANT_ROLE.Chair])).toBe('Présidence');
     expect(t(VOTE_CHOICE_KEYS[VOTE_CHOICE.Abstain])).toBe('Abstention');
     expect(t(VOTING_STATE_KEYS[VOTING_STATE.Closed])).toBe('Clôturée');
     expect(t(VOTING_STATE_KEYS[VOTING_STATE.WindowOver])).toBe('Délai écoulé');

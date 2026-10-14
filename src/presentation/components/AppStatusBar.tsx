@@ -8,8 +8,8 @@ import { statusBarStyle } from '../theme/tokens';
  * root: every screen is under one of them, so none is left to the style the system picks.
  *
  * It is React Native's `StatusBar`, not the `statusBarStyle` option of the native stack, for three
- * reasons. The option only reaches the screens of the stack, and the session-ended, startup
- * failure and error screens are outside it. On iOS the option is ignored here: the generated
+ * reasons. The option only reaches the screens of the stack, and the startup failure and error
+ * screens are outside it. On iOS the option is ignored here: the generated
  * Info.plist sets `UIViewControllerBasedStatusBarAppearance` to false, which is what the
  * `StatusBar` component needs and what react-native-screens' per-screen style does not work with. And on Android,
  * react-native-screens leaves the window alone until a screen gives it a style, and then owns it

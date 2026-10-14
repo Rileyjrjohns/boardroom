@@ -44,6 +44,27 @@ describe('TextField', () => {
     expect(error.props.accessibilityLiveRegion).toBe('polite');
   });
 
+  it('links its error to the input: the screen reader reads it after the name of the field', () => {
+    render(
+      <TextField
+        label={LABEL}
+        value=""
+        onChangeText={jest.fn()}
+        error="Enter an email address."
+        testID={FIELD}
+      />,
+    );
+
+    expect(screen.getByTestId(FIELD).props.accessibilityHint).toBe('Enter an email address.');
+    expect(screen.getByTestId(FIELD).props.accessibilityLabel).toBe(LABEL);
+  });
+
+  it('has no hint when it has no error', () => {
+    render(<TextField label={LABEL} value="" onChangeText={jest.fn()} testID={FIELD} />);
+
+    expect(screen.getByTestId(FIELD).props.accessibilityHint).toBeUndefined();
+  });
+
   it('shows no error when it has none', () => {
     render(<TextField label={LABEL} value="" onChangeText={jest.fn()} errorTestID={ERROR} />);
 

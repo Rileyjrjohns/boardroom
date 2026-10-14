@@ -48,7 +48,10 @@ interface TextFieldProps extends InputBehaviour {
  * password managers need (the caller sets the kind of keyboard, the capitalisation, the autofill
  * hint and, for a password, the secure entry). The label is also the accessibility label, so that
  * the field is announced with its name, and the error is a live region, so that it is announced
- * when it appears.
+ * when it appears. The error is also the accessibility hint of the field, which is what links it to
+ * its input: React Native has no `aria-describedby`, and a screen reader that comes to the field
+ * (the form moves the focus to the first one that is refused) reads its name, then what is wrong
+ * with it.
  */
 export function TextField({
   label,
@@ -66,6 +69,7 @@ export function TextField({
       <Text style={styles.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
+        {...(error === undefined ? {} : { accessibilityHint: error })}
         editable={editable}
         onChangeText={onChangeText}
         style={[styles.input, error !== undefined && styles.invalid, !editable && styles.readOnly]}
@@ -99,7 +103,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     borderRadius: radii.md,
     borderWidth: borderWidths.hairline,
-    borderColor: colors.border,
+    borderColor: colors.interactiveBorder,
     backgroundColor: colors.background,
     fontSize: fontSizes.body,
     color: colors.textPrimary,

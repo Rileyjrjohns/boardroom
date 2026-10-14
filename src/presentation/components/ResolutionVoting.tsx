@@ -7,7 +7,6 @@ import { VOTING_ERROR_CODE } from '@domain/errors/VotingError';
 import type { MeetingId } from '@domain/value-objects/ids';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import type { VoteChoice } from '@domain/value-objects/VoteChoice';
-import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
 import type { CastVoteStatus } from '@application/use-cases/votes/CastVote';
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 
@@ -15,7 +14,11 @@ import { useFormatters } from '../format/FormattersProvider';
 import { VOTE_VIEW } from '../hooks/resolutionVote';
 import type { ResolutionVoteView } from '../hooks/resolutionVote';
 import { useCastVote } from '../hooks/useCastVote';
-import { PARTICIPANT_ROLE_KEYS, VOTE_CHOICE_KEYS } from '../i18n/translationKeys';
+import {
+  CAST_OUTCOME_KEYS,
+  PARTICIPANT_ROLE_KEYS,
+  VOTE_CHOICE_KEYS,
+} from '../i18n/translationKeys';
 import { rejectionReasonText, votingReasonText } from '../i18n/voteMessages';
 import { useUiStore } from '../state/uiStore';
 import { TEST_IDS, voteChoiceTestId, voteNoticeTestId, voteOutcomeTestId } from '../testIds';
@@ -40,7 +43,9 @@ interface ResolutionVotingProps {
  *
  * - eligible: the three choices. Touching one opens the confirmation step (`VoteDialog`), which is
  *   where a vote is cast;
- * - a vote waiting to be sent: said by the line of the resolution, with the choice;
+ * - a vote waiting to be sent: said by the line of the resolution, with the choice, and by the
+ *   message that it is saved on this device, for as long as it waits: when it is sent or refused
+ *   the view changes and the message goes with it;
  * - a vote that was rejected: why, and the button that acknowledges it;
  * - ineligible: the reason the rule gives (a role without a vote, a closed vote, a vote already
  *   cast), as text, with no control that would do nothing.
@@ -48,7 +53,7 @@ interface ResolutionVotingProps {
  * The state of the cast lives here and not in the part that shows the choices, because casting a
  * vote changes what is shown: once the vote is recorded or queued the choices are gone, and the
  * confirmation must still be there to close itself when the screen shows the new state, and the
- * message that says what happened must outlive the choices.
+ * message that says a vote was recorded must outlive the choices.
  */
 export function ResolutionVoting({ meetingId, resolution, view }: ResolutionVotingProps) {
   const { t } = useTranslation();
@@ -60,6 +65,7 @@ export function ResolutionVoting({ meetingId, resolution, view }: ResolutionVoti
     setChoice(undefined);
   });
   const { reset } = cast;
+  const outcomeKey = outcome === undefined ? undefined : CAST_OUTCOME_KEYS[outcome];
 
   const choose = (selected: VoteChoice) => {
     reset();
@@ -73,9 +79,9 @@ export function ResolutionVoting({ meetingId, resolution, view }: ResolutionVoti
 
   return (
     <View style={styles.block}>
-      {outcome === undefined ? null : (
+      {outcomeKey === undefined ? null : (
         <LiveText
-          message={t(outcome === CAST_VOTE_STATUS.Submitted ? 'voting.submitted' : 'voting.queued')}
+          message={t(outcomeKey)}
           style={styles.outcome}
           testID={voteOutcomeTestId(resolution.id)}
         />
@@ -129,8 +135,15 @@ function VoteState({ view, resolution, onChoose }: VoteStateProps) {
         </View>
       );
     case VOTE_VIEW.Unavailable:
-    case VOTE_VIEW.Queued:
       return null;
+    case VOTE_VIEW.Queued:
+      return (
+        <LiveText
+          message={t('voting.queued')}
+          style={styles.outcome}
+          testID={voteOutcomeTestId(resolution.id)}
+        />
+      );
     case VOTE_VIEW.Eligible:
       return (
         <View style={styles.choices}>

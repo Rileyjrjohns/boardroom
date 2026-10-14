@@ -4,7 +4,7 @@ import { createFormatters } from './formatters';
 
 // 2030-03-17T17:46:40Z, a Sunday. Every test names a time zone, so that the text is the same on
 // every machine. Spaces are normalised: the engine may use a narrow no-break space before AM/PM.
-const normalise = (text: string): string => text.replace(/[  ]/g, ' ');
+const normalise = (text: string): string => text.replace(/[ \u00a0]/g, ' ');
 
 describe('createFormatters', () => {
   describe('in English', () => {

@@ -50,7 +50,7 @@ export const fr: TranslationResource = {
     participantsEmpty: 'Il n’y a aucun participant.',
     votingDeadline: 'Vote possible jusqu’au {{date}}',
     votingClosedOn: 'Clôturée le {{date}}',
-    resolutionYourVote: 'Votre vote : {{choice}}',
+    resolutionYourVote: 'Votre vote\u00a0: {{choice}}',
     resolutionYourVoteQueued: 'Votre vote\u00a0: {{choice}} (en attente d’envoi)',
     resolutionNoVote: 'Vous n’avez pas voté.',
     pageCount_one: '{{formattedCount}} page',
@@ -63,10 +63,10 @@ export const fr: TranslationResource = {
     refreshing: 'Actualisation en cours',
   },
   participantRole: {
-    chair: 'Président',
-    secretary: 'Secrétaire',
+    chair: 'Présidence',
+    secretary: 'Secrétariat',
     member: 'Membre',
-    guest: 'Invité',
+    guest: 'Personne invitée',
   },
   votingState: {
     open: 'Ouverte',
@@ -87,10 +87,10 @@ export const fr: TranslationResource = {
     networkUnavailable: 'Le serveur est injoignable. Vérifiez votre connexion et réessayez.',
     unauthorized: 'Votre session n’est plus valide. Reconnectez-vous.',
     forbidden: 'Vous n’avez pas accès à cette réunion.',
-    notAuthenticated: 'Vous êtes déconnecté. Connectez-vous pour continuer.',
+    notAuthenticated: 'Aucune session n’est ouverte. Connectez-vous pour continuer.',
     sessionExpired: 'Votre session a expiré. Reconnectez-vous.',
     appLocked: 'L’application est verrouillée. Déverrouillez-la pour continuer.',
-    sessionChanged: 'L’utilisateur connecté a changé. Reconnectez-vous.',
+    sessionChanged: 'Le compte en cours a changé. Reconnectez-vous.',
     notFound: 'Cette réunion n’existe pas, ou vous n’y avez plus accès.',
     invalidCredentials: 'L’adresse e-mail ou le mot de passe est incorrect.',
     storageWriteFailed: 'Les données n’ont pas pu être enregistrées sur cet appareil. Réessayez.',
@@ -104,6 +104,9 @@ export const fr: TranslationResource = {
     message:
       'L’application n’est pas configurée correctement, ou les données enregistrées sur cet appareil ne peuvent pas être ouvertes. Vérifiez le réglage EXPO_PUBLIC_BOARDROOM_ADAPTERS, qui accepte mock ou http, et pour http le réglage EXPO_PUBLIC_BOARDROOM_API_BASE_URL\u00a0: une adresse https, ou http pour cet ordinateur seulement. Une version de développement utilise mock quand le premier manque\u00a0; toute autre version l’exige.',
     code: 'Code technique\u00a0: {{code}}',
+    forgetExplanation:
+      'Si réessayer ne suffit pas, vous pouvez fermer la session sur cet appareil, puis vous reconnecter. Les votes en attente d’envoi restent sur cet appareil.',
+    forget: 'Fermer la session sur cet appareil',
   },
   biometric: {
     unlockApp: 'Déverrouiller Boardroom',
@@ -124,7 +127,7 @@ export const fr: TranslationResource = {
   lock: {
     title: 'Boardroom est verrouillé',
     message:
-      'Boardroom se verrouille à son démarrage et lorsque vous vous êtes absenté un moment. Déverrouillez-le pour consulter vos réunions.',
+      'Boardroom se verrouille à son démarrage et après un moment d’absence. Déverrouillez-le pour consulter vos réunions.',
     unlock: 'Déverrouiller',
     unlockHint: 'Ouvre la demande d’empreinte ou de visage de votre appareil.',
     unlocking: 'Déverrouillage en cours',
@@ -135,7 +138,7 @@ export const fr: TranslationResource = {
     biometricNotEnrolled:
       'Aucune empreinte ni aucun visage n’est enregistré sur cet appareil. Ajoutez-en un dans les réglages de l’appareil, ou déconnectez-vous puis reconnectez-vous.',
     biometricCancelled: 'Le déverrouillage a été annulé. Réessayez quand vous le souhaitez.',
-    biometricFailed: 'Vous n’avez pas été reconnu. Réessayez.',
+    biometricFailed: 'La reconnaissance a échoué. Réessayez.',
     biometricLockedOut:
       'Trop de tentatives. Patientez un instant, ou déverrouillez votre appareil avec son code, puis réessayez.',
   },
@@ -202,7 +205,7 @@ export const fr: TranslationResource = {
   },
   voteBiometric: {
     biometricCancelled: 'La confirmation a été annulée. Votre vote n’a pas été exprimé.',
-    biometricFailed: 'Vous n’avez pas été reconnu. Votre vote n’a pas été exprimé. Réessayez.',
+    biometricFailed: 'La reconnaissance a échoué. Votre vote n’a pas été exprimé. Réessayez.',
     biometricLockedOut:
       'Trop de tentatives. Votre vote n’a pas été exprimé. Patientez un instant, ou déverrouillez votre appareil avec son code, puis réessayez.',
     biometricUnavailable:
@@ -230,7 +233,7 @@ export const fr: TranslationResource = {
       '{{formattedCount}} votes enregistrés sur cet appareil sont devenus illisibles. Ils ne seront pas envoyés. Vérifiez dans les réunions que vos votes ont bien été enregistrés, puis vous pourrez les supprimer.',
     discard: 'Supprimer ce qui est illisible',
     discardHint: 'Vous demande de confirmer.',
-    discardTitle: 'Supprimer ce qui est illisible ?',
+    discardTitle: 'Supprimer ce qui est illisible\u00a0?',
     discardMessage_one:
       '{{formattedCount}} vote enregistré va être supprimé définitivement de cet appareil. Cette action est irréversible.',
     discardMessage_many:
@@ -251,7 +254,7 @@ export const fr: TranslationResource = {
     rejected_other: '{{formattedCount}} votes ont été refusés. Consultez vos votes en attente.',
     dismiss: 'Masquer',
     localDataReset:
-      'Des données enregistrées sur cet appareil étaient illisibles et ont été réinitialisées. Des votes en attente d’envoi depuis cet appareil ont peut-être été perdus : vérifiez que vos votes ont bien été enregistrés.',
+      'Des données enregistrées sur cet appareil étaient illisibles et ont été réinitialisées. Des votes en attente d’envoi depuis cet appareil ont peut-être été perdus\u00a0: vérifiez que vos votes ont bien été enregistrés.',
   },
   demo: {
     badge: 'Démo',

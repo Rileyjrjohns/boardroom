@@ -1,14 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -18,15 +10,20 @@ import { isErr } from '@domain/shared/Result';
 import { createCredentials } from '@domain/value-objects/Credentials';
 
 import { Button } from '../components/Button';
-import { DemoAccounts } from '../components/DemoControls';
+import { DemoAccounts, DemoOfflineSwitch } from '../components/DemoControls';
 import { LiveText } from '../components/LiveText';
 import { SessionNotice } from '../components/SessionNotice';
+import { ConnectionBanner } from '../components/StatusBanner';
 import { TextField } from '../components/TextField';
 import { useSignIn } from '../hooks/useSignIn';
 import { EMAIL_RULE_KEYS, PASSWORD_RULE_KEYS, SIGN_IN_ERROR_KEYS } from '../i18n/translationKeys';
+import { isIos } from '../platform/devicePlatform';
 import { useUiStore } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights, maxContentWidth, spacing } from '../theme/tokens';
+
+/** How the form makes room for the keyboard on iOS; Android resizes the window by itself. */
+const KEYBOARD_AVOIDING_BEHAVIOUR = 'padding';
 
 /**
  * The sign-in form. The credentials are checked here first, with the rules of the domain (a
@@ -36,9 +33,13 @@ import { colors, fontSizes, fontWeights, maxContentWidth, spacing } from '../the
  * the server out of reach) are told above the button.
  *
  * The password is in the state of this screen only while it is being typed: pressing "sign in"
- * hands it over and empties the field, whatever the answer, so that it is not on the screen, or in
- * any state, a moment longer than needed. While the request is under way the button is busy and a
- * second press (or the "go" key of the keyboard) does nothing. In the mock configuration the
+ * hands it over and empties the field, whatever the answer, so that neither the screen nor any
+ * state of the app holds it a moment longer than needed (the tests check the field and the
+ * mutations of the query client; what the JavaScript runtime does with the string it was handed is
+ * not controlled: strings are freed by the garbage collector, not erased). While the request is under way the button is busy and a
+ * second press (or the "go" key of the keyboard) does nothing. A device that is offline says so at
+ * the top of the screen, and in the mock configuration the switch of the demo is there too (a sign-in
+ * that fails for want of a connection must not leave the demo with no way to bring it back), and the
  * accounts of the simulated server are offered under the form.
  */
 export function SignInScreen() {
@@ -49,11 +50,16 @@ export function SignInScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [refused, setRefused] = useState<ValidationError>();
+  const emailInput = useRef<TextInput>(null);
   const passwordInput = useRef<TextInput>(null);
 
-  // The password was emptied when the form was sent: whoever failed starts typing it again.
+  // The password was emptied when the form was sent: whoever failed starts typing it again. A
+  // refusal of the email address (the use case checked the form again) sends them there instead.
   useEffect(() => {
-    if (failure !== undefined) passwordInput.current?.focus();
+    if (failure === undefined) return;
+    const refusesEmail =
+      failure.code === VALIDATION_ERROR_CODE.Validation && failure.field === VALIDATION_FIELD.Email;
+    (refusesEmail ? emailInput : passwordInput).current?.focus();
   }, [failure]);
 
   const submit = () => {
@@ -61,6 +67,9 @@ export function SignInScreen() {
     const checked = createCredentials(email, password);
     if (isErr(checked)) {
       setRefused(checked.error);
+      // The first field the form refuses is the one to go to: its error is read with it.
+      const refusesEmail = checked.error.field === VALIDATION_FIELD.Email;
+      (refusesEmail ? emailInput : passwordInput).current?.focus();
       return;
     }
     Keyboard.dismiss();
@@ -87,10 +96,12 @@ export function SignInScreen() {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={isIos() ? KEYBOARD_AVOIDING_BEHAVIOUR : undefined}
       style={styles.screen}
       testID={TEST_IDS.signInScreen}
     >
+      <ConnectionBanner />
+      <DemoOfflineSwitch />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}
         keyboardShouldPersistTaps="handled"
@@ -109,6 +120,7 @@ export function SignInScreen() {
               setRefused(undefined);
             }}
             editable={!isPending}
+            inputRef={emailInput}
             {...(emailError === undefined ? {} : { error: emailError })}
             autoCapitalize="none"
             autoComplete="username"

@@ -1,6 +1,8 @@
 import { AppState } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 
+import { APP_STATE } from '../session/appState';
+
 // Test support, not production code: only tests import it (a lint rule enforces it).
 
 /**
@@ -9,7 +11,7 @@ import type { AppStateStatus } from 'react-native';
  * that the app moved to another state, the way the system does. It must be called before the code
  * that registers (the render), and restored by `jest.restoreAllMocks()`.
  */
-export function driveAppState(initial: AppStateStatus = 'active') {
+export function driveAppState(initial: AppStateStatus = APP_STATE.Active) {
   Object.assign(AppState, { currentState: initial });
   const listeners = new Set<(state: AppStateStatus) => void>();
   jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener) => {

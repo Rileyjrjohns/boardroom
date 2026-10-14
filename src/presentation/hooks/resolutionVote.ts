@@ -70,15 +70,15 @@ export function resolutionVoteView(input: ResolutionVoteInput): ResolutionVoteVi
   const rejected = outbox.rejected.find(ofThisResolution);
   if (rejected !== undefined) return { kind: VOTE_VIEW.Rejected, reason: rejected.reason };
 
-  const queuedVotes = outbox.pending.filter(ofThisResolution);
-  const queued = queuedVotes[0];
+  const queued = outbox.pending.find(ofThisResolution);
   if (queued !== undefined) return { kind: VOTE_VIEW.Queued, choice: queued.vote.choice };
 
   const eligibility = checkVotingEligibility({
     meeting,
     resolutionId: resolution.id,
     voterId,
-    queuedVotes,
+    // Nothing of this resolution waits in the outbox: a queued vote was answered above.
+    queuedVotes: [],
     now,
   });
   if (eligibility.ok) return { kind: VOTE_VIEW.Eligible };

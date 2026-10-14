@@ -16,6 +16,7 @@ import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import { createFakes } from '@application/testing/createFakes';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
+import { translateCount } from '../i18n/translateCount';
 import { ACCESS } from '../state/uiStore';
 import {
   TEST_IDS,
@@ -176,12 +177,14 @@ describe('PendingVotesScreen', () => {
     it('tell a vote that was given up in words that count the attempts', async () => {
       const fakes = createFakes();
       fakes.outbox.seed(aRejectedVote(aVote({ resolutionId: R3 }), voteUndeliverable(5)));
-      renderPending({ fakes });
+      const { t, format } = renderPending({ fakes });
 
       const row = await screen.findByTestId(rejectedVoteTestId(R3));
 
       expect(
-        within(row).getByText('Your vote could not be delivered after 5 attempts.'),
+        within(row).getByText(
+          translateCount(t, 'voting.reason.voteUndeliverable', 5, format.number),
+        ),
       ).toBeTruthy();
     });
 
@@ -299,13 +302,13 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seedUnreadable(USER, 'k1');
       fakes.outbox.seedUnreadable(USER, 'k2');
-      const { t } = renderPending({ fakes });
+      const { t, format } = renderPending({ fakes });
 
       fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
 
       expect(screen.getByRole('header', { name: t('pendingVotes.discardTitle') })).toBeTruthy();
       expect(
-        screen.getByText(/2 saved votes will be deleted from this device for good/),
+        screen.getByText(translateCount(t, 'pendingVotes.discardMessage', 2, format.number)),
       ).toBeTruthy();
       expect(fakes.outbox.unreadableSnapshot()).toHaveLength(2);
     });
@@ -437,15 +440,11 @@ describe('PendingVotesScreen', () => {
       expect(screen.getByText(t('pendingVotes.explanation'))).toBeTruthy();
     });
 
-    it('says in French that the votes are kept when the user signs out', async () => {
-      renderPending({ language: 'fr' });
+    it('shows the explanation of the page in French, with the text of the French resource', async () => {
+      const { t } = renderPending({ language: 'fr' });
       await screen.findByTestId(TEST_IDS.pendingVotesEmpty);
 
-      expect(
-        screen.getByText(
-          'Les votes exprimés sans connexion attendent ici et sont envoyés dès que vous êtes de nouveau en ligne. Ils sont conservés si vous vous déconnectez.',
-        ),
-      ).toBeTruthy();
+      expect(screen.getByText(t('pendingVotes.explanation'))).toBeTruthy();
     });
   });
 });

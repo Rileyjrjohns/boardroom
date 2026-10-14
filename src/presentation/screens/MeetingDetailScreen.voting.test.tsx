@@ -843,7 +843,7 @@ describe('in each language', () => {
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Confirmer mon vote' })).toBeTruthy();
     expect(screen.getByTestId(TEST_IDS.voteDialogChoice)).toHaveTextContent(
-      'Votre choix : Abstention',
+      'Votre choix\u00a0: Abstention',
     );
   });
 

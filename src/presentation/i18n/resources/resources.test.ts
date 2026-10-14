@@ -37,6 +37,12 @@ const SAME_IN_BOTH_LANGUAGES = [
 const NO_BREAK_SPACE = '\u00a0';
 const UNSPACED_SIGN = /(?<!\u00a0)[:;?!]/;
 
+// The board is mixed, and French agrees a participle or an adjective with the gender of the person
+// it is about. The texts say it another way (the action, the thing, the function) and never address
+// the user with a word that has to guess it. These are the words that did, and must not come back.
+const GENDERED_ADDRESS =
+  /(?<!\p{L})(déconnecté|connecté|reconnu|absenté|authentifié|identifié|invité|président|secrétaire|utilisateur)s?(?!\p{L})/iu;
+
 // What the user reads when the server says no: if these were left in English, the French user
 // would be told in a language they chose not to use.
 const CRITICAL_FRENCH_TEXTS = {
@@ -93,6 +99,13 @@ describe('translation resources', () => {
       'puts a no-break space before every colon, semicolon, question and exclamation mark: %s',
       (_key, value) => {
         expect(value).not.toMatch(UNSPACED_SIGN);
+      },
+    );
+
+    it.each(Object.entries(french))(
+      'does not address the user with a word that agrees with their gender: %s',
+      (_key, value) => {
+        expect(value).not.toMatch(GENDERED_ADDRESS);
       },
     );
 

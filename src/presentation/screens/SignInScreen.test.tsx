@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, within } from '@testing-library/react-native';
-import { AccessibilityInfo, Platform } from 'react-native';
+import { AccessibilityInfo, Keyboard, Platform, TextInput } from 'react-native';
 
 import { invalidCredentials, sessionExpired } from '@domain/errors/AuthenticationError';
 import { networkUnavailable, unexpected } from '@domain/errors/RepositoryError';
@@ -14,7 +14,10 @@ import { createFakes } from '@application/testing/createFakes';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { ACCESS } from '../state/uiStore';
+import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
+
 import { TEST_IDS, demoAccountTestId } from '../testIds';
+import { epochOf } from '../testing/accessEpoch';
 import { TEST_DEMO_ACCOUNTS, renderScreen } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
@@ -24,12 +27,29 @@ const EMAIL = 'alice@example.com';
 
 beforeEach(() => {
   jest.useFakeTimers();
+  forgetFocusRequests();
 });
 
 afterEach(() => {
   jest.useRealTimers();
   jest.restoreAllMocks();
 });
+
+/**
+ * The fields that were asked for the focus since the last call to `forgetFocusRequests`, in order,
+ * by test id. The text input of the jest preset is a mock whose `focus` records the instance it was
+ * called on.
+ */
+function focusRequests(): string[] {
+  const focus = TextInput.prototype.focus as unknown as jest.Mock<void, []>;
+  return focus.mock.contexts.map((input) =>
+    String((input as { props: { testID: string } }).props.testID),
+  );
+}
+
+function forgetFocusRequests(): void {
+  (TextInput.prototype.focus as unknown as jest.Mock).mockClear();
+}
 
 /** The sign-in screen of a signed-out user, over fakes with nobody signed in. */
 function renderSignIn(options: RenderScreenOptions = {}) {
@@ -153,6 +173,50 @@ describe('SignInScreen', () => {
       expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe('secret');
     });
 
+    it.each([
+      ['', 'secret', TEST_IDS.signInEmail],
+      ['nope', 'secret', TEST_IDS.signInEmail],
+      [EMAIL, '', TEST_IDS.signInPassword],
+      ['', '', TEST_IDS.signInEmail],
+    ])(
+      'moves the focus to the first field it refuses, for %p and %p',
+      async (email, password, field) => {
+        renderSignIn();
+
+        await signInWith(email, password);
+
+        expect(focusRequests()).toEqual([field]);
+      },
+    );
+
+    it('does not move the focus when the form is accepted', async () => {
+      renderSignIn();
+      type(TEST_IDS.signInEmail, EMAIL);
+      type(TEST_IDS.signInPassword, DEFAULT_PASSWORD);
+
+      await act(async () => {
+        submit();
+      });
+
+      expect(focusRequests()).toEqual([]);
+    });
+
+    it('links each message to its field, which a screen reader reads after the name of the field', async () => {
+      const { t } = renderSignIn();
+
+      await signInWith('', '');
+      expect(screen.getByTestId(TEST_IDS.signInEmail).props.accessibilityHint).toBe(
+        t('signIn.emailRequired'),
+      );
+      expect(screen.getByTestId(TEST_IDS.signInPassword).props.accessibilityHint).toBeUndefined();
+
+      await signInWith(EMAIL, '');
+      expect(screen.getByTestId(TEST_IDS.signInPassword).props.accessibilityHint).toBe(
+        t('signIn.passwordRequired'),
+      );
+      expect(screen.getByTestId(TEST_IDS.signInEmail).props.accessibilityHint).toBeUndefined();
+    });
+
     it('forgets the message of a field as soon as the user edits one', async () => {
       renderSignIn();
       await signInWith('', '');
@@ -202,6 +266,7 @@ describe('SignInScreen', () => {
 
       expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe('');
       expect(screen.getByTestId(TEST_IDS.signInEmail).props.value).toBe(EMAIL);
+      expect(focusRequests()).toEqual([TEST_IDS.signInPassword]);
     });
 
     it('lets the user try again, and signs in when the credentials are right', async () => {
@@ -316,6 +381,26 @@ describe('SignInScreen', () => {
     });
   });
 
+  describe('the keyboard', () => {
+    it('is put away when the form is sent', async () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss');
+      renderSignIn();
+
+      await signInWith(EMAIL, DEFAULT_PASSWORD);
+
+      expect(dismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays when the form is refused: the user is sent to the field to correct', async () => {
+      const dismiss = jest.spyOn(Keyboard, 'dismiss');
+      renderSignIn();
+
+      await signInWith('', '');
+
+      expect(dismiss).not.toHaveBeenCalled();
+    });
+  });
+
   describe('the password', () => {
     it('is handed over and emptied when the form is sent, whatever the answer', async () => {
       renderSignIn();
@@ -371,7 +456,7 @@ describe('SignInScreen', () => {
     ] as const)('explains %s, in words, when that is what sent the user here', (code, key) => {
       const { uiStore, t } = renderSignIn({ access: ACCESS.Unlocked });
       act(() => {
-        uiStore.getState().endSession(code);
+        uiStore.getState().endSession(code, epochOf(uiStore));
       });
 
       expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(t(key));
@@ -429,13 +514,66 @@ describe('SignInScreen', () => {
     });
   });
 
+  describe('a device that is offline', () => {
+    it('says so at the top, and nothing when the connection is there', () => {
+      const { t, uiStore } = renderSignIn();
+      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+
+      act(() => {
+        uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
+      });
+
+      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+      act(() => {
+        uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Online);
+      });
+      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    });
+
+    it('shows nothing else of the banner: there is no data and no synchronisation to tell here', () => {
+      const { uiStore } = renderSignIn({
+        notices: { localDataReset: true, acknowledgeLocalDataReset: jest.fn() },
+      });
+      act(() => {
+        uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
+      });
+
+      expect(screen.queryByTestId(TEST_IDS.localDataResetNotice)).toBeNull();
+      expect(screen.queryByTestId(TEST_IDS.syncSummary)).toBeNull();
+    });
+
+    it('offers the switch of the demo, in the mock configuration only', () => {
+      renderSignIn({ demo: true });
+      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+    });
+
+    it('has no switch in any other configuration', () => {
+      renderSignIn();
+      expect(screen.queryByTestId(TEST_IDS.demoOfflineSwitch)).toBeNull();
+    });
+
+    it('can be brought back online with the switch, which is reachable with the form', async () => {
+      const { demoNetwork } = renderSignIn({ demo: true });
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+      });
+      expect(demoNetwork?.online).toBe(false);
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+      });
+
+      expect(demoNetwork?.online).toBe(true);
+    });
+  });
+
   describe('in each language', () => {
     it.each(SUPPORTED_LANGUAGES)(
       'is written in %s, errors and notice included',
       async (language) => {
         const { t, uiStore } = renderSignIn({ language, access: ACCESS.Unlocked, demo: true });
         act(() => {
-          uiStore.getState().endSession(sessionExpired().code);
+          uiStore.getState().endSession(sessionExpired().code, epochOf(uiStore));
         });
 
         await signInWith('nope', 'secret');

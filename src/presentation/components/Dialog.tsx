@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Modal, StyleSheet, Text, View } from 'react-native';
 
@@ -13,6 +13,7 @@ import {
   spacing,
 } from '../theme/tokens';
 
+import { useDialogHost } from './DialogHost';
 import { PrivacyCover } from './PrivacyCover';
 
 interface DialogProps {
@@ -38,10 +39,16 @@ interface DialogProps {
  * A window of its own is not under the cover of the root (see `PrivacyCover`), so the dialog shows
  * the cover itself while the app is inactive or in the background: what it asks is often
  * confidential (the choice of a vote), and the snapshot of the app switcher includes it.
+ *
+ * While it is open, the screen under it is hidden from the screen reader on Android too. It is the
+ * host's job (see `DialogHost`), and the reason the dialog hands its window over to it instead of
+ * drawing it where it is written: written inside the screen, it would be hidden with it.
  */
 export function Dialog({ visible, title, onDismiss, children, actions, testID }: DialogProps) {
   const covered = useUiStore((state) => state.privacyCover);
   const titleRef = useRef<Text>(null);
+  const host = useDialogHost();
+  const id = useId();
 
   useEffect(() => {
     if (visible && !covered && titleRef.current !== null) {
@@ -49,7 +56,7 @@ export function Dialog({ visible, title, onDismiss, children, actions, testID }:
     }
   }, [visible, covered]);
 
-  return (
+  const window = (
     <Modal
       animationType="fade"
       onRequestClose={onDismiss}
@@ -78,6 +85,20 @@ export function Dialog({ visible, title, onDismiss, children, actions, testID }:
       )}
     </Modal>
   );
+
+  // The window is handed to the host on every render: what it holds (a failure, a busy button)
+  // changes with the state of the screen that wrote it. It stays in the host, closed, until the
+  // dialog is gone, so that closing it can fade out.
+  useLayoutEffect(() => {
+    host?.show(id, { window, visible });
+  });
+  useLayoutEffect(() => {
+    return () => {
+      host?.hide(id);
+    };
+  }, [host, id]);
+
+  return host === undefined ? window : null;
 }
 
 const styles = StyleSheet.create({
