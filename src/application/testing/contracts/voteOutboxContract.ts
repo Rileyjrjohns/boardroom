@@ -4,6 +4,10 @@ import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@domain/errors/VotingEr
 import type { AlreadyVotedError } from '@domain/errors/VotingError';
 import { voteUndeliverable } from '@domain/errors/VoteDeliveryError';
 import { ok } from '@domain/shared/Result';
+import type { Result } from '@domain/shared/Result';
+import type { StorageReadFailedError } from '@domain/errors/StorageError';
+import type { UserId } from '@domain/value-objects/ids';
+import type { IdempotencyKey } from '@domain/entities/Vote';
 import {
   aPendingVote,
   aRejectedVote,
@@ -37,9 +41,33 @@ export interface VoteOutboxHarness {
    * (`StoreContractOptions.survivesReopen`).
    */
   reopen?(): Promise<VoteOutbox>;
+  /**
+   * Puts an entry of this voter, under this idempotency key, in the storage in a state that no
+   * longer reads back as a vote, behind the back of the outbox. Only an outbox that can hold one
+   * provides it (`VoteOutboxContractOptions.holdsUnreadable`).
+   */
+  plantUnreadable?(voter: UserId, key: IdempotencyKey): Promise<void> | void;
 }
 
 export type VoteOutboxFactory = () => VoteOutboxHarness | Promise<VoteOutboxHarness>;
+
+export interface VoteOutboxContractOptions extends StoreContractOptions {
+  /**
+   * Whether the outbox can hold an entry that cannot be read as a vote, and the harness can plant
+   * one (`plantUnreadable`). An outbox that holds its entries as typed values cannot, and the
+   * group that pins the quarantine is shown as skipped for it.
+   */
+  readonly holdsUnreadable: boolean;
+}
+
+/** What `list` gives, as the votes alone: most of the suite is about the votes. */
+async function readVotes(
+  outbox: VoteOutbox,
+  voter: UserId,
+): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
+  const listed = await outbox.list(voter);
+  return listed.ok ? ok(listed.value.votes) : listed;
+}
 
 const VOTER = aUserId('voter-1');
 const OTHER_VOTER = aUserId('voter-2');
@@ -58,7 +86,7 @@ const pending = (resolution: string, enqueuedAt = at(0), voter = VOTER) =>
 export function describeVoteOutboxContract(
   name: string,
   createOutbox: VoteOutboxFactory,
-  options: StoreContractOptions,
+  options: VoteOutboxContractOptions,
 ): void {
   describe(`${name} honours the VoteOutbox contract`, () => {
     let harness: VoteOutboxHarness;
@@ -71,7 +99,7 @@ export function describeVoteOutboxContract(
 
     describe('enqueue and list', () => {
       it('lists nothing for a voter who has no vote', async () => {
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([]));
         expect(await outbox.findByResolution(aResolutionId('r1'), VOTER)).toStrictEqual(ok([]));
       });
 
@@ -82,7 +110,7 @@ export function describeVoteOutboxContract(
           ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
         );
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([queued]));
       });
 
       it('keeps the attempts a vote already counts when it is enqueued', async () => {
@@ -90,7 +118,7 @@ export function describeVoteOutboxContract(
 
         await outbox.enqueue(attempted);
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([attempted]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([attempted]));
       });
 
       it('lists the votes in the order they were enqueued, which no sort of the votes would give', async () => {
@@ -104,7 +132,7 @@ export function describeVoteOutboxContract(
         await outbox.enqueue(second);
         await outbox.enqueue(third);
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([first, second, third]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([first, second, third]));
       });
 
       it('answers that a vote with the same key is already queued, and changes nothing', async () => {
@@ -119,7 +147,7 @@ export function describeVoteOutboxContract(
         expect(again).toStrictEqual(
           ok({ outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing: first }),
         );
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([first, pending('r2', at(2))]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([first, pending('r2', at(2))]));
       });
 
       it('holds the key of a rejected vote too: it answers with the rejected vote', async () => {
@@ -129,7 +157,7 @@ export function describeVoteOutboxContract(
           { code: VOTING_ERROR_CODE.ResolutionClosed },
           at(9),
         );
-        const rejected = await outbox.list(VOTER);
+        const rejected = await readVotes(outbox, VOTER);
 
         const again = await outbox.enqueue(pending('r1', at(3)));
 
@@ -139,7 +167,7 @@ export function describeVoteOutboxContract(
             existing: rejected.ok ? rejected.value[0] : undefined,
           }),
         );
-        expect(await outbox.list(VOTER)).toStrictEqual(rejected);
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(rejected);
       });
     });
 
@@ -173,9 +201,9 @@ export function describeVoteOutboxContract(
         await outbox.enqueue(theirs);
         await outbox.enqueue(alsoMine);
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([mine, alsoMine]));
-        expect(await outbox.list(OTHER_VOTER)).toStrictEqual(ok([theirs]));
-        expect(await outbox.list(aUserId('voter-3'))).toStrictEqual(ok([]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([mine, alsoMine]));
+        expect(await readVotes(outbox, OTHER_VOTER)).toStrictEqual(ok([theirs]));
+        expect(await readVotes(outbox, aUserId('voter-3'))).toStrictEqual(ok([]));
         expect(await outbox.findByResolution(aResolutionId('r1'), VOTER)).toStrictEqual(ok([mine]));
         expect(await outbox.findByResolution(aResolutionId('r1'), OTHER_VOTER)).toStrictEqual(
           ok([theirs]),
@@ -218,7 +246,9 @@ export function describeVoteOutboxContract(
         }
 
         for (const [resolution, voter] of similar) {
-          expect(await outbox.list(aUserId(voter))).toStrictEqual(ok([queued(resolution, voter)]));
+          expect(await readVotes(outbox, aUserId(voter))).toStrictEqual(
+            ok([queued(resolution, voter)]),
+          );
         }
       });
 
@@ -246,16 +276,18 @@ export function describeVoteOutboxContract(
         );
         await outbox.remove(queued(others[0][0], others[0][1]).vote.idempotencyKey);
 
-        expect(await outbox.list(aUserId(first[1]))).toStrictEqual(
+        expect(await readVotes(outbox, aUserId(first[1]))).toStrictEqual(
           ok([{ ...target, attempts: 1 }]),
         );
-        const rejected = await outbox.list(aUserId(second[1]));
+        const rejected = await readVotes(outbox, aUserId(second[1]));
         expect(rejected.ok && rejected.value.map((entry) => entry.status)).toEqual([
           OUTBOX_STATUS.Rejected,
         ]);
-        expect(await outbox.list(aUserId(others[0][1]))).toStrictEqual(ok([]));
+        expect(await readVotes(outbox, aUserId(others[0][1]))).toStrictEqual(ok([]));
         for (const [resolution, voter] of others.slice(1)) {
-          expect(await outbox.list(aUserId(voter))).toStrictEqual(ok([queued(resolution, voter)]));
+          expect(await readVotes(outbox, aUserId(voter))).toStrictEqual(
+            ok([queued(resolution, voter)]),
+          );
         }
       });
     });
@@ -268,7 +300,7 @@ export function describeVoteOutboxContract(
         await outbox.markAttempt(queued.vote.idempotencyKey);
         await outbox.markAttempt(queued.vote.idempotencyKey);
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([{ ...queued, attempts: 2 }]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([{ ...queued, attempts: 2 }]));
       });
 
       it('does nothing for an unknown key, and for a vote that is rejected', async () => {
@@ -279,14 +311,14 @@ export function describeVoteOutboxContract(
           { code: VOTING_ERROR_CODE.ResolutionClosed },
           at(9),
         );
-        const before = await outbox.list(VOTER);
+        const before = await readVotes(outbox, VOTER);
 
         expect(await outbox.markAttempt(rejected.vote.idempotencyKey)).toStrictEqual(ok(undefined));
         expect(await outbox.markAttempt(vote('unknown').idempotencyKey)).toStrictEqual(
           ok(undefined),
         );
 
-        expect(await outbox.list(VOTER)).toStrictEqual(before);
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(before);
       });
     });
 
@@ -310,7 +342,7 @@ export function describeVoteOutboxContract(
           reason,
           rejectedAt: at(10),
         };
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([first, expected, third]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([first, expected, third]));
       });
 
       it('keeps the attempts a vote counted, and every kind of reason with its fields', async () => {
@@ -329,7 +361,7 @@ export function describeVoteOutboxContract(
         await outbox.reject(queued.vote.idempotencyKey, undeliverable, at(10));
         await outbox.reject(other.vote.idempotencyKey, alreadyVoted, at(11));
 
-        expect(await outbox.list(VOTER)).toStrictEqual(
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(
           ok([
             rejectVote({ ...queued, attempts: 2 }, undeliverable, at(10)),
             rejectVote(other, alreadyVoted, at(11)),
@@ -342,7 +374,7 @@ export function describeVoteOutboxContract(
         await outbox.enqueue(queued);
         const reason = { code: VOTING_ERROR_CODE.ResolutionClosed } as const;
         await outbox.reject(queued.vote.idempotencyKey, reason, at(10));
-        const before = await outbox.list(VOTER);
+        const before = await readVotes(outbox, VOTER);
 
         expect(
           await outbox.reject(
@@ -355,7 +387,7 @@ export function describeVoteOutboxContract(
           ok(undefined),
         );
 
-        expect(await outbox.list(VOTER)).toStrictEqual(before);
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(before);
       });
     });
 
@@ -374,7 +406,7 @@ export function describeVoteOutboxContract(
         await outbox.remove(rejected.vote.idempotencyKey);
         await outbox.remove(first.vote.idempotencyKey);
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([last]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([last]));
       });
 
       it('succeeds for an unknown key, and frees the key of a vote it removed', async () => {
@@ -398,7 +430,7 @@ export function describeVoteOutboxContract(
 
         await outbox.remove(mine.vote.idempotencyKey);
 
-        expect(await outbox.list(OTHER_VOTER)).toStrictEqual(ok([theirs]));
+        expect(await readVotes(outbox, OTHER_VOTER)).toStrictEqual(ok([theirs]));
       });
     });
 
@@ -420,7 +452,7 @@ export function describeVoteOutboxContract(
         const failed = await outbox.enqueue(pending('r1', at(1)));
 
         expect(codeOf(failed)).toBe(STORAGE_ERROR_CODE.WriteFailed);
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([]));
         expect(await outbox.enqueue(pending('r1', at(1)))).toStrictEqual(
           ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
         );
@@ -431,13 +463,13 @@ export function describeVoteOutboxContract(
         await outbox.enqueue(queued);
 
         failNext();
-        const failedList = await outbox.list(VOTER);
+        const failedList = await readVotes(outbox, VOTER);
         failNext();
         const failedFind = await outbox.findByResolution(aResolutionId('r1'), VOTER);
 
         expect(codeOf(failedList)).toBe(STORAGE_ERROR_CODE.ReadFailed);
         expect(codeOf(failedFind)).toBe(STORAGE_ERROR_CODE.ReadFailed);
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([queued]));
       });
 
       it('turns an attempt that cannot be counted into a storage error, and counts nothing', async () => {
@@ -448,7 +480,7 @@ export function describeVoteOutboxContract(
         const failed = await outbox.markAttempt(queued.vote.idempotencyKey);
 
         expect(codeOf(failed)).toBe(STORAGE_ERROR_CODE.WriteFailed);
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([queued]));
       });
 
       it('turns a rejection that cannot be written into a storage error, and leaves the vote pending', async () => {
@@ -463,7 +495,7 @@ export function describeVoteOutboxContract(
         );
 
         expect(codeOf(failed)).toBe(STORAGE_ERROR_CODE.WriteFailed);
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([queued]));
       });
 
       it('turns a removal that fails into a storage error, and keeps the vote', async () => {
@@ -474,9 +506,174 @@ export function describeVoteOutboxContract(
         const failed = await outbox.remove(queued.vote.idempotencyKey);
 
         expect(codeOf(failed)).toBe(STORAGE_ERROR_CODE.WriteFailed);
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([queued]));
       });
     });
+
+    (options.holdsUnreadable ? describe : describe.skip)(
+      'an entry that cannot be read as a vote',
+      () => {
+        const OWN_KEY = vote('rx').idempotencyKey;
+        const plant = async (voter: UserId = VOTER, key: IdempotencyKey = OWN_KEY) => {
+          if (harness.plantUnreadable === undefined) {
+            throw new Error('The harness cannot plant an unreadable entry.');
+          }
+          await harness.plantUnreadable(voter, key);
+        };
+        const countOf = async (voter: UserId = VOTER) => {
+          const listed = await outbox.list(voter);
+          return listed.ok ? listed.value.unreadable : undefined;
+        };
+
+        it('counts it, and lists the votes that can be read without it', async () => {
+          const queued = pending('r1', at(1));
+          await outbox.enqueue(queued);
+          await plant();
+
+          const listed = await outbox.list(VOTER);
+
+          expect(listed).toStrictEqual(ok({ votes: [queued], unreadable: 1 }));
+        });
+
+        it('says there is none when there is none', async () => {
+          await outbox.enqueue(pending('r1'));
+
+          expect(await outbox.list(VOTER)).toStrictEqual(
+            ok({ votes: [pending('r1')], unreadable: 0 }),
+          );
+        });
+
+        it('keeps it through any number of reads: reading never deletes it', async () => {
+          await plant();
+
+          for (let reads = 0; reads < 3; reads += 1) {
+            await outbox.list(VOTER);
+            await outbox.findByResolution(aResolutionId('rx'), VOTER);
+          }
+
+          expect(await countOf()).toBe(1);
+        });
+
+        it('counts only the entries of the voter asked about', async () => {
+          await plant(VOTER, vote('r1').idempotencyKey);
+          await plant(VOTER, vote('r2').idempotencyKey);
+          await plant(OTHER_VOTER, vote('r1', OTHER_VOTER).idempotencyKey);
+
+          expect(await countOf(VOTER)).toBe(2);
+          expect(await countOf(OTHER_VOTER)).toBe(1);
+          expect(await countOf(aUserId('voter-3'))).toBe(0);
+        });
+
+        it('does not find it as a vote on a resolution', async () => {
+          await plant();
+
+          expect(await outbox.findByResolution(aResolutionId('rx'), VOTER)).toStrictEqual(ok([]));
+        });
+
+        it('is not overwritten by a vote queued under its key: the vote is not queued, and says why', async () => {
+          await plant();
+
+          const queued = await outbox.enqueue(aPendingVote(vote('rx'), at(3)));
+
+          expect(queued).toStrictEqual(ok({ outcome: ENQUEUE_OUTCOME.HeldByUnreadable }));
+          expect(await outbox.list(VOTER)).toStrictEqual(ok({ votes: [], unreadable: 1 }));
+        });
+
+        it('is not touched by a rejection, an attempt or a removal under its key', async () => {
+          await plant();
+
+          await outbox.markAttempt(OWN_KEY);
+          await outbox.reject(OWN_KEY, { code: VOTING_ERROR_CODE.ResolutionClosed }, at(9));
+          const removed = await outbox.remove(OWN_KEY);
+
+          expect(removed).toStrictEqual(ok(undefined));
+          expect(await outbox.list(VOTER)).toStrictEqual(ok({ votes: [], unreadable: 1 }));
+        });
+
+        it('does not stop the votes around it from being queued, rejected and removed', async () => {
+          await plant();
+          const first = pending('r1', at(1));
+          const second = pending('r2', at(2));
+          await outbox.enqueue(first);
+          await outbox.enqueue(second);
+
+          await outbox.reject(first.vote.idempotencyKey, voteUndeliverable(5), at(9));
+          await outbox.remove(second.vote.idempotencyKey);
+
+          expect(await outbox.list(VOTER)).toStrictEqual(
+            ok({ votes: [rejectVote(first, voteUndeliverable(5), at(9))], unreadable: 1 }),
+          );
+        });
+
+        describe('discarding', () => {
+          it('removes the entries of the voter, says how many, and leaves the votes that can be read', async () => {
+            const queued = pending('r1', at(1));
+            await outbox.enqueue(queued);
+            await plant(VOTER, vote('r8').idempotencyKey);
+            await plant(VOTER, vote('r9').idempotencyKey);
+
+            const discarded = await outbox.discardUnreadable(VOTER);
+
+            expect(discarded).toStrictEqual(ok(2));
+            expect(await outbox.list(VOTER)).toStrictEqual(ok({ votes: [queued], unreadable: 0 }));
+          });
+
+          it('leaves the entries of the other voters', async () => {
+            await plant(VOTER, vote('r1').idempotencyKey);
+            await plant(OTHER_VOTER, vote('r1', OTHER_VOTER).idempotencyKey);
+
+            await outbox.discardUnreadable(VOTER);
+
+            expect(await countOf(VOTER)).toBe(0);
+            expect(await countOf(OTHER_VOTER)).toBe(1);
+          });
+
+          it('says zero when there is nothing to discard, now and when asked again', async () => {
+            expect(await outbox.discardUnreadable(VOTER)).toStrictEqual(ok(0));
+            await plant();
+            expect(await outbox.discardUnreadable(VOTER)).toStrictEqual(ok(1));
+            expect(await outbox.discardUnreadable(VOTER)).toStrictEqual(ok(0));
+          });
+
+          it('makes room for the vote that was refused: it can be queued afterwards', async () => {
+            await plant();
+            await outbox.discardUnreadable(VOTER);
+
+            const queued = await outbox.enqueue(aPendingVote(vote('rx'), at(3)));
+
+            expect(queued).toStrictEqual(ok({ outcome: ENQUEUE_OUTCOME.Enqueued }));
+            expect(await readVotes(outbox, VOTER)).toStrictEqual(
+              ok([aPendingVote(vote('rx'), at(3))]),
+            );
+          });
+        });
+
+        (options.failsStatements ? describe : describe.skip)('and a statement that fails', () => {
+          it('turns a discard that fails into a storage error, and discards nothing', async () => {
+            await plant();
+
+            if (harness.failNextStatement === undefined) throw new Error('No statement to fail.');
+            harness.failNextStatement();
+            const failed = await outbox.discardUnreadable(VOTER);
+
+            expect(failed.ok).toBe(false);
+            expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+            expect(await countOf()).toBe(1);
+          });
+        });
+
+        (options.survivesReopen ? describe : describe.skip)('and the outbox opened again', () => {
+          it('still holds it, and still counts it', async () => {
+            await plant();
+            if (harness.reopen === undefined) throw new Error('The harness cannot reopen.');
+
+            const reopened = await harness.reopen();
+
+            expect(await reopened.list(VOTER)).toStrictEqual(ok({ votes: [], unreadable: 1 }));
+          });
+        });
+      },
+    );
 
     (options.survivesReopen ? describe : describe.skip)('closed and opened again', () => {
       const reopen = async (): Promise<VoteOutbox> => {
@@ -497,10 +694,10 @@ export function describeVoteOutboxContract(
 
         const reopened = await reopen();
 
-        expect(await reopened.list(VOTER)).toStrictEqual(
+        expect(await readVotes(reopened, VOTER)).toStrictEqual(
           ok([{ ...first, attempts: 2 }, rejectVote(second, reason, at(10)), last]),
         );
-        expect(await reopened.list(OTHER_VOTER)).toStrictEqual(ok([third]));
+        expect(await readVotes(reopened, OTHER_VOTER)).toStrictEqual(ok([third]));
         expect(await reopened.findByResolution(aResolutionId('r1'), VOTER)).toStrictEqual(
           ok([rejectVote(second, reason, at(10))]),
         );
@@ -528,7 +725,7 @@ export function describeVoteOutboxContract(
 
         const reopened = await reopen();
 
-        expect(await reopened.list(VOTER)).toStrictEqual(
+        expect(await readVotes(reopened, VOTER)).toStrictEqual(
           ok(
             queued.map((entry, number) => rejectVote(entry, reasons[number] ?? reasons[0], at(50))),
           ),
@@ -544,7 +741,7 @@ export function describeVoteOutboxContract(
         expect(await reopened.enqueue(pending('r1', at(2)))).toStrictEqual(
           ok({ outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing: queued }),
         );
-        expect(await reopened.list(VOTER)).toStrictEqual(ok([queued]));
+        expect(await readVotes(reopened, VOTER)).toStrictEqual(ok([queued]));
       });
 
       it('goes on in the same order: a vote enqueued afterwards comes after the others, even those removed', async () => {
@@ -558,7 +755,7 @@ export function describeVoteOutboxContract(
         const third = pending('r3', at(-5000));
         await reopened.enqueue(third);
 
-        expect(await reopened.list(VOTER)).toStrictEqual(ok([first, third]));
+        expect(await readVotes(reopened, VOTER)).toStrictEqual(ok([first, third]));
       });
 
       it('does not give back a vote that was removed before it was closed', async () => {
@@ -568,7 +765,7 @@ export function describeVoteOutboxContract(
 
         const reopened = await reopen();
 
-        expect(await reopened.list(VOTER)).toStrictEqual(ok([]));
+        expect(await readVotes(reopened, VOTER)).toStrictEqual(ok([]));
         expect(await reopened.enqueue(queued)).toStrictEqual(
           ok({ outcome: ENQUEUE_OUTCOME.Enqueued }),
         );
@@ -586,7 +783,7 @@ export function describeVoteOutboxContract(
         expect(
           outcomes.filter((outcome) => outcome === ENQUEUE_OUTCOME.AlreadyQueued),
         ).toHaveLength(7);
-        const listed = await outbox.list(VOTER);
+        const listed = await readVotes(outbox, VOTER);
         expect(listed.ok && listed.value).toHaveLength(1);
       });
 
@@ -594,7 +791,7 @@ export function describeVoteOutboxContract(
         const answers = await Promise.all(
           [1, 2, 3].map((number) => outbox.enqueue(pending('r1', at(number)))),
         );
-        const listed = await outbox.list(VOTER);
+        const listed = await readVotes(outbox, VOTER);
         const winner = listed.ok ? listed.value[0] : undefined;
 
         for (const answer of answers) {
@@ -609,7 +806,7 @@ export function describeVoteOutboxContract(
 
         await Promise.all(queued.map((entry) => outbox.enqueue(entry)));
 
-        const listed = await outbox.list(VOTER);
+        const listed = await readVotes(outbox, VOTER);
         expect(listed.ok && listed.value).toHaveLength(queued.length);
         for (const entry of queued) expect(listed.ok && listed.value).toContainEqual(entry);
       });
@@ -622,7 +819,7 @@ export function describeVoteOutboxContract(
           [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(() => outbox.markAttempt(queued.vote.idempotencyKey)),
         );
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([{ ...queued, attempts: 10 }]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([{ ...queued, attempts: 10 }]));
       });
 
       it('ends in a state a vote can be in when a rejection and an attempt run together', async () => {
@@ -639,7 +836,7 @@ export function describeVoteOutboxContract(
           outbox.markAttempt(queued.vote.idempotencyKey),
         ]);
 
-        const listed = await outbox.list(VOTER);
+        const listed = await readVotes(outbox, VOTER);
         const [entry] = listed.ok ? listed.value : [];
         expect(entry?.status).toBe(OUTBOX_STATUS.Rejected);
       });
@@ -653,12 +850,12 @@ export function describeVoteOutboxContract(
         mutable(queued).attempts = 99;
         mutable(queued.vote).choice = VOTE_CHOICE.Against;
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([pending('r1')]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([pending('r1')]));
       });
 
       it('is not changed by a change of the votes after they were listed', async () => {
         await outbox.enqueue(pending('r1'));
-        const listed = await outbox.list(VOTER);
+        const listed = await readVotes(outbox, VOTER);
 
         if (listed.ok) {
           for (const entry of listed.value) {
@@ -668,7 +865,7 @@ export function describeVoteOutboxContract(
           (listed.value as OutboxVote[]).length = 0;
         }
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([pending('r1')]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([pending('r1')]));
         const found = await outbox.findByResolution(aResolutionId('r1'), VOTER);
         if (found.ok) mutable(found.value[0]?.vote ?? aVote()).choice = VOTE_CHOICE.Abstain;
         expect(await outbox.findByResolution(aResolutionId('r1'), VOTER)).toStrictEqual(
@@ -684,7 +881,7 @@ export function describeVoteOutboxContract(
           mutable(again.value.existing).attempts = 99;
         }
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([pending('r1')]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([pending('r1')]));
       });
 
       it('is not changed by a change of the reason after it was given to reject', async () => {
@@ -699,7 +896,9 @@ export function describeVoteOutboxContract(
 
         mutable(given).source = ALREADY_VOTED_SOURCE.Queued;
 
-        expect(await outbox.list(VOTER)).toStrictEqual(ok([rejectVote(queued, reason, at(10))]));
+        expect(await readVotes(outbox, VOTER)).toStrictEqual(
+          ok([rejectVote(queued, reason, at(10))]),
+        );
       });
     });
 
@@ -709,7 +908,7 @@ export function describeVoteOutboxContract(
       await outbox.enqueue(queued);
       await outbox.reject(queued.vote.idempotencyKey, rejected.reason, rejected.rejectedAt);
 
-      expect(await outbox.list(VOTER)).toStrictEqual(ok([rejected]));
+      expect(await readVotes(outbox, VOTER)).toStrictEqual(ok([rejected]));
     });
   });
 }

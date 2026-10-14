@@ -9,14 +9,21 @@ import type { ResolutionId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
 import { ENQUEUE_OUTCOME } from '../ports/VoteOutbox';
-import type { EnqueueResult, VoteOutbox } from '../ports/VoteOutbox';
+import type { EnqueueResult, OutboxListing, VoteOutbox } from '../ports/VoteOutbox';
 
 import { copyPlain } from './copyPlain';
+
+/** An entry the fake keeps but cannot read: what the voter owns and the key it sits under. */
+interface UnreadableEntry {
+  readonly voterId: UserId;
+  readonly key: string;
+}
 
 /**
  * An in-memory queue that honours the contract of the port: FIFO, reads scoped by voter, the
  * idempotent writes, and `markAttempt` that is not. It keeps copies of what it is given and hands
- * back copies of what it holds.
+ * back copies of what it holds. A test can plant entries it cannot read (`seedUnreadable`), which
+ * it quarantines the way the port says.
  */
 export class FakeVoteOutbox implements VoteOutbox {
   /** Makes `list` fail while set. */
@@ -31,12 +38,25 @@ export class FakeVoteOutbox implements VoteOutbox {
   rejectFailure: StorageWriteFailedError | undefined;
   /** Makes `remove` fail while set (the vote stays). */
   removeFailure: StorageWriteFailedError | undefined;
+  /** Makes `discardUnreadable` fail while set (nothing is discarded). */
+  discardFailure: StorageWriteFailedError | undefined;
 
   private entries: OutboxVote[] = [];
+  private unreadable: UnreadableEntry[] = [];
 
   /** Puts votes in the queue without going through the port. */
   seed(...entries: OutboxVote[]): void {
     this.entries.push(...copyPlain(entries));
+  }
+
+  /** Plants an entry of the voter that cannot be read, under a key. */
+  seedUnreadable(voterId: UserId, key = 'unreadable'): void {
+    this.unreadable.push({ voterId, key });
+  }
+
+  /** The entries nobody can read that are kept, of every voter. */
+  unreadableSnapshot(): readonly UnreadableEntry[] {
+    return copyPlain(this.unreadable);
   }
 
   /** The whole queue, of every voter, oldest first. */
@@ -46,6 +66,9 @@ export class FakeVoteOutbox implements VoteOutbox {
 
   enqueue(pending: PendingVote): Promise<Result<EnqueueResult, StorageWriteFailedError>> {
     if (this.enqueueFailure !== undefined) return Promise.resolve(err(this.enqueueFailure));
+    if (this.unreadable.some(({ key }) => key === pending.vote.idempotencyKey)) {
+      return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.HeldByUnreadable }));
+    }
     const existing = this.entries.find(
       ({ vote }) => vote.idempotencyKey === pending.vote.idempotencyKey,
     );
@@ -58,11 +81,21 @@ export class FakeVoteOutbox implements VoteOutbox {
     return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.Enqueued }));
   }
 
-  list(voterId: UserId): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
+  list(voterId: UserId): Promise<Result<OutboxListing, StorageReadFailedError>> {
     if (this.listFailure !== undefined) return Promise.resolve(err(this.listFailure));
     return Promise.resolve(
-      ok(copyPlain(this.entries.filter(({ vote }) => vote.voterId === voterId))),
+      ok({
+        votes: copyPlain(this.entries.filter(({ vote }) => vote.voterId === voterId)),
+        unreadable: this.unreadable.filter((entry) => entry.voterId === voterId).length,
+      }),
     );
+  }
+
+  discardUnreadable(voterId: UserId): Promise<Result<number, StorageWriteFailedError>> {
+    if (this.discardFailure !== undefined) return Promise.resolve(err(this.discardFailure));
+    const before = this.unreadable.length;
+    this.unreadable = this.unreadable.filter((entry) => entry.voterId !== voterId);
+    return Promise.resolve(ok(before - this.unreadable.length));
   }
 
   findByResolution(

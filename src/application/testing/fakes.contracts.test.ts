@@ -63,8 +63,16 @@ describeDocumentCacheContract(
 
 describeVoteOutboxContract(
   'FakeVoteOutbox',
-  () => ({ outbox: new FakeVoteOutbox() }),
-  IN_MEMORY_STORE,
+  () => {
+    const outbox = new FakeVoteOutbox();
+    return {
+      outbox,
+      plantUnreadable: (voter, key) => {
+        outbox.seedUnreadable(voter, key);
+      },
+    };
+  },
+  { ...IN_MEMORY_STORE, holdsUnreadable: true },
 );
 
 describeMeetingRepositoryContract(

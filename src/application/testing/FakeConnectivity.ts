@@ -5,7 +5,10 @@ import type { Unsubscribe } from '../ports/ScreenProtection';
 /** A device that is online until the test says otherwise. */
 export class FakeConnectivity implements Connectivity {
   private status: ConnectivityStatus = CONNECTIVITY_STATUS.Online;
-  private readonly listeners = new Set<(status: ConnectivityStatus) => void>();
+  // Each subscription is an object of its own, so the same function can subscribe twice.
+  private readonly subscriptions = new Set<{
+    readonly listener: (status: ConnectivityStatus) => void;
+  }>();
 
   /** How many times `current` was asked. */
   currentCalls = 0;
@@ -16,9 +19,10 @@ export class FakeConnectivity implements Connectivity {
   }
 
   subscribe(listener: (status: ConnectivityStatus) => void): Unsubscribe {
-    this.listeners.add(listener);
+    const subscription = { listener };
+    this.subscriptions.add(subscription);
     return () => {
-      this.listeners.delete(listener);
+      this.subscriptions.delete(subscription);
     };
   }
 
@@ -26,10 +30,16 @@ export class FakeConnectivity implements Connectivity {
   emit(status: ConnectivityStatus): void {
     if (status === this.status) return;
     this.status = status;
-    for (const listener of [...this.listeners]) listener(status);
+    for (const { listener } of [...this.subscriptions]) {
+      try {
+        listener(status);
+      } catch {
+        // A listener that throws does not stop the others hearing the change: the port says so.
+      }
+    }
   }
 
   get listenerCount(): number {
-    return this.listeners.size;
+    return this.subscriptions.size;
   }
 }

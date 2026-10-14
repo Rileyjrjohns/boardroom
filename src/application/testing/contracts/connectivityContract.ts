@@ -13,8 +13,9 @@ const { Online, Offline } = CONNECTIVITY_STATUS;
 
 /**
  * The contract of `Connectivity`, as a suite any implementation runs: the status it reports, the
- * changes it announces (and only changes), and subscriptions that stop on their own. The factory
- * returns a device that is online and has no subscriber.
+ * changes it announces (and only changes), and subscriptions that stop on their own, each one a
+ * handle of its own, whose listener cannot hurt the others by throwing. The factory returns a
+ * device that is online and has no subscriber.
  */
 export function describeConnectivityContract(
   name: string,
@@ -96,6 +97,48 @@ export function describeConnectivityContract(
       await harness.report(Offline);
 
       expect(kept).toEqual([Offline]);
+    });
+
+    it('makes a subscription of its own each time, even for the same function', async () => {
+      const received: ConnectivityStatus[] = [];
+      const listener = (status: ConnectivityStatus) => received.push(status);
+      const stopFirst = connectivity.subscribe(listener);
+      connectivity.subscribe(listener);
+
+      await harness.report(Offline);
+      stopFirst();
+      await harness.report(Online);
+
+      expect(received).toEqual([Offline, Offline, Online]);
+    });
+
+    it('lets a function that subscribed twice stop one subscription twice without stopping the other', async () => {
+      const received: ConnectivityStatus[] = [];
+      const listener = (status: ConnectivityStatus) => received.push(status);
+      const stopFirst = connectivity.subscribe(listener);
+      connectivity.subscribe(listener);
+
+      stopFirst();
+      stopFirst();
+      await harness.report(Offline);
+
+      expect(received).toEqual([Offline]);
+    });
+
+    it('does not let a listener that throws stop the others hearing the change, nor escape', async () => {
+      const before: ConnectivityStatus[] = [];
+      const after: ConnectivityStatus[] = [];
+      connectivity.subscribe((status) => before.push(status));
+      connectivity.subscribe(() => {
+        throw new Error('broken listener');
+      });
+      connectivity.subscribe((status) => after.push(status));
+
+      await expect(Promise.resolve(harness.report(Offline))).resolves.toBeUndefined();
+      await harness.report(Online);
+
+      expect(before).toEqual([Offline, Online]);
+      expect(after).toEqual([Offline, Online]);
     });
 
     it('lets the status change when nobody listens', async () => {

@@ -301,7 +301,7 @@ describe('the fake vote outbox', () => {
     await fakes.outbox.enqueue(enqueuedThird);
 
     expect(await fakes.outbox.list(aUserId())).toEqual(
-      ok([enqueuedFirst, enqueuedSecond, enqueuedThird]),
+      ok({ votes: [enqueuedFirst, enqueuedSecond, enqueuedThird], unreadable: 0 }),
     );
     expect(await fakes.outbox.findByResolution(aResolutionId('r1'), aUserId())).toEqual(
       ok([enqueuedSecond]),
@@ -312,9 +312,13 @@ describe('the fake vote outbox', () => {
     const fakes = createFakes();
     fakes.outbox.seed(first, others, second);
 
-    expect(await fakes.outbox.list(aUserId())).toEqual(ok([first, second]));
-    expect(await fakes.outbox.list(aUserId('user-2'))).toEqual(ok([others]));
-    expect(await fakes.outbox.list(aUserId('user-3'))).toEqual(ok([]));
+    expect(await fakes.outbox.list(aUserId())).toEqual(
+      ok({ votes: [first, second], unreadable: 0 }),
+    );
+    expect(await fakes.outbox.list(aUserId('user-2'))).toEqual(
+      ok({ votes: [others], unreadable: 0 }),
+    );
+    expect(await fakes.outbox.list(aUserId('user-3'))).toEqual(ok({ votes: [], unreadable: 0 }));
     expect(await fakes.outbox.findByResolution(aResolutionId('r1'), aUserId())).toEqual(
       ok([first]),
     );
