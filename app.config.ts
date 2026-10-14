@@ -75,6 +75,17 @@ const config: ExpoConfig = {
     // confirmation of a vote.
     ['expo-local-authentication', { faceIDPermission: FACE_ID_USAGE_DESCRIPTION }],
     // expo-network has no plugin: its permission (ACCESS_NETWORK_STATE) comes with the module.
+    // The documents are downloaded with react-native-blob-util, whose plugin only bundles extra
+    // certificate authorities (`customCACerts`): there are none, so it changes nothing today. It is
+    // declared so that adding one is a setting and not a new plugin.
+    'react-native-blob-util',
+    // The iOS 27 SDK stops an app at launch unless it uses the UIScene life cycle, and the iOS
+    // template of Expo SDK 57 does not generate it yet. Local plugin, to delete with SDK 58 (see
+    // "iOS scene life cycle" in the README).
+    './plugins/withSceneLifecycle',
+    // The local native module ScreenProtection (modules/screen-protection) has no plugin: its
+    // Android permissions are in its own manifest, which autolinking merges, and it needs nothing in
+    // the iOS project.
   ],
   experiments: {
     typedRoutes: true,

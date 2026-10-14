@@ -52,6 +52,25 @@ describe('app.config.ts, the native modules of the real adapters', () => {
   });
 });
 
+describe('app.config.ts, the plugins of the native build', () => {
+  const SCENE_PLUGIN = './plugins/withSceneLifecycle';
+
+  it('puts the iOS project on the UIScene life cycle, which the iOS 27 SDK requires, with a local plugin', () => {
+    expect(config.plugins).toContain(SCENE_PLUGIN);
+    expect(fs.existsSync(path.resolve(__dirname, '..', `${SCENE_PLUGIN}.js`))).toBe(true);
+  });
+
+  it('declares the plugin of react-native-blob-util, with no option: it has no certificate to add', () => {
+    expect(config.plugins).toContain('react-native-blob-util');
+  });
+
+  it('has no plugin for the local module ScreenProtection, which autolinking and its own manifest cover', () => {
+    const names = (config.plugins ?? []).map((entry) => (Array.isArray(entry) ? entry[0] : entry));
+
+    expect(names.filter((name) => /screen-?protection/i.test(String(name)))).toEqual([]);
+  });
+});
+
 describe('app.config.ts, the Face ID text in the languages of the app', () => {
   const ROOT = path.resolve(__dirname, '..');
   const FACE_ID_KEY = 'NSFaceIDUsageDescription';
