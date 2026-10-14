@@ -17,9 +17,10 @@ import boundaries from 'eslint-plugin-boundaries';
  *
  * domain, application and di import no external module at all. app, infrastructure and
  * presentation may import external modules, except `zod` and the native modules of the device
- * (SQLite, secure storage, biometrics, network), which only infrastructure may use, and TanStack
- * Query and Zustand, which only presentation may use. `fetch` is used by one module only, the HTTP
- * client.
+ * (SQLite, secure storage, secure random numbers, biometrics, network), which only infrastructure
+ * may use, and TanStack Query and Zustand, which only presentation may use. The local native
+ * module ScreenProtection (`modules/screen-protection`) is imported by `src/infrastructure/native`
+ * alone. `fetch` is used by one module only, the HTTP client.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
  * `@domain/*`-style aliases are classified like relative imports.
  *
@@ -93,11 +94,23 @@ const DEVICE_PACKAGES = [
   'expo-sqlite/**',
   'expo-secure-store',
   'expo-secure-store/**',
+  'expo-crypto',
+  'expo-crypto/**',
+  'expo-file-system',
+  'expo-file-system/**',
   'expo-local-authentication',
   'expo-local-authentication/**',
   'expo-network',
   'expo-network/**',
 ];
+
+/**
+ * The local native module ScreenProtection. Only `src/infrastructure/native` imports it, to build
+ * the adapter of the `ScreenProtection` port over it; every other layer, and every other folder of
+ * the infrastructure, reaches the screen protection through the port.
+ */
+const NATIVE_MODULE_ELEMENT = 'native-modules';
+const NATIVE_MODULE_FILES = ['src/infrastructure/native/**'];
 
 /** The one module allowed to call `fetch`: everything that reaches the network goes through it. */
 const HTTP_CLIENT_FILE = 'src/infrastructure/http/HttpClient.ts';
@@ -139,7 +152,19 @@ const dependencyPolicies = [
     from: element('app', 'domain', 'application', 'presentation', 'di'),
     disallow: { to: { module: { origin: 'external', source: DEVICE_PACKAGES } } },
     message:
-      'The native modules of the device (expo-sqlite, expo-secure-store, expo-local-authentication, expo-network) may only be imported from src/infrastructure: the other layers reach the device through a port.',
+      'The native modules of the device (expo-sqlite, expo-secure-store, expo-crypto, expo-file-system, expo-local-authentication, expo-network) may only be imported from src/infrastructure: the other layers reach the device through a port.',
+  },
+  // The local native module of the app is the same kind of thing, and narrower: the infrastructure
+  // layer may import it, and `no-restricted-imports` below keeps that to src/infrastructure/native.
+  {
+    from: element('infrastructure'),
+    allow: { to: element(NATIVE_MODULE_ELEMENT) },
+  },
+  {
+    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    disallow: { to: element(NATIVE_MODULE_ELEMENT) },
+    message:
+      'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: the other layers reach it through the ScreenProtection port.',
   },
   // Server state (TanStack Query) and interface state (Zustand) are presentation concerns: the
   // other layers hold no framework state, and a route file only mounts what the presentation gives it.
@@ -252,6 +277,35 @@ const TESTING_IMPORT_PATTERN = {
   group: ['**/testing', '**/testing/**'],
   message:
     'A testing folder holds test support (fakes, fixtures). Only tests and other test support may import it.',
+};
+
+/** Pattern of `no-restricted-imports` that keeps the local native module inside its adapter's folder. */
+const NATIVE_MODULE_IMPORT_PATTERN = {
+  group: ['**/modules/screen-protection', '**/modules/screen-protection/**'],
+  message:
+    'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: everything else reaches it through the ScreenProtection port.',
+};
+
+/**
+ * The one file that imports `expo-file-system`: the volume of a device under the file store. The
+ * dependency policy above keeps the package inside src/infrastructure; this keeps it to one file,
+ * so that the rest of the infrastructure reaches the files through the `FileStore` seam, and what
+ * has logic in it is tested in Node.
+ */
+const FILE_SYSTEM_FILE = 'src/infrastructure/files/ExpoFileVolume.ts';
+const FILE_SYSTEM_IMPORT_PATTERN = {
+  group: ['expo-file-system', 'expo-file-system/**'],
+  message: `expo-file-system may only be imported from ${FILE_SYSTEM_FILE}: everything else reaches the files through the FileStore seam.`,
+};
+
+/**
+ * The one file that imports `react-native-pdf`: the small component that draws a PDF. Every other
+ * file shows a document through it, and Jest replaces the package with a light stub for it alone.
+ */
+const PDF_VIEWER_FILE = 'src/presentation/components/PdfViewer.tsx';
+const PDF_VIEWER_IMPORT_PATTERN = {
+  group: ['react-native-pdf', 'react-native-pdf/**'],
+  message: `react-native-pdf may only be imported from ${PDF_VIEWER_FILE}: everything else shows a document through that component.`,
 };
 
 /**
@@ -644,8 +698,8 @@ export default defineConfig([
   ...expoConfig,
 
   {
-    // CommonJS tooling configs run in Node.js, outside of the React Native runtime.
-    files: ['**/*.config.js', '**/*.config.cjs'],
+    // CommonJS tooling configs and config plugins run in Node.js, outside of the React Native runtime.
+    files: ['**/*.config.js', '**/*.config.cjs', 'plugins/**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: { __dirname: 'readonly', module: 'writable', require: 'readonly' },
@@ -679,6 +733,7 @@ export default defineConfig([
       'boundaries/elements': [
         { type: 'app', pattern: 'app', partialMatch: false },
         { type: 'assets', pattern: 'assets', partialMatch: false },
+        { type: NATIVE_MODULE_ELEMENT, pattern: 'modules', partialMatch: false },
         ...LAYERS.map((layer) => ({
           type: layer,
           pattern: `src/${layer}`,
@@ -709,17 +764,73 @@ export default defineConfig([
       ],
       'no-restricted-syntax': restrictSyntax(),
       // Packages are imported by name, never by their location in node_modules.
-      'no-restricted-imports': restrictImports(),
+      'no-restricted-imports': restrictImports(
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
+      ),
+    },
+  },
+
+  {
+    // The local native module is imported by its adapter's folder only (the options of
+    // `no-restricted-imports` are replaced, not merged: the blocks below repeat this pattern).
+    files: APPLICATION_CODE,
+    ignores: NATIVE_MODULE_FILES,
+    rules: {
+      'no-restricted-imports': restrictImports(
+        NATIVE_MODULE_IMPORT_PATTERN,
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
+      ),
     },
   },
 
   {
     // Production code cannot import test support (the options of `no-restricted-imports` are
-    // replaced, not merged: `restrictImports` carries the pattern of the block above).
+    // replaced, not merged: `restrictImports` carries the pattern of the blocks above).
     files: APPLICATION_CODE,
+    ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES, ...NATIVE_MODULE_FILES],
+    rules: {
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        NATIVE_MODULE_IMPORT_PATTERN,
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
+      ),
+    },
+  },
+  {
+    // The same for the folder of the native adapter, which is where the native module is allowed.
+    files: NATIVE_MODULE_FILES,
     ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
     rules: {
-      'no-restricted-imports': restrictImports(TESTING_IMPORT_PATTERN),
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
+      ),
+    },
+  },
+  {
+    // The volume of the device is where `expo-file-system` is allowed, and the PDF viewer is where
+    // `react-native-pdf` is: each is exempt from its own pattern and from that one only.
+    files: [FILE_SYSTEM_FILE],
+    rules: {
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        NATIVE_MODULE_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
+      ),
+    },
+  },
+  {
+    files: [PDF_VIEWER_FILE],
+    rules: {
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        NATIVE_MODULE_IMPORT_PATTERN,
+        FILE_SYSTEM_IMPORT_PATTERN,
+      ),
     },
   },
 

@@ -543,6 +543,20 @@ const deviceImports = {
     "import type { NetworkState } from 'expo-network';\nexport type State = NetworkState;",
   'a named import of expo-secure-store':
     "import { getItemAsync } from 'expo-secure-store';\nexport const get = getItemAsync;",
+  'expo-crypto':
+    "import * as Crypto from 'expo-crypto';\nexport const bytes = Crypto.getRandomBytesAsync;",
+  'a named import of expo-crypto':
+    "import { getRandomBytesAsync } from 'expo-crypto';\nexport const bytes = getRandomBytesAsync;",
+  'a subpath of expo-crypto':
+    "import { digest } from 'expo-crypto/build/Crypto';\nexport const hash = digest;",
+  'a type of expo-crypto':
+    "import type { CryptoDigestAlgorithm } from 'expo-crypto';\nexport type Algorithm = CryptoDigestAlgorithm;",
+  'expo-file-system':
+    "import { File } from 'expo-file-system';\nexport const open = (name: string) => new File(name);",
+  'a subpath of expo-file-system':
+    "import * as Legacy from 'expo-file-system/legacy';\nexport const read = Legacy.readAsStringAsync;",
+  'a type of expo-file-system':
+    "import type { FileInfo } from 'expo-file-system';\nexport type Info = FileInfo;",
 } as const;
 
 const deviceFiles = {
@@ -568,6 +582,54 @@ const acceptedDevicePackages = Object.fromEntries(
   Object.entries(infrastructureFiles).map(([where, filePath]) => [
     where,
     registerAll(deviceImports, asWritten, filePath),
+  ]),
+);
+
+const NATIVE_ADAPTER = 'src/infrastructure/native/Sample.ts';
+const NATIVE_ADAPTER_TEST = 'src/infrastructure/native/Sample.test.ts';
+
+/**
+ * Imports of the local native module ScreenProtection, written as they would be from `filePath`:
+ * by the relative path (the only way to import it), to its entry point and to a file in it.
+ */
+function nativeModuleImports(filePath: string): Record<string, string> {
+  const to = path.posix.relative(path.posix.dirname(filePath), 'modules/screen-protection');
+  return {
+    'the entry point of the native module': `import ScreenProtection from '${to}';\nexport const module = ScreenProtection;`,
+    'a type of the native module': `import type { ScreenProtectionModule } from '${to}';\nexport type Module = ScreenProtectionModule;`,
+    'a file inside the native module': `import ScreenProtection from '${to}/src/ScreenProtectionModule';\nexport const module = ScreenProtection;`,
+  };
+}
+
+const nativeModuleRejectedFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'test support of the application': TEST_SUPPORT,
+  'the composition root': DI,
+  'a route': ROUTE,
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+  'an HTTP adapter': INFRASTRUCTURE,
+  'a persistence adapter': PERSISTENCE,
+  'a test of the infrastructure': INFRASTRUCTURE_TEST,
+  'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
+} as const;
+
+const nativeModuleAcceptedFiles = {
+  'the native adapter': NATIVE_ADAPTER,
+  'a test of the native adapter': NATIVE_ADAPTER_TEST,
+} as const;
+
+const rejectedNativeModule = Object.fromEntries(
+  Object.entries(nativeModuleRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(nativeModuleImports(filePath), asWritten, filePath),
+  ]),
+);
+const acceptedNativeModule = Object.fromEntries(
+  Object.entries(nativeModuleAcceptedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(nativeModuleImports(filePath), asWritten, filePath),
   ]),
 );
 
@@ -618,6 +680,83 @@ const rejectedFetchMembers = Object.fromEntries(
     'a test of the infrastructure': INFRASTRUCTURE_TEST,
   }).map(([where, filePath]) => [where, registerAll(fetchMembers, asWritten, filePath)]),
 );
+
+/** The files that are the one importer of a package (see `FILE_SYSTEM_FILE` and `PDF_VIEWER_FILE`). */
+const FILE_SYSTEM_VOLUME = 'src/infrastructure/files/ExpoFileVolume.ts';
+const PDF_VIEWER = 'src/presentation/components/PdfViewer.tsx';
+
+const fileSystemImports = {
+  'expo-file-system':
+    "import { Directory, File } from 'expo-file-system';\nexport const open = [Directory, File];",
+  'a subpath of expo-file-system':
+    "import * as Legacy from 'expo-file-system/legacy';\nexport const read = Legacy.readAsStringAsync;",
+  'a type of expo-file-system':
+    "import type { FileInfo } from 'expo-file-system';\nexport type Info = FileInfo;",
+} as const;
+
+const pdfImports = {
+  'react-native-pdf': "import Pdf from 'react-native-pdf';\nexport const View = Pdf;",
+  'a type of react-native-pdf':
+    "import type { PdfProps } from 'react-native-pdf';\nexport type Props = PdfProps;",
+  'a file of react-native-pdf':
+    "import PdfView from 'react-native-pdf/PdfView';\nexport const View = PdfView;",
+} as const;
+
+const fileSystemRejectedFiles = {
+  'an adapter of the files that is not the volume': 'src/infrastructure/files/FileStore.ts',
+  'an HTTP adapter': INFRASTRUCTURE,
+  'a persistence adapter': PERSISTENCE,
+  'a test of the infrastructure': INFRASTRUCTURE_TEST,
+  'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
+} as const;
+const rejectedFileSystem = Object.fromEntries(
+  Object.entries(fileSystemRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(fileSystemImports, asWritten, filePath),
+  ]),
+);
+const acceptedFileSystem = registerAll(fileSystemImports, asWritten, FILE_SYSTEM_VOLUME);
+
+const pdfRejectedFiles = {
+  'another component of the presentation': 'src/presentation/components/Sample.tsx',
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+  'test support of the presentation': 'src/presentation/testing/sample.tsx',
+  'a test of the presentation': 'src/presentation/components/PdfViewer.test.tsx',
+  'a route': ROUTE,
+  'an adapter': INFRASTRUCTURE,
+} as const;
+const rejectedPdf = Object.fromEntries(
+  Object.entries(pdfRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(pdfImports, asWritten, filePath),
+  ]),
+);
+const acceptedPdf = registerAll(pdfImports, asWritten, PDF_VIEWER);
+
+/** The volume may not import the viewer's package, nor the viewer the volume's: each is exempt once. */
+const crossedImports = {
+  'react-native-pdf from the volume': registerAll(pdfImports, asWritten, FILE_SYSTEM_VOLUME),
+  'expo-file-system from the viewer': registerAll(fileSystemImports, asWritten, PDF_VIEWER),
+};
+
+/** The exempt files are exempt from one pattern, and keep the others. */
+const exemptFilesKeepTheirOtherRules: [string, Snippet][] = [
+  [
+    'the volume of the device',
+    register(
+      FILE_SYSTEM_VOLUME,
+      "import { aStore } from '../testing/NodeFileVolume';\nexport const store = aStore;",
+    ),
+  ],
+  [
+    'the PDF viewer',
+    register(
+      PDF_VIEWER,
+      "import { renderScreen } from '../testing/renderScreen';\nexport const render = renderScreen;",
+    ),
+  ],
+];
 
 let findings: Finding[][] = [];
 
@@ -862,6 +1001,33 @@ describe('Native modules of the device lint rules', () => {
   });
 });
 
+describe('The native module ScreenProtection lint rules', () => {
+  const NATIVE_MODULE_MESSAGE = 'may only be imported from src/infrastructure/native';
+
+  /** The findings of both rules that guard it: the dependency policies and the restricted imports. */
+  const guarded = (snippet: Snippet): Finding[] => [
+    ...reportedBoundaries(snippet),
+    ...reported(snippet),
+  ];
+
+  describe.each(Object.entries(rejectedNativeModule))('in %s', (_where, cases) => {
+    it.each(cases)(
+      'rejects the import of %s, and says where it may be imported',
+      (_name, snippet) => {
+        expect(guarded(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringContaining(NATIVE_MODULE_MESSAGE),
+        );
+      },
+    );
+  });
+
+  describe.each(Object.entries(acceptedNativeModule))('in %s', (_where, cases) => {
+    it.each(cases)('accepts the import of %s', (_name, snippet) => {
+      expect(guarded(snippet)).toEqual([]);
+    });
+  });
+});
+
 describe('The fetch lint rules', () => {
   describe.each(Object.entries(rejectedFetch))('in %s', (_where, cases) => {
     it.each(cases)('rejects %s', (_name, snippet) => {
@@ -895,6 +1061,50 @@ describe('The fetch lint rules', () => {
           expect.stringContaining('src/infrastructure/http/HttpClient.ts'),
         );
       });
+    },
+  );
+});
+
+describe('The packages that one file alone may import', () => {
+  describe.each(Object.entries(rejectedFileSystem))('expo-file-system, in %s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s', (_name, snippet) => {
+      expect(reported(snippet).map(({ message }) => message)).toContainEqual(
+        expect.stringContaining(`only be imported from ${FILE_SYSTEM_VOLUME}`),
+      );
+    });
+  });
+
+  it.each(acceptedFileSystem)(
+    'accepts the import of %s in the volume of the device',
+    (_name, snippet) => {
+      expect(reported(snippet)).toEqual([]);
+    },
+  );
+
+  describe.each(Object.entries(rejectedPdf))('react-native-pdf, in %s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s', (_name, snippet) => {
+      expect(reported(snippet).map(({ message }) => message)).toContainEqual(
+        expect.stringContaining(`only be imported from ${PDF_VIEWER}`),
+      );
+    });
+  });
+
+  it.each(acceptedPdf)('accepts the import of %s in the PDF viewer', (_name, snippet) => {
+    expect(reported(snippet)).toEqual([]);
+  });
+
+  describe.each(Object.entries(crossedImports))('%s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s', (_name, snippet) => {
+      expect(reported(snippet)).not.toEqual([]);
+    });
+  });
+
+  it.each(exemptFilesKeepTheirOtherRules)(
+    'still rejects the import of test support in %s, which is exempt from one package only',
+    (_where, snippet) => {
+      expect(reported(snippet).map(({ message }) => message)).toEqual([
+        expect.stringContaining('Only tests and other test support'),
+      ]);
     },
   );
 });

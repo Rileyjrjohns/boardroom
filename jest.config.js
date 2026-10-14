@@ -12,8 +12,9 @@
 //               ones of Expo, which do not run in Jest. The native modules of Expo that the
 //               device adapters wrap (`NATIVE_MODULES`) are empty modules here: the platform
 //               factory and the composition root import them like the app does, and nothing native
-//               is loaded. The tests of the thin wrappers replace each module with a stand-in,
-//               each with a comment that says why.
+//               is loaded; `react-native` is a stub that knows the platform. The tests of the
+//               thin wrappers replace each module with a stand-in, each with a comment that says
+//               why.
 // - "ui"      : src/presentation, on the jest-expo preset with React Native Testing Library.
 // - "tooling" : tooling/, in a plain node environment. Checks of the repository configuration.
 //
@@ -46,27 +47,51 @@ const moduleNameMapper = Object.fromEntries(
 );
 
 /**
- * The Expo modules that wrap the device: the database, the keychain, the biometric prompt and the
- * state of the network. They exist only on a phone.
+ * The Expo modules that wrap the device: the database, the keychain, the biometric prompt, the
+ * state of the network and the files. They exist only on a phone.
  */
 const NATIVE_MODULES = [
   'expo-sqlite',
   'expo-secure-store',
+  'expo-crypto',
+  'expo-file-system',
   'expo-local-authentication',
   'expo-network',
 ];
 
 /**
  * The "infra" project replaces each of them with an empty module, so that importing the device
- * adapters, as the app does, loads nothing native.
+ * adapters, as the app does, loads nothing native. The local module ScreenProtection
+ * (modules/screen-protection) is replaced the same way, wherever it is imported from by a relative
+ * path: the adapter then sees a build without the module, and its tests give it a stand-in.
  * @type {Record<string, string>}
  */
 const nativeModuleStubs = Object.fromEntries(
-  NATIVE_MODULES.map((name) => [
-    `^${name}$`,
-    '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts',
-  ]),
+  [...NATIVE_MODULES.map((name) => `^${name}$`), '^(?:\\.\\./)+modules/screen-protection$'].map(
+    (pattern) => [pattern, '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts'],
+  ),
 );
+
+/**
+ * `react-native` itself, for the "infra" project: the package is a Flow-typed module that needs the
+ * runtime of a phone, and the infrastructure reads one thing from it, the platform it runs on
+ * (where the content of the documents is kept). The stub has that and nothing else.
+ * @type {Record<string, string>}
+ */
+const reactNativeStub = {
+  '^react-native$': '<rootDir>/src/infrastructure/testing/reactNativeStub.ts',
+};
+
+/**
+ * The PDF viewer, for the "ui" project: `react-native-pdf` draws with a native view and needs its
+ * native module. The stub is a small component that records the properties it was given and lets a
+ * test report that the document loaded, changed page or failed. Only one component of the
+ * presentation imports the package (a lint rule), so this is the one place that needs it.
+ * @type {Record<string, string>}
+ */
+const pdfViewerStub = {
+  '^react-native-pdf$': '<rootDir>/src/presentation/testing/reactNativePdfStub.tsx',
+};
 
 const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}'];
 const TEST_FILE = /\.(test|spec)\.tsx?$/;
@@ -173,7 +198,7 @@ const config = {
       testEnvironment: 'node',
       roots: ['<rootDir>/src/infrastructure', '<rootDir>/src/di'],
       testMatch: TEST_FILES,
-      moduleNameMapper: { ...nativeModuleStubs, ...moduleNameMapper },
+      moduleNameMapper: { ...nativeModuleStubs, ...reactNativeStub, ...moduleNameMapper },
       transform: infraTransform,
       transformIgnorePatterns: [`/node_modules/(?!(${MSW_PACKAGES.join('|')})/)`],
     },
@@ -182,7 +207,7 @@ const config = {
       preset: 'jest-expo',
       roots: ['<rootDir>/src/presentation'],
       testMatch: TEST_FILES,
-      moduleNameMapper,
+      moduleNameMapper: { ...pdfViewerStub, ...moduleNameMapper },
     },
     {
       displayName: 'tooling',
