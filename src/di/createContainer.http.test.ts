@@ -26,6 +26,7 @@ import {
   TEST_API_URL,
 } from '@infrastructure/testing/httpWorld';
 import { MemorySecureStorage } from '@infrastructure/testing/MemorySecureStorage';
+import { nodeRandomBytes } from '@infrastructure/testing/nodeRandomBytes';
 import {
   NodeSqliteOpener,
   freshDirectory,
@@ -33,6 +34,7 @@ import {
 } from '@infrastructure/testing/NodeSqlite';
 import { SimulatedCipherOpener } from '@infrastructure/testing/SimulatedCipherOpener';
 import { databaseDirectory } from '@infrastructure/testing/testDatabase';
+import { testFileStore } from '@infrastructure/testing/testFiles';
 import { TEST_PASSWORD } from '@infrastructure/testing/testServer';
 
 import {
@@ -86,6 +88,7 @@ function aDevice() {
   const platform: DevicePlatform = {
     databaseOpener: opener,
     secureStorage: storage,
+    randomBytes: nodeRandomBytes,
     localAuthentication: {
       hasHardware: () => Promise.resolve(biometrics.hardware),
       isEnrolled: () => Promise.resolve(biometrics.enrolled),
@@ -97,7 +100,7 @@ function aDevice() {
     },
     networkState,
   };
-  return { storage, opener, files, networkState, biometrics, platform };
+  return { storage, opener, files, fileStore: testFileStore(), networkState, biometrics, platform };
 }
 
 type Device = ReturnType<typeof aDevice>;
@@ -122,6 +125,7 @@ function aWorld() {
         clock: server.clock,
         monitoring,
         platform: on.platform,
+        fileStore: on.fileStore,
         biometricPromptText: (reason) => ({
           message: `prompt:${reason}`,
           cancelLabel: CANCEL_LABEL,
@@ -377,6 +381,7 @@ async function aSlowCache() {
       clock: world.server.clock,
       monitoring: world.monitoring,
       platform: world.device.platform,
+      fileStore: world.device.fileStore,
       biometricPromptText: promptText,
     }),
   );

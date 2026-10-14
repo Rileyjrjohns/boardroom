@@ -41,6 +41,14 @@ export const MOCK_STARTS_SIGNED_IN = false;
  */
 export const HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(15 * MILLIS_PER_SECOND));
 
+/**
+ * How long the download of a document may take, before it counts as a network failure. A file takes
+ * longer than a page of JSON (a board pack is some megabytes, on a mobile network), so it has a
+ * budget of its own: a minute is enough for the largest file the app accepts on a slow connection,
+ * and an offline board member whose document was seen before gets the saved copy within the minute.
+ */
+export const DOCUMENT_DOWNLOAD_TIMEOUT = valid(durationFromMillis(60 * MILLIS_PER_SECOND));
+
 /** The bounds of a request timeout that the configuration accepts. */
 export const MIN_HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(MILLIS_PER_SECOND));
 export const MAX_HTTP_REQUEST_TIMEOUT = valid(durationFromMillis(60 * MILLIS_PER_SECOND));

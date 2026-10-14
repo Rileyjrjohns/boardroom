@@ -22,8 +22,10 @@ import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 import { createPageRequest } from '@domain/value-objects/PageRequest';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
+import type { InMemoryScreenProtection } from '@infrastructure/in-memory/InMemoryScreenProtection';
 import { DEMO_PASSWORD } from '@infrastructure/in-memory/seed';
 import { immediateSleep, recordingSleep } from '@infrastructure/testing/sleep';
+import { testFileStore } from '@infrastructure/testing/testFiles';
 
 import { ADAPTERS } from './adapters';
 import {
@@ -50,8 +52,16 @@ const silentRuntime = (overrides: Partial<ContainerRuntime> = {}): ContainerRunt
   sleep: immediateSleep,
   monitoring: new FakeMonitoring(),
   biometricPromptText: (reason) => ({ message: reason, cancelLabel: 'cancel' }),
+  fileStore: testFileStore(),
   ...overrides,
 });
+
+/** The simulated screen protection of a container: Jest has no native module, so it is the one in use. */
+function simulatedScreenProtection(container: MockContainer): InMemoryScreenProtection {
+  const { screenProtection } = container.controls;
+  if (screenProtection === undefined) throw new Error('The screen protection is not simulated.');
+  return screenProtection;
+}
 
 const ALICE = 'alice.martin@boardroom.example';
 const BRUNO = 'bruno.durand@boardroom.example';
@@ -410,7 +420,7 @@ describe('createContainer, mock configuration', () => {
         ({ confidentiality }) => confidentiality === CONFIDENTIALITY_LEVEL.Confidential,
       );
       if (confidential === undefined) throw new Error('The meeting has no confidential document.');
-      const { screenProtection } = container.controls;
+      const screenProtection = simulatedScreenProtection(container);
       const input = { documentId: confidential.id };
 
       await container.useCases.openDocument.execute(input);
@@ -439,7 +449,7 @@ describe('createContainer, mock configuration', () => {
       }
       const [first, second] = documents;
       if (first === undefined || second === undefined) throw new Error('Two documents are needed.');
-      const { screenProtection } = container.controls;
+      const screenProtection = simulatedScreenProtection(container);
       await container.useCases.openDocument.execute({ documentId: first.id });
       await container.useCases.openDocument.execute({ documentId: second.id });
 
@@ -636,7 +646,7 @@ describe('createContainer, mock configuration, a vote recorded while the user si
    * are the ones of the container, on the same adapters, signed in as the first demo account.
    */
   async function slowCache() {
-    const wiring = valueOf(createMockPorts(mock({ startSignedIn: false }), silentRuntime()));
+    const wiring = valueOf(await createMockPorts(mock({ startSignedIn: false }), silentRuntime()));
     const cache = new HoldingMeetingCache(wiring.ports.meetingCache);
     const useCases = wireUseCases(
       { ...wiring.ports, meetingCache: cache },

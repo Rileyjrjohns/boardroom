@@ -87,11 +87,11 @@ function settingsOfUseCases(startsLocked: boolean): UseCaseSettings {
 
 const SETTINGS: ContainerSettings = { meetingsPageSize: MEETINGS_PAGE_SIZE };
 
-function createMockContainer(
+async function createMockContainer(
   config: MockConfiguration,
   runtime: ContainerRuntime,
-): Result<MockContainer, ContainerError> {
-  const wiring = createMockPorts(config, runtime);
+): Promise<Result<MockContainer, ContainerError>> {
+  const wiring = await createMockPorts(config, runtime);
   if (!wiring.ok) return wiring;
 
   return ok({
@@ -155,7 +155,7 @@ export async function createContainer(
   try {
     switch (config.kind) {
       case ADAPTERS.Mock:
-        return createMockContainer(config, runtime);
+        return await createMockContainer(config, runtime);
       case ADAPTERS.Http:
         return await createHttpContainer(config, runtime);
     }
