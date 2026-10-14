@@ -13,6 +13,11 @@ const TEST_FILE = /\.(test|spec)\.tsx?$/;
 const ENVIRONMENT_READ = /process\.env\b/;
 const ENVIRONMENT_READS = /process\.env\b/g;
 const PUBLIC_VARIABLE = /process\.env\.(EXPO_PUBLIC_[A-Z0-9_]+)/g;
+/**
+ * The variables that are off when empty: .env.example lists them with no value, which is their
+ * default. Every other one has a value there.
+ */
+const OFF_WHEN_EMPTY = new Set(['EXPO_PUBLIC_SENTRY_DSN']);
 
 function sourceFiles(directory: string): string[] {
   return fs.readdirSync(path.join(ROOT, directory), { withFileTypes: true }).flatMap((entry) => {
@@ -66,8 +71,9 @@ describe('the environment', () => {
     expect(reads).toEqual([
       'process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS',
       'process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL',
+      'process.env.EXPO_PUBLIC_SENTRY_DSN',
     ]);
-    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READS)).toHaveLength(2);
+    expect(read(ROOT_LAYOUT).match(ENVIRONMENT_READS)).toHaveLength(3);
   });
 
   it('has every variable the app reads documented in .env.example, with a default', () => {
@@ -76,8 +82,13 @@ describe('the environment', () => {
 
     expect(variables.length).toBeGreaterThan(0);
     for (const name of variables) {
-      expect(example).toMatch(new RegExp(`^${name}=\\S+$`, 'm'));
+      const value = OFF_WHEN_EMPTY.has(String(name)) ? '\\S*' : '\\S+';
+      expect(example).toMatch(new RegExp(`^${name}=${value}$`, 'm'));
     }
+  });
+
+  it('has an .env.example that leaves the Sentry address empty, so that monitoring is off by default', () => {
+    expect(read('.env.example')).toMatch(/^EXPO_PUBLIC_SENTRY_DSN=$/m);
   });
 
   it('has an .env.example that is not ignored by git, while .env is', () => {

@@ -11,7 +11,6 @@ import { HttpClient } from '@infrastructure/http/HttpClient';
 import { HttpDocumentRepository } from '@infrastructure/http/HttpDocumentRepository';
 import { HttpMeetingRepository } from '@infrastructure/http/HttpMeetingRepository';
 import { HttpVoteRepository } from '@infrastructure/http/HttpVoteRepository';
-import { ConsoleMonitoring } from '@infrastructure/monitoring/ConsoleMonitoring';
 import { NativeScreenProtection } from '@infrastructure/native/NativeScreenProtection';
 import { readLocalDataResetNotice } from '@infrastructure/persistence/localDataReset';
 import { MIGRATIONS } from '@infrastructure/persistence/migrations';
@@ -24,6 +23,7 @@ import { SessionVault } from '@infrastructure/secure-storage/SessionVault';
 import { DATABASE_NAME, DOCUMENT_DOWNLOAD_TIMEOUT } from './config';
 import type { HttpConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
+import { createMonitoring } from './createMonitoring';
 import { storageUnavailable } from './errors';
 import type { StorageUnavailableError } from './errors';
 import type { Ports } from './Ports';
@@ -63,7 +63,7 @@ export async function createHttpPorts(
   runtime: ContainerRuntime,
 ): Promise<Result<HttpWiring, StorageUnavailableError>> {
   const clock = runtime.clock ?? new SystemClock();
-  const monitoring = runtime.monitoring ?? new ConsoleMonitoring();
+  const monitoring = runtime.monitoring ?? createMonitoring(config.sentryDsn, runtime.sentrySdk);
   const platform = runtime.platform ?? createExpoPlatform();
 
   const database = await openProtectedDatabase({

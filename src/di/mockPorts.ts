@@ -21,12 +21,12 @@ import { buildSeed } from '@infrastructure/in-memory/seed';
 import { SimulatedNetwork } from '@infrastructure/in-memory/SimulatedNetwork';
 import type { NetworkControl } from '@infrastructure/in-memory/SimulatedNetwork';
 import { SimulatedConnectivity } from '@infrastructure/connectivity/SimulatedConnectivity';
-import { ConsoleMonitoring } from '@infrastructure/monitoring/ConsoleMonitoring';
 import { loadScreenProtectionModule } from '@infrastructure/native/loadScreenProtectionModule';
 import { NativeScreenProtection } from '@infrastructure/native/NativeScreenProtection';
 
 import type { MockConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
+import { createMonitoring } from './createMonitoring';
 import { mockDataInvalid } from './errors';
 import type { MockDataInvalidError } from './errors';
 import type { Ports } from './Ports';
@@ -81,7 +81,7 @@ export async function createMockPorts(
   runtime: ContainerRuntime,
 ): Promise<Result<MockWiring, MockDataInvalidError>> {
   const clock = runtime.clock ?? new SystemClock();
-  const monitoring = runtime.monitoring ?? new ConsoleMonitoring();
+  const monitoring = runtime.monitoring ?? createMonitoring(config.sentryDsn, runtime.sentrySdk);
 
   const seed = buildSeed(clock.now());
   if (isErr(seed)) return err(mockDataInvalid(seed.error.detail));

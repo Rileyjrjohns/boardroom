@@ -6,6 +6,7 @@ import type { PromptText } from '@infrastructure/biometrics/DeviceBiometricGate'
 import type { Sleep } from '@infrastructure/clock/sleep';
 import type { DevicePlatform } from '@infrastructure/device/DevicePlatform';
 import type { FileStore } from '@infrastructure/files/FileStore';
+import type { SentrySdk } from '@infrastructure/monitoring/SentryMonitoring';
 
 /**
  * What the container reads from the outside world. The clock, the monitoring, the sleep and the
@@ -16,6 +17,12 @@ import type { FileStore } from '@infrastructure/files/FileStore';
 export interface ContainerRuntime {
   readonly clock?: Clock;
   readonly monitoring?: Monitoring;
+  /**
+   * The Sentry SDK, in place of the real one, for a configuration that was given an address: a test
+   * hands over a stand-in that records what it is asked. Without `monitoring` and an address, the
+   * monitoring is the console.
+   */
+  readonly sentrySdk?: SentrySdk;
   /** How the simulated latency is waited for. */
   readonly sleep?: Sleep;
   /**

@@ -26,8 +26,16 @@ import {
 } from './errors';
 import type { ContainerError } from './errors';
 
+/**
+ * What the monitoring needs to know, whatever the adapters: the address of the crash reporter, when
+ * the build was given one. Absent means off: the events go to the console (see `createMonitoring`).
+ */
+export interface MonitoringConfiguration {
+  readonly sentryDsn?: string;
+}
+
 /** The app against the simulated server and the in-memory adapters. */
-export interface MockConfiguration {
+export interface MockConfiguration extends MonitoringConfiguration {
   readonly kind: typeof ADAPTERS.Mock;
   /** Whether the demo user is signed in at start. Named, so that the day it goes away is visible. */
   readonly startSignedIn: boolean;
@@ -38,7 +46,7 @@ export interface MockConfiguration {
 }
 
 /** The app against the real adapters: the HTTP API, SQLite, the secure storage and the device. */
-export interface HttpConfiguration {
+export interface HttpConfiguration extends MonitoringConfiguration {
   readonly kind: typeof ADAPTERS.Http;
   /** The address of the API: `https`, or `http` for the machine itself, with no trailing slash. */
   readonly baseUrl: string;
@@ -79,6 +87,12 @@ export interface RawSettings {
   readonly adapters: string | undefined;
   /** `EXPO_PUBLIC_BOARDROOM_API_BASE_URL`: where the API is. Required for `http`, ignored by `mock`. */
   readonly apiBaseUrl: string | undefined;
+  /**
+   * `EXPO_PUBLIC_SENTRY_DSN`: the address of the crash reporter. Blank or missing: the monitoring
+   * is the console. It is not validated here: `createMonitoring` checks it, and falls back on the
+   * console for a bad one, since monitoring must not decide whether the app starts.
+   */
+  readonly sentryDsn?: string | undefined;
   /** Starts the mock configuration signed in as the demo user. */
   readonly mockStartsSignedIn?: boolean;
   /**
@@ -103,6 +117,17 @@ export interface RawSettings {
  * code of its own, so that the screen of a failed start says what to fix.
  */
 export function parseConfiguration(
+  settings: RawSettings,
+  environment: BuildEnvironment,
+): Result<Configuration, ContainerError> {
+  const configuration = parseAdapters(settings, environment);
+  if (!configuration.ok) return configuration;
+
+  const sentryDsn = (settings.sentryDsn ?? '').trim();
+  return ok(sentryDsn === '' ? configuration.value : { ...configuration.value, sentryDsn });
+}
+
+function parseAdapters(
   settings: RawSettings,
   environment: BuildEnvironment,
 ): Result<Configuration, ContainerError> {

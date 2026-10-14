@@ -102,7 +102,17 @@ const DEVICE_PACKAGES = [
   'expo-local-authentication/**',
   'expo-network',
   'expo-network/**',
+  'expo-updates',
+  'expo-updates/**',
 ];
+
+/**
+ * The one file that imports the Sentry SDK: the adapter of the Monitoring port. The dependency policy
+ * keeps the package inside src/infrastructure; this keeps it to the adapter, so that the SDK can be
+ * replaced by changing one file, and its stand-in in the tests is the one place that has to know it.
+ */
+const SENTRY_FILE = 'src/infrastructure/monitoring/SentryMonitoring.ts';
+const CRASH_REPORTER_PACKAGES = ['@sentry/**'];
 
 /**
  * The local native module ScreenProtection. Only `src/infrastructure/native` imports it, to build
@@ -152,7 +162,14 @@ const dependencyPolicies = [
     from: element('app', 'domain', 'application', 'presentation', 'di'),
     disallow: { to: { module: { origin: 'external', source: DEVICE_PACKAGES } } },
     message:
-      'The native modules of the device (expo-sqlite, expo-secure-store, expo-crypto, expo-file-system, expo-local-authentication, expo-network) may only be imported from src/infrastructure: the other layers reach the device through a port.',
+      'The native modules of the device (expo-sqlite, expo-secure-store, expo-crypto, expo-file-system, expo-local-authentication, expo-network, expo-updates) may only be imported from src/infrastructure: the other layers reach the device through a port.',
+  },
+  // The crash reporter is a tool behind the Monitoring port: no layer but the infrastructure knows
+  // it exists, and `no-restricted-imports` below keeps that to its adapter.
+  {
+    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    disallow: { to: { module: { origin: 'external', source: CRASH_REPORTER_PACKAGES } } },
+    message: `The Sentry SDK (@sentry/*) may only be imported from ${SENTRY_FILE}: every other layer reports through the Monitoring port.`,
   },
   // The local native module of the app is the same kind of thing, and narrower: the infrastructure
   // layer may import it, and `no-restricted-imports` below keeps that to src/infrastructure/native.
@@ -306,6 +323,11 @@ const PDF_VIEWER_FILE = 'src/presentation/components/PdfViewer.tsx';
 const PDF_VIEWER_IMPORT_PATTERN = {
   group: ['react-native-pdf', 'react-native-pdf/**'],
   message: `react-native-pdf may only be imported from ${PDF_VIEWER_FILE}: everything else shows a document through that component.`,
+};
+
+const SENTRY_IMPORT_PATTERN = {
+  group: CRASH_REPORTER_PACKAGES,
+  message: `The Sentry SDK (@sentry/*) may only be imported from ${SENTRY_FILE}: everything else reports through the Monitoring port.`,
 };
 
 /**
@@ -767,6 +789,7 @@ export default defineConfig([
       'no-restricted-imports': restrictImports(
         FILE_SYSTEM_IMPORT_PATTERN,
         PDF_VIEWER_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
       ),
     },
   },
@@ -781,6 +804,7 @@ export default defineConfig([
         NATIVE_MODULE_IMPORT_PATTERN,
         FILE_SYSTEM_IMPORT_PATTERN,
         PDF_VIEWER_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
       ),
     },
   },
@@ -796,6 +820,7 @@ export default defineConfig([
         NATIVE_MODULE_IMPORT_PATTERN,
         FILE_SYSTEM_IMPORT_PATTERN,
         PDF_VIEWER_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
       ),
     },
   },
@@ -808,6 +833,7 @@ export default defineConfig([
         TESTING_IMPORT_PATTERN,
         FILE_SYSTEM_IMPORT_PATTERN,
         PDF_VIEWER_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
       ),
     },
   },
@@ -820,6 +846,7 @@ export default defineConfig([
         TESTING_IMPORT_PATTERN,
         NATIVE_MODULE_IMPORT_PATTERN,
         PDF_VIEWER_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
       ),
     },
   },
@@ -830,6 +857,20 @@ export default defineConfig([
         TESTING_IMPORT_PATTERN,
         NATIVE_MODULE_IMPORT_PATTERN,
         FILE_SYSTEM_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
+      ),
+    },
+  },
+  {
+    // The adapter of the Monitoring port is where the Sentry SDK is allowed: exempt from its own
+    // pattern and from that one only.
+    files: [SENTRY_FILE],
+    rules: {
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        NATIVE_MODULE_IMPORT_PATTERN,
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
       ),
     },
   },

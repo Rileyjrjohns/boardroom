@@ -557,6 +557,10 @@ const deviceImports = {
     "import * as Legacy from 'expo-file-system/legacy';\nexport const read = Legacy.readAsStringAsync;",
   'a type of expo-file-system':
     "import type { FileInfo } from 'expo-file-system';\nexport type Info = FileInfo;",
+  'expo-updates':
+    "import * as Updates from 'expo-updates';\nexport const check = Updates.checkForUpdateAsync;",
+  'a subpath of expo-updates':
+    "import { reloadAsync } from 'expo-updates/build/Updates';\nexport const reload = reloadAsync;",
 } as const;
 
 const deviceFiles = {
@@ -734,10 +738,47 @@ const rejectedPdf = Object.fromEntries(
 );
 const acceptedPdf = registerAll(pdfImports, asWritten, PDF_VIEWER);
 
+const SENTRY_ADAPTER = 'src/infrastructure/monitoring/SentryMonitoring.ts';
+
+const sentryImports = {
+  '@sentry/react-native':
+    "import * as Sentry from '@sentry/react-native';\nexport const start = Sentry.init;",
+  'a named import of @sentry/react-native':
+    "import { captureException } from '@sentry/react-native';\nexport const capture = captureException;",
+  'a type of @sentry/react-native':
+    "import type { Breadcrumb } from '@sentry/react-native';\nexport type Trail = Breadcrumb;",
+  'a subpath of @sentry/react-native':
+    "import { getSentryExpoConfig } from '@sentry/react-native/metro';\nexport const config = getSentryExpoConfig;",
+  'another package of Sentry':
+    "import { captureException } from '@sentry/core';\nexport const capture = captureException;",
+} as const;
+
+const sentryRejectedFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'the composition root': DI,
+  'a route': ROUTE,
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+  'the console monitoring': 'src/infrastructure/monitoring/ConsoleMonitoring.ts',
+  'an HTTP adapter': INFRASTRUCTURE,
+  'a test of the Sentry adapter': 'src/infrastructure/monitoring/SentryMonitoring.test.ts',
+  'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
+} as const;
+const rejectedSentry = Object.fromEntries(
+  Object.entries(sentryRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(sentryImports, asWritten, filePath),
+  ]),
+);
+const acceptedSentry = registerAll(sentryImports, asWritten, SENTRY_ADAPTER);
+
 /** The volume may not import the viewer's package, nor the viewer the volume's: each is exempt once. */
 const crossedImports = {
   'react-native-pdf from the volume': registerAll(pdfImports, asWritten, FILE_SYSTEM_VOLUME),
   'expo-file-system from the viewer': registerAll(fileSystemImports, asWritten, PDF_VIEWER),
+  'react-native-pdf from the adapter of Sentry': registerAll(pdfImports, asWritten, SENTRY_ADAPTER),
+  '@sentry/react-native from the viewer': registerAll(sentryImports, asWritten, PDF_VIEWER),
 };
 
 /** The exempt files are exempt from one pattern, and keep the others. */
@@ -754,6 +795,13 @@ const exemptFilesKeepTheirOtherRules: [string, Snippet][] = [
     register(
       PDF_VIEWER,
       "import { renderScreen } from '../testing/renderScreen';\nexport const render = renderScreen;",
+    ),
+  ],
+  [
+    'the adapter of Sentry',
+    register(
+      SENTRY_ADAPTER,
+      "import { aStore } from '../testing/NodeFileVolume';\nexport const store = aStore;",
     ),
   ],
 ];
@@ -1091,6 +1139,22 @@ describe('The packages that one file alone may import', () => {
 
   it.each(acceptedPdf)('accepts the import of %s in the PDF viewer', (_name, snippet) => {
     expect(reported(snippet)).toEqual([]);
+  });
+
+  describe.each(Object.entries(rejectedSentry))('@sentry, in %s', (_where, cases) => {
+    it.each(cases)('rejects the import of %s, and names the adapter', (_name, snippet) => {
+      const messages = [...reportedBoundaries(snippet), ...reported(snippet)].map(
+        ({ message }) => message,
+      );
+
+      expect(messages).toContainEqual(
+        expect.stringContaining(`only be imported from ${SENTRY_ADAPTER}`),
+      );
+    });
+  });
+
+  it.each(acceptedSentry)('accepts the import of %s in the adapter of Sentry', (_name, snippet) => {
+    expect([...reportedBoundaries(snippet), ...reported(snippet)]).toEqual([]);
   });
 
   describe.each(Object.entries(crossedImports))('%s', (_where, cases) => {

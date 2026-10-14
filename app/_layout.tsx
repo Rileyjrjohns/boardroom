@@ -14,13 +14,14 @@ export { AppErrorBoundary as ErrorBoundary } from '@presentation/navigation/AppE
  * values at build time, so they cannot be moved behind a variable name, and `EXPO_PUBLIC_` is what
  * makes Expo expose a variable to the app. The values go raw to the composition root, which
  * validates them and is told whether this is a development build: only there is a missing adapters
- * setting the mock one.
+ * setting the mock one. The Sentry address is optional: without it, the monitoring is the console.
  */
 const startApp: StartApp = (biometricPromptText) =>
   startContainer(
     {
       adapters: process.env.EXPO_PUBLIC_BOARDROOM_ADAPTERS,
       apiBaseUrl: process.env.EXPO_PUBLIC_BOARDROOM_API_BASE_URL,
+      sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
     },
     { development: __DEV__ },
     { biometricPromptText },

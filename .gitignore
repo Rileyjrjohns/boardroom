@@ -12,6 +12,14 @@ expo-env.d.ts
 /android
 .kotlin/
 
+# Fastlane and Bundler output (the Gemfile and its lockfile are committed)
+/build/
+/vendor/bundle/
+/.bundle/
+fastlane/report.xml
+fastlane/README.md
+fastlane/test_output/
+
 # Native signing material
 *.jks
 *.p8

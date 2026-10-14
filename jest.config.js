@@ -47,8 +47,8 @@ const moduleNameMapper = Object.fromEntries(
 );
 
 /**
- * The Expo modules that wrap the device: the database, the keychain, the biometric prompt, the
- * state of the network and the files. They exist only on a phone.
+ * The modules that wrap the device: the database, the keychain, the biometric prompt, the state of
+ * the network and the files (Expo), and the crash reporter (Sentry). They exist only on a phone.
  */
 const NATIVE_MODULES = [
   'expo-sqlite',
@@ -57,6 +57,7 @@ const NATIVE_MODULES = [
   'expo-file-system',
   'expo-local-authentication',
   'expo-network',
+  '@sentry/react-native',
 ];
 
 /**
@@ -91,6 +92,16 @@ const reactNativeStub = {
  */
 const pdfViewerStub = {
   '^react-native-pdf$': '<rootDir>/src/presentation/testing/reactNativePdfStub.tsx',
+};
+
+/**
+ * The Sentry SDK, for the "ui" project: the root layout builds the composition root, which builds
+ * the monitoring over the SDK, and the SDK needs its native module. It is the empty module of the
+ * "infra" project here too: no test of the screens starts the SDK (it takes an address).
+ * @type {Record<string, string>}
+ */
+const sentryStub = {
+  '^@sentry/react-native$': '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts',
 };
 
 const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}'];
@@ -207,7 +218,7 @@ const config = {
       preset: 'jest-expo',
       roots: ['<rootDir>/src/presentation'],
       testMatch: TEST_FILES,
-      moduleNameMapper: { ...pdfViewerStub, ...moduleNameMapper },
+      moduleNameMapper: { ...pdfViewerStub, ...sentryStub, ...moduleNameMapper },
     },
     {
       displayName: 'tooling',

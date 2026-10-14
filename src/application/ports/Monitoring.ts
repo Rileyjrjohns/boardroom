@@ -63,6 +63,11 @@ export const MONITORING_EVENT = {
   BiometricMisconfigured: 'biometricMisconfigured',
   /** The user asked for the entries of the outbox that cannot be read to be deleted. */
   UnreadableVotesDiscarded: 'unreadableVotesDiscarded',
+  /**
+   * The crash reporter was asked for and could not be started (its address is not valid, or the
+   * SDK failed): the app goes on with the console, and the reason says which.
+   */
+  MonitoringNotStarted: 'monitoringNotStarted',
   /** The record that local data was reset could not be read, so the user may not be told. */
   ResetNoticeUnreadable: 'resetNoticeUnreadable',
   /** The user has been told local data was reset, and the record of it could not be cleared. */

@@ -77,6 +77,7 @@ describe('the values of the application', () => {
       ScreenProtectionNativeFailed: 'screenProtectionNativeFailed',
       BiometricMisconfigured: 'biometricMisconfigured',
       UnreadableVotesDiscarded: 'unreadableVotesDiscarded',
+      MonitoringNotStarted: 'monitoringNotStarted',
       ResetNoticeUnreadable: 'resetNoticeUnreadable',
       ResetNoticeNotCleared: 'resetNoticeNotCleared',
     });

@@ -13,3 +13,5 @@ package-lock.json
 
 # Binary assets
 assets/
+build/
+vendor/
