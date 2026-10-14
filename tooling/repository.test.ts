@@ -98,3 +98,32 @@ describe('test file placement', () => {
     expect(orphans).toEqual([]);
   });
 });
+
+// A no-break space typed as itself cannot be told from a space in an editor, a diff or a review, and
+// the French of the app depends on it before every colon, semicolon, question mark and exclamation
+// mark. It is always written as the escape `\u00a0`, in the resources and in the tests that quote
+// them, so that a reader sees it and a search finds it.
+const SOURCE_FOLDERS = ['src', 'app', 'tooling'];
+const SOURCE_FILE_NAME = /\.[cm]?[jt]sx?$/;
+const NO_BREAK_SPACE = '\u00a0';
+
+function findSourceFiles(directory: string): string[] {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory())
+      return IGNORED_FOLDERS.has(entry.name) ? [] : findSourceFiles(absolute);
+    return SOURCE_FILE_NAME.test(entry.name) ? [absolute] : [];
+  });
+}
+
+describe('the no-break space', () => {
+  it('is never typed as itself in a source file: it is written \\u00a0', () => {
+    const typedAsItself = SOURCE_FOLDERS.flatMap((folder) =>
+      findSourceFiles(path.join(ROOT, folder)),
+    )
+      .filter((file) => fs.readFileSync(file, 'utf8').includes(NO_BREAK_SPACE))
+      .map((file) => path.relative(ROOT, file));
+
+    expect(typedAsItself).toEqual([]);
+  });
+});
