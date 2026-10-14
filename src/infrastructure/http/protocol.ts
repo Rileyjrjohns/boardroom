@@ -14,11 +14,14 @@ export const HTTP_HEADER = {
   ContentType: 'Content-Type',
   CacheControl: 'Cache-Control',
   ContentLength: 'Content-Length',
+  /** The version of what was sent: it changes when the content does. */
+  ETag: 'ETag',
   /** The key of a vote (`idempotencyKeyOf`), percent-encoded: a retry carries the same value. */
   IdempotencyKey: 'Idempotency-Key',
 } as const;
 
 export const MEDIA_TYPE_JSON = 'application/json';
+export const MEDIA_TYPE_PDF = 'application/pdf';
 
 /**
  * What every request and every answer says about caching: nothing of the API is stored by an
@@ -32,6 +35,13 @@ export const CACHE_CONTROL_NO_STORE = 'no-store';
  * answer the API gives, and far below what a hostile or broken server could make the app hold.
  */
 export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
+
+/**
+ * How big the content of a document may be, in bytes. A board pack of a few hundred pages is some
+ * megabytes; twenty is far above any document the API serves, and far below what a hostile or
+ * broken server could make the app write to the device.
+ */
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 
 /** The only kind of token the API issues, and the scheme of the `Authorization` header. */
 export const BEARER_TOKEN_TYPE = 'Bearer';

@@ -7,12 +7,12 @@ import type { UserId } from '@domain/value-objects/ids';
 
 import { HttpClient } from '../http/HttpClient';
 import type { HttpClientOptions } from '../http/HttpClient';
+import type { HttpDocumentRepositoryOptions } from '../http/HttpDocumentRepository';
 import { HttpAuthSession } from '../http/HttpAuthSession';
 import { HttpDocumentRepository } from '../http/HttpDocumentRepository';
 import { HttpMeetingRepository } from '../http/HttpMeetingRepository';
 import { HttpVoteRepository } from '../http/HttpVoteRepository';
 import type { DemoAccount } from '../in-memory/InMemoryAuthSession';
-import { InMemoryDocumentContent } from '../in-memory/InMemoryDocumentContent';
 import { MockApi } from '../mock-api/MockApi';
 import { SessionVault } from '../secure-storage/SessionVault';
 
@@ -41,6 +41,14 @@ export interface InstalledMockApi {
   readonly conditions: NetworkConditions;
   /** The requests the server received, in order, as `METHOD url`. */
   readonly received: string[];
+  /** The headers of each request the server received, in the same order. */
+  readonly receivedHeaders: Headers[];
+  /**
+   * Answers the next requests itself instead of the API, while set: a server that sends what the
+   * API never would (a wrong media type, a file that is not one, a body that never ends). Reset
+   * after each test.
+   */
+  override: ((request: Request) => Response | Promise<Response>) | undefined;
 }
 
 /**
@@ -53,12 +61,16 @@ export function installMockApi(): InstalledMockApi {
     api: undefined,
     conditions: { online: true, delayMillis: 0 },
     received: [],
+    receivedHeaders: [],
+    override: undefined,
   };
   const server = setupServer(
     http.all(`${TEST_API_URL}/*`, async ({ request }) => {
       installed.received.push(`${request.method} ${request.url}`);
+      installed.receivedHeaders.push(new Headers(request.headers));
       if (!installed.conditions.online) return HttpResponse.error();
       await delay(installed.conditions.delayMillis);
+      if (installed.override !== undefined) return installed.override(request);
       if (installed.api === undefined) return HttpResponse.error();
       return installed.api.handle(request);
     }),
@@ -70,6 +82,8 @@ export function installMockApi(): InstalledMockApi {
     installed.conditions.online = true;
     installed.conditions.delayMillis = 0;
     installed.received.length = 0;
+    installed.receivedHeaders.length = 0;
+    installed.override = undefined;
   });
   afterAll(() => {
     server.close();
@@ -106,6 +120,8 @@ export function createHttpServerSide(installed: InstalledMockApi, options: HttpS
 export interface HttpWorldOptions extends HttpServerOptions {
   /** Overrides what the client is built with: its timeout, for a test of the timeout. */
   readonly client?: Partial<HttpClientOptions>;
+  /** Overrides what the document repository is built with: the size cap, the download timeout. */
+  readonly documents?: HttpDocumentRepositoryOptions;
   readonly storage?: MemorySecureStorage;
 }
 
@@ -127,7 +143,6 @@ export async function createHttpWorld(installed: InstalledMockApi, options: Http
     monitoring,
     ...options.client,
   });
-  const content = new InMemoryDocumentContent();
   const auth = new HttpAuthSession({ client, vault, clock: server.clock, monitoring });
 
   /** Signs the device in as the user of an account, registering the account if the server lacks it. */
@@ -150,10 +165,9 @@ export async function createHttpWorld(installed: InstalledMockApi, options: Http
     vault,
     client,
     auth,
-    content,
     signInAs,
     meetings: new HttpMeetingRepository(client, monitoring),
-    documents: new HttpDocumentRepository(client, monitoring, content),
+    documents: new HttpDocumentRepository(client, monitoring, server.files, options.documents),
     votes: new HttpVoteRepository(client, monitoring),
   };
 }

@@ -40,7 +40,7 @@ describe('the migrations', () => {
     );
   });
 
-  it('create the cache and the outbox, and the index of the outbox, in a new database', async () => {
+  it('create the caches and the outbox, and the indexes, in a new database', async () => {
     const { database } = await openTestDatabase(directory, []);
 
     const outcome = await runMigrations(database, MIGRATIONS);
@@ -51,8 +51,10 @@ describe('the migrations', () => {
       [
         TABLE.MeetingPages,
         TABLE.MeetingDetails,
+        TABLE.DocumentEntries,
         TABLE.OutboxVotes,
         INDEX.OutboxByResolution,
+        INDEX.DocumentEntriesByLocation,
       ].sort(),
     );
   });
@@ -75,8 +77,25 @@ describe('the migrations', () => {
       ).toEqual(['key']);
       expect(await database.all(`SELECT meeting_id FROM ${TABLE.MeetingDetails}`)).toHaveLength(1);
       expect(await objectsOf(database)).toContain(INDEX.OutboxByResolution);
+      // Version 4 added the cache of documents, empty whatever the version it came from.
+      expect(await database.all(`SELECT * FROM ${TABLE.DocumentEntries}`)).toEqual([]);
     },
   );
+
+  it('make the cache of documents refuse two entries for the same owner and document', async () => {
+    const { database } = await openTestDatabase(directory);
+    const insert = `INSERT INTO ${TABLE.DocumentEntries}
+      (owner, document_id, cached_at, location, payload) VALUES (?, ?, ?, ?, ?)`;
+    await database.run(insert, ['owner', 'document', 1, 'file:///a.pdf', '{}']);
+
+    await expect(
+      database.run(insert, ['owner', 'document', 2, 'file:///b.pdf', '{}']),
+    ).rejects.toThrow();
+    // Another owner, or another document, is another entry.
+    await database.run(insert, ['other', 'document', 1, 'file:///a.pdf', '{}']);
+    await database.run(insert, ['owner', 'other', 1, 'file:///a.pdf', '{}']);
+    expect(await database.all(`SELECT * FROM ${TABLE.DocumentEntries}`)).toHaveLength(3);
+  });
 
   it('do nothing to a database that is up to date', async () => {
     const { database } = await openTestDatabase(directory);

@@ -5,6 +5,8 @@
 export const TABLE = {
   MeetingPages: 'meeting_pages',
   MeetingDetails: 'meeting_details',
+  /** The documents already viewed, with where their content is. Added by version 4 of the schema. */
+  DocumentEntries: 'document_entries',
   OutboxVotes: 'outbox_votes',
   /** Exists during version 3 of the schema only: the outbox, rebuilt (see `migrations.ts`). */
   OutboxVotesRebuilt: 'outbox_votes_v3',
@@ -18,6 +20,9 @@ export const COLUMN = {
   CursorKey: 'cursor_key',
   PageLimit: 'page_limit',
   MeetingId: 'meeting_id',
+  DocumentId: 'document_id',
+  /** Where the content of a cached document is: the location the repository handed out. */
+  Location: 'location',
   CachedAt: 'cached_at',
   /** The page or the meeting as the API writes it, as JSON. */
   Payload: 'payload',
@@ -45,4 +50,6 @@ export const OUTBOX_QUARANTINED = 'quarantined';
 
 export const INDEX = {
   OutboxByResolution: 'outbox_votes_by_voter_and_resolution',
+  /** Finds the entries that point at a file, to know whether another one still needs it. */
+  DocumentEntriesByLocation: 'document_entries_by_location',
 } as const;

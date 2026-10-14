@@ -54,3 +54,31 @@ export function domainViolation(
   });
   return unexpected(INVALID_RESPONSE_CAUSE);
 }
+
+/** Why the file an answer carried was refused, for the logs. */
+export const CONTENT_VIOLATION = {
+  /** It does not start with the signature of the kind of file it was said to be. */
+  WrongSignature: 'wrongSignature',
+  /** The answer gave no version, or one that is not a usable `ETag`. */
+  NoVersion: 'noVersion',
+} as const;
+
+export type ContentViolation = (typeof CONTENT_VIOLATION)[keyof typeof CONTENT_VIOLATION];
+
+/**
+ * A file that does not have the shape of the API (it is not the kind of file the server said, or it
+ * comes without a version) becomes `unexpected`, and the monitoring is told which of the two it
+ * was, and nothing of the file.
+ */
+export function contentViolation(
+  monitoring: Monitoring,
+  resource: HttpResource,
+  violation: ContentViolation,
+): UnexpectedError {
+  const error = unexpected(INVALID_RESPONSE_CAUSE);
+  monitoring.captureError(MONITORING_EVENT.ResponseInvalid, error, {
+    [LOG_ATTRIBUTE.Resource]: resource,
+    [LOG_ATTRIBUTE.Reason]: violation,
+  });
+  return error;
+}

@@ -19,8 +19,6 @@ import { isSessionExpired } from '@domain/policies/sessionExpiry';
 import { checkVotingEligibility } from '@domain/policies/votingEligibility';
 import { err, isErr, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
-import { parseDocumentLocation } from '@domain/value-objects/DocumentLocation';
-import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 import type { DocumentId, MeetingId, ResolutionId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
@@ -34,6 +32,7 @@ import type { PageRequest } from '@domain/value-objects/PageRequest';
 import type { AuthSession } from '@application/ports/AuthSession';
 import type { Clock } from '@application/ports/Clock';
 
+import { createDocumentPdf } from '../pdf/createDocumentPdf';
 import { clonePlain } from '../shared/clonePlain';
 
 import type { SimulatedNetwork } from './SimulatedNetwork';
@@ -72,12 +71,6 @@ export interface InMemoryBackendOptions {
   readonly content: ServerContent;
 }
 
-/** Where the content of a document is, once downloaded. A scheme no real storage uses. */
-const DOCUMENT_LOCATION_PREFIX = 'memory://documents';
-
-/** Separates the parts of a location. The parts are encoded, so it cannot appear inside one. */
-const LOCATION_SEPARATOR = '/';
-
 /** Separates the instant and the id in a page cursor. */
 const CURSOR_SEPARATOR = ':';
 
@@ -86,8 +79,24 @@ const FAILURE_CAUSE = {
   InvalidCursor: 'invalid page cursor',
   InvalidLimit: 'invalid page limit',
   CursorNotBuilt: 'page cursor could not be built',
-  LocationNotBuilt: 'document location could not be built',
 } as const;
+
+/**
+ * What the server sends for the content of a document: the file, who it was made for and which
+ * version of the document it is. The HTTP API sends the same three things (the body, the token's
+ * user, which the client knows, and the `ETag`).
+ */
+export interface ServedDocumentContent {
+  /** The user the content was served to. Two users never share a download. */
+  readonly userId: UserId;
+  /**
+   * Identifies the version of the content. It changes when the content or the classification of the
+   * document does, so a download is never reused across versions. Opaque.
+   */
+  readonly version: string;
+  /** The bytes of the PDF. */
+  readonly bytes: Uint8Array<ArrayBuffer>;
+}
 
 /** Why a content cannot be held by the server. */
 export const SERVER_CONTENT_ERROR_CODE = {
@@ -231,33 +240,30 @@ export class InMemoryBackend {
   }
 
   /**
-   * Where the content of a document can be read once downloaded. The download itself is not
-   * simulated. The location is per user and per version of the content: a download is never
-   * reused for somebody else, nor after the content changed.
+   * The content of a document: a PDF with one page for each page of the document (up to a maximum,
+   * see `createDocumentPdf`), the user it was served to and the version of the content. The
+   * version is per revision of what the server holds: a download is never reused across two of
+   * them.
    */
   fetchDocumentContent(
     id: DocumentId,
     caller: Caller = this.options.auth,
   ): Promise<
     Result<
-      DocumentLocation,
-      NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError | UnexpectedError
+      ServedDocumentContent,
+      NetworkUnavailableError | UnauthorizedError | NotFoundError | ForbiddenError
     >
   > {
-    return this.serve<DocumentLocation, NotFoundError | ForbiddenError | UnexpectedError>(
-      caller,
-      (userId) => {
-        const found = this.findDocument(id, userId);
-        if (found === undefined) return err(notFound());
-        if (!found.allowed) return err(forbidden());
-        const location = parseDocumentLocation(
-          [DOCUMENT_LOCATION_PREFIX, this.revision, userId, id]
-            .map((part) => encodeURIComponent(String(part)))
-            .join(LOCATION_SEPARATOR),
-        );
-        return location.ok ? location : err(unexpected(FAILURE_CAUSE.LocationNotBuilt));
-      },
-    );
+    return this.serve<ServedDocumentContent, NotFoundError | ForbiddenError>(caller, (userId) => {
+      const found = this.findDocument(id, userId);
+      if (found === undefined) return err(notFound());
+      if (!found.allowed) return err(forbidden());
+      return ok({
+        userId,
+        version: String(this.revision),
+        bytes: createDocumentPdf(found.document),
+      });
+    });
   }
 
   submitVote(

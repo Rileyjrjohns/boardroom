@@ -4,6 +4,7 @@ import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 
 import { toVoteRequestWire } from '../http/dto/voteDto';
 import { HTTP_HEADER, HTTP_STATUS, ROUTES } from '../http/protocol';
+import { hasPdfSignature } from '../pdf/pdfSignature';
 import { createHttpServerSide } from '../testing/httpWorld';
 import type { InstalledMockApi } from '../testing/httpWorld';
 import { TEST_PASSWORD } from '../testing/testServer';
@@ -21,6 +22,8 @@ function aServer() {
     api: undefined,
     conditions: { online: true, delayMillis: 0 },
     received: [],
+    receivedHeaders: [],
+    override: undefined,
   };
   const server = createHttpServerSide(unused);
   const [alice] = server.accounts;
@@ -43,13 +46,19 @@ function aServer() {
     const response = await server.api.handle(
       new Request(`${BASE}${path}`, { method, headers, ...(body === undefined ? {} : { body }) }),
     );
+    const bytes = new Uint8Array(await response.clone().arrayBuffer());
     const text = await response.text();
     return {
       status: response.status,
       contentType: response.headers.get(HTTP_HEADER.ContentType),
       cacheControl: response.headers.get(HTTP_HEADER.CacheControl),
+      etag: response.headers.get(HTTP_HEADER.ETag),
+      bytes,
       text,
-      body: text === '' ? undefined : (JSON.parse(text) as Record<string, any>),
+      body:
+        text === '' || response.headers.get(HTTP_HEADER.ContentType) !== 'application/json'
+          ? undefined
+          : (JSON.parse(text) as Record<string, any>),
     };
   }
 
@@ -190,6 +199,8 @@ describe('MockApi, signing in', () => {
       api: undefined,
       conditions: { online: true, delayMillis: 0 },
       received: [],
+      receivedHeaders: [],
+      override: undefined,
     };
     const server = createHttpServerSide(unused);
     const api = new MockApi({
@@ -387,12 +398,11 @@ describe('MockApi, reading', () => {
     expect(answer.body?.id).toBe('a/b c');
   });
 
-  it('answers a document, and where its content is, for the user and the version of the document', async () => {
+  it('answers a document', async () => {
     const { call, signIn } = aServer();
     const token = await signIn();
 
     const document = await call('GET', ROUTES.document('document-1'), { token });
-    const content = await call('GET', ROUTES.documentContent('document-1'), { token });
 
     expect(document.body).toEqual({
       id: 'document-1',
@@ -400,7 +410,74 @@ describe('MockApi, reading', () => {
       confidentiality: 'confidential',
       pageCount: 3,
     });
-    expect(content.body?.location).toContain('user-1');
+  });
+
+  describe('the content of a document', () => {
+    it('is the file itself, as application/pdf, with one page for each page of the document', async () => {
+      const { call, signIn } = aServer();
+      const token = await signIn();
+
+      const content = await call('GET', ROUTES.documentContent('document-1'), { token });
+
+      expect(content.status).toBe(HTTP_STATUS.Ok);
+      expect(content.contentType).toBe('application/pdf');
+      expect(hasPdfSignature(content.bytes)).toBe(true);
+      expect(content.text).toContain('/Count 3');
+      expect(content.text).toContain('(Financial statements) Tj');
+    });
+
+    it('is not to be stored by anything between the server and the app, and carries the version as its ETag', async () => {
+      const { call, signIn } = aServer();
+      const token = await signIn();
+
+      const content = await call('GET', ROUTES.documentContent('document-1'), { token });
+
+      expect(content.cacheControl).toBe('no-store');
+      expect(content.etag).toMatch(/^"[^"]+"$/);
+    });
+
+    it('has the same version while the content of the server is the same, and another once it changed', async () => {
+      const { call, signIn, load } = aServer();
+      const token = await signIn();
+      const first = await call('GET', ROUTES.documentContent('document-1'), { token });
+      const again = await call('GET', ROUTES.documentContent('document-1'), { token });
+
+      load({ meetings: [aMeetingWithAgenda()], recordedVotes: [] });
+      const replaced = await call('GET', ROUTES.documentContent('document-1'), { token });
+
+      expect(again.etag).toBe(first.etag);
+      expect(replaced.etag).not.toBe(first.etag);
+    });
+
+    it('is refused without a token, like the metadata', async () => {
+      const { call } = aServer();
+
+      const content = await call('GET', ROUTES.documentContent('document-1'));
+
+      expect(content.status).toBe(HTTP_STATUS.Unauthorized);
+      expect(content.body).toEqual({ error: { code: API_ERROR_CODE.Unauthorized } });
+      expect(content.contentType).toBe('application/json');
+    });
+
+    it('is refused for a document that does not exist', async () => {
+      const { call, signIn } = aServer();
+      const token = await signIn();
+
+      const content = await call('GET', ROUTES.documentContent('nowhere'), { token });
+
+      expect(content.status).toBe(HTTP_STATUS.NotFound);
+      expect(content.body).toEqual({ error: { code: API_ERROR_CODE.NotFound } });
+    });
+
+    it('is refused while the simulated network is cut', async () => {
+      const { call, signIn, network } = aServer();
+      const token = await signIn();
+      network.setOnline(false);
+
+      const content = await call('GET', ROUTES.documentContent('document-1'), { token });
+
+      expect(content.status).toBe(HTTP_STATUS.ServiceUnavailable);
+    });
   });
 
   it('answers 404 and 403 for documents like for meetings', async () => {

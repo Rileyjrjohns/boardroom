@@ -1,28 +1,27 @@
 import { describeDocumentCacheContract } from '@application/testing/contracts/documentCacheContract';
+import { IN_MEMORY_STORE } from '@application/testing/contracts/support';
 import { storageWriteFailed } from '@domain/errors/StorageError';
 
-import { InMemoryDocumentCache } from './InMemoryDocumentCache';
-import { InMemoryDocumentContent } from './InMemoryDocumentContent';
+import { aDocumentDevice } from '../testing/documentDevice';
+import { temporaryDirectory } from '../testing/NodeSqlite';
 
+import { InMemoryDocumentCache } from './InMemoryDocumentCache';
+
+const parent = temporaryDirectory();
+
+// The entries are in memory, the content is in files of a directory of the machine, behind a store
+// that can be made to fail to delete.
 describeDocumentCacheContract(
   'InMemoryDocumentCache',
   () => {
-    const content = new InMemoryDocumentContent();
-    const cache = new InMemoryDocumentCache(content);
+    const device = aDocumentDevice(parent);
+    const cache = new InMemoryDocumentCache(device.store);
     return {
       cache,
       breakWrites: () => cache.failWritesWith(storageWriteFailed()),
       repairWrites: () => cache.failWritesWith(undefined),
-      files: {
-        put: (location) => content.store(location),
-        exists: (location) => content.has(location),
-        lose: (location) => {
-          content.delete(location);
-        },
-        breakDeletion: () => content.failDeletionWith(storageWriteFailed()),
-        repairDeletion: () => content.failDeletionWith(undefined),
-      },
+      files: device.files,
     };
   },
-  { keepsFiles: true },
+  { ...IN_MEMORY_STORE, keepsFiles: true },
 );

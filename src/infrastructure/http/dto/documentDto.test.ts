@@ -1,14 +1,7 @@
-import { aConfidentialDocument, aDocument, aDocumentLocation } from '@domain/testing/builders';
+import { aConfidentialDocument, aDocument } from '@domain/testing/builders';
 import { VALIDATION_FIELD } from '@domain/errors/ValidationError';
 
-import {
-  documentContentSchema,
-  documentSchema,
-  toDocument,
-  toDocumentContentWire,
-  toDocumentLocation,
-  toDocumentWire,
-} from './documentDto';
+import { documentSchema, toDocument, toDocumentWire } from './documentDto';
 
 const WIRE = toDocumentWire(aDocument());
 
@@ -47,25 +40,5 @@ describe('the document schema', () => {
     const mapped = toDocument(documentSchema.parse({ ...WIRE, ...change }));
 
     expect(!mapped.ok && mapped.error).toMatchObject({ field });
-  });
-});
-
-describe('the content schema', () => {
-  it('gives the location back as it was', () => {
-    const location = aDocumentLocation('memory://documents/1/user-1/document-1');
-
-    const parsed = documentContentSchema.parse(
-      JSON.parse(JSON.stringify(toDocumentContentWire(location))),
-    );
-
-    expect(toDocumentLocation(parsed)).toStrictEqual({ ok: true, value: location });
-  });
-
-  it.each([{}, { location: 12 }, { location: null }, []])('fails for %j', (wire) => {
-    expect(documentContentSchema.safeParse(wire).success).toBe(false);
-  });
-
-  it('refuses a blank location through the factory of the domain', () => {
-    expect(toDocumentLocation({ location: '  ' }).ok).toBe(false);
   });
 });

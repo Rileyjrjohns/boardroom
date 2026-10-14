@@ -335,7 +335,9 @@ describe('SqliteVoteOutbox, after the migration that makes room for quarantined 
     const next = pendingVote('r4', at(4));
     await outbox.enqueue(next);
 
-    expect(migrated).toStrictEqual(ok({ version: MIGRATIONS.length, applied: 1 }));
+    expect(migrated).toStrictEqual(
+      ok({ version: MIGRATIONS.length, applied: MIGRATIONS.length - BEFORE.length }),
+    );
     expect(await outbox.list(VOTER)).toStrictEqual(
       ok({
         votes: [first, rejectVote(second, voteUndeliverable(5), at(9)), next],

@@ -35,6 +35,7 @@ import { parsePageCursor } from '@domain/value-objects/PageCursor';
 import { createPageRequest } from '@domain/value-objects/PageRequest';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 
+import { hasPdfSignature } from '../pdf/pdfSignature';
 import { recordingSleep } from '../testing/sleep';
 
 import { InMemoryBackend, SERVER_CONTENT_ERROR_CODE } from './InMemoryBackend';
@@ -573,14 +574,19 @@ describe('InMemoryBackend', () => {
   });
 
   describe('content', () => {
-    it('stores the location of a downloaded document among the files of the device', async () => {
+    it('writes the content of a downloaded document to the files of the device, as a PDF', async () => {
       const server = createTestServer({
         content: { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] },
       });
 
       const location = await server.documents.fetchContent(aDocument().id);
 
-      expect(location.ok && server.files.has(location.value)).toBe(true);
+      const name = location.ok ? server.files.nameOf(location.value) : undefined;
+      expect(name).toBeDefined();
+      expect(await server.files.stat(name ?? '')).toMatchObject({
+        ok: true,
+        value: { size: expect.any(Number) as number },
+      });
     });
 
     it('does not store anything when the download fails', async () => {
@@ -592,6 +598,50 @@ describe('InMemoryBackend', () => {
       const location = await server.documents.fetchContent(aDocument().id);
 
       expect(location.ok).toBe(false);
+      expect(await server.files.list()).toStrictEqual(ok([]));
+    });
+
+    it('serves a PDF with the pages of the document, made for the user and the version', async () => {
+      const server = createTestServer({
+        content: {
+          meetings: [
+            aMeeting({ documents: [aDocument({ title: 'Annual report', pageCount: 7 })] }),
+          ],
+          recordedVotes: [],
+        },
+      });
+
+      const served = await server.backend.fetchDocumentContent(aDocument().id);
+
+      expect(served.ok && hasPdfSignature(served.value.bytes)).toBe(true);
+      expect(served.ok && served.value.userId).toBe(aUserId());
+      expect(served.ok && String.fromCharCode(...served.value.bytes)).toContain('/Count 7');
+    });
+
+    it('serves another version when the content is replaced, and the same one while it is not', async () => {
+      const server = createTestServer({
+        content: { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] },
+      });
+      const first = await server.backend.fetchDocumentContent(aDocument().id);
+      const again = await server.backend.fetchDocumentContent(aDocument().id);
+
+      server.load({ meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] });
+      const replaced = await server.backend.fetchDocumentContent(aDocument().id);
+
+      expect(first.ok && again.ok && again.value.version).toBe(first.ok && first.value.version);
+      expect(replaced.ok && first.ok && replaced.value.version).not.toBe(
+        first.ok && first.value.version,
+      );
+    });
+
+    it('serves no content for a document that is not there', async () => {
+      const server = createTestServer({
+        content: { meetings: [aMeeting({ documents: [aDocument()] })], recordedVotes: [] },
+      });
+
+      expect(await server.backend.fetchDocumentContent(aDocumentId('nowhere'))).toStrictEqual(
+        err(notFound()),
+      );
     });
 
     it('hands out copies: changing an answer does not change the server', async () => {

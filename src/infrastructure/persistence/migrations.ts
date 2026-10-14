@@ -136,9 +136,38 @@ const quarantineUnreadableVotes: Migration = {
   ],
 };
 
+/**
+ * Version 4: the cache of the documents already viewed. An entry is the metadata of a document and
+ * where its content is (a file, kept apart from the database), for one owner.
+ *
+ * - The key is one column for each part, `(owner, document_id)`, never the two joined in a text, as
+ *   in the cache of meetings.
+ * - The location is a column of its own and not a part of the payload, because the cache has to
+ *   ask the database which entries point at a file: the file of an entry is deleted only when no
+ *   other entry (another owner's) needs it. The index answers that without reading every row.
+ * - The payload is the document as the cache stores it, in the format of the cache (see
+ *   `storedDocument.ts`).
+ */
+const cacheDocuments: Migration = {
+  version: 4,
+  statements: [
+    `CREATE TABLE ${TABLE.DocumentEntries} (
+      ${COLUMN.Owner} TEXT NOT NULL,
+      ${COLUMN.DocumentId} TEXT NOT NULL,
+      ${COLUMN.CachedAt} INTEGER NOT NULL,
+      ${COLUMN.Location} TEXT NOT NULL,
+      ${COLUMN.Payload} TEXT NOT NULL,
+      PRIMARY KEY (${COLUMN.Owner}, ${COLUMN.DocumentId})
+    ) WITHOUT ROWID`,
+    `CREATE INDEX ${INDEX.DocumentEntriesByLocation}
+      ON ${TABLE.DocumentEntries} (${COLUMN.Location})`,
+  ],
+};
+
 /** Every migration of the database, in order. The last one is the version the app expects. */
 export const MIGRATIONS: readonly Migration[] = [
   initial,
   indexOutboxByResolution,
   quarantineUnreadableVotes,
+  cacheDocuments,
 ];

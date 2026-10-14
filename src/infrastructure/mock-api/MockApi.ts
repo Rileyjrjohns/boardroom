@@ -14,7 +14,7 @@ import { parsePageCursor } from '@domain/value-objects/PageCursor';
 import { createPageRequest } from '@domain/value-objects/PageRequest';
 import type { Clock } from '@application/ports/Clock';
 
-import { toDocumentContentWire, toDocumentWire } from '../http/dto/documentDto';
+import { toDocumentWire } from '../http/dto/documentDto';
 import { toMeetingPageWire, toMeetingWire } from '../http/dto/meetingDto';
 import { signInRequestSchema, toSignInResponseWire } from '../http/dto/sessionDto';
 import { toVote, voteRequestSchema } from '../http/dto/voteDto';
@@ -25,13 +25,14 @@ import {
   HTTP_METHOD,
   HTTP_STATUS,
   MEDIA_TYPE_JSON,
+  MEDIA_TYPE_PDF,
   QUERY_PARAMETER,
   ROUTE_ACTION,
   ROUTE_ROOT,
   SEGMENT_COUNT,
 } from '../http/protocol';
 import type { DemoAccount } from '../in-memory/InMemoryAuthSession';
-import type { Caller, InMemoryBackend } from '../in-memory/InMemoryBackend';
+import type { Caller, InMemoryBackend, ServedDocumentContent } from '../in-memory/InMemoryBackend';
 import { toVotingErrorWire } from '../shared/rejectionSchemas';
 
 /** The `code` of the body of an error: `{ "error": { "code": "..." } }`. Documented in docs/api.md. */
@@ -194,9 +195,7 @@ export class MockApi {
       id.value,
       this.callerOf(request),
     );
-    return answer.ok
-      ? json(HTTP_STATUS.Ok, toDocumentContentWire(answer.value))
-      : refusal(answer.error);
+    return answer.ok ? pdf(answer.value) : refusal(answer.error);
   }
 
   private async castVote(request: Request): Promise<Response> {
@@ -297,6 +296,21 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { [HTTP_HEADER.ContentType]: MEDIA_TYPE_JSON, ...NOT_STORED },
+  });
+}
+
+/**
+ * The content of a document: the file itself, with the version of the content as its `ETag` (quoted,
+ * as the header wants), under the same `no-store` as every other answer.
+ */
+function pdf(content: ServedDocumentContent): Response {
+  return new Response(content.bytes, {
+    status: HTTP_STATUS.Ok,
+    headers: {
+      [HTTP_HEADER.ContentType]: MEDIA_TYPE_PDF,
+      [HTTP_HEADER.ETag]: `"${content.version}"`,
+      ...NOT_STORED,
+    },
   });
 }
 

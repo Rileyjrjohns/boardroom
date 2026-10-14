@@ -70,6 +70,8 @@ export interface FetchedResponse {
   readonly headers?: FetchedHeaders;
   readonly body?: FetchedBody | null;
   text(): Promise<string>;
+  /** The whole body as bytes, for a platform that has no stream to read it with. */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export interface FetchRequestInit {
@@ -128,6 +130,30 @@ export interface HttpRequestSpec<T> extends HttpActionSpec {
 }
 
 /**
+ * A request for a file: bytes instead of JSON. It is always made for the signed-in user.
+ */
+export interface HttpDownloadSpec extends Omit<HttpActionSpec, 'authenticated' | 'forUser'> {
+  /**
+   * The media type the answer must have, without parameters (`application/pdf`). It is also what
+   * the request says it accepts. An answer of another type is refused without being read.
+   */
+  readonly mediaType: string;
+  /** The most bytes the answer may have: one that declares more is refused unread. */
+  readonly maxBytes: number;
+  /** How long the whole download may take. Defaults to the timeout of the client. */
+  readonly timeout?: Duration;
+}
+
+/** What a download brought: the bytes, the version the server gave them, and who they are for. */
+export interface Downloaded {
+  readonly bytes: Uint8Array;
+  /** The `ETag` of the answer, as it came, or `undefined` when there was none. */
+  readonly etag: string | undefined;
+  /** The user whose token the request carried: the content is the one for that user. */
+  readonly userId: UserId;
+}
+
+/**
  * A request is given as the description of it, or as a function that builds the description. The
  * function runs where the client can catch it: a path made of an identifier that cannot be encoded
  * is a request that cannot be built (`unexpected`), not an exception.
@@ -159,6 +185,7 @@ const FAILURE_CAUSE = {
   CredentialsUnreadable: 'credentials unreadable',
   RequestNotBuilt: 'request could not be built',
   ResponseTooLarge: 'response too large',
+  UnexpectedMediaType: 'unexpected media type',
 } as const;
 
 const SUCCESS_STATUS_FROM = 200;
@@ -180,11 +207,15 @@ interface RawResponse {
   readonly status: number;
   /** `undefined` when the body was not read: it was not wanted. */
   readonly text: string | undefined;
+  /** The bytes of a download that succeeded. */
+  readonly download?: { readonly bytes: Uint8Array; readonly etag: string | undefined };
 }
 
 /** Why a response could not be had whole. */
 const RESPONSE_FAILURE = {
   TooLarge: 'tooLarge',
+  /** The answer is not of the media type that was asked for. */
+  WrongMediaType: 'wrongMediaType',
   Network: 'network',
 } as const;
 
@@ -214,38 +245,79 @@ type ResponseFailure = (typeof RESPONSE_FAILURE)[keyof typeof RESPONSE_FAILURE];
  * - The body of a success is checked against the schema the caller gives (`request`), or is not
  *   read at all (`perform`). A body that is not JSON or does not match is `unexpected`, and the
  *   paths of the fields that did not match (never their values) go to the monitoring.
+ * - A file is downloaded with `download`, under the same rules: the same headers, the same token
+ *   read when the request is created, the same statuses and failures, and the same causes. The
+ *   answer must be of the media type the caller asks for, which is checked before a byte of the
+ *   body is read, and it is read up to the size the caller allows, whether the platform gives a
+ *   stream or not. It has its own time limit, since a file takes longer than a page of JSON.
  */
 export class HttpClient {
   constructor(private readonly options: HttpClientOptions) {}
 
   /** A request whose answer is read through a schema. */
   request<T>(described: Described<HttpRequestSpec<T>>): Promise<Result<T, HttpFailure>> {
-    return this.run(described, true, (spec, response) => this.readSuccess(spec, response));
+    return this.run(described, readText(true), (spec, response) =>
+      this.readSuccess(spec, response),
+    );
   }
 
   /** A request that is done once the server says it succeeded: the body of a success is not read. */
   perform(described: Described<HttpActionSpec>): Promise<Result<undefined, HttpFailure>> {
-    return this.run(described, false, () => ok(undefined));
+    return this.run(described, readText(false), () => ok(undefined));
+  }
+
+  /**
+   * A request for a file, for the signed-in user. The answer's body is not read unless it is a
+   * success of the media type that was asked for, and then only up to the size that was allowed.
+   */
+  async download(described: Described<HttpDownloadSpec>): Promise<Result<Downloaded, HttpFailure>> {
+    const prepared = await this.prepare(described, (spec) => ({
+      [HTTP_HEADER.Accept]: spec.mediaType,
+    }));
+    if (!prepared.ok) return prepared;
+
+    const { request, spec, userId } = prepared.value;
+    if (userId === undefined) return err(unauthorized());
+    const response = await this.exchange(
+      request,
+      readDownload(spec.mediaType, spec.maxBytes),
+      spec.timeout ?? this.options.timeout,
+    );
+    if (!response.ok) return response;
+
+    return this.interpret(spec, response.value, (_spec, raw) =>
+      raw.download === undefined
+        ? err(unexpected(statusCause(raw.status)))
+        : ok({ bytes: raw.download.bytes, etag: raw.download.etag, userId }),
+    );
   }
 
   private async run<Spec extends HttpActionSpec, T>(
     described: Described<Spec>,
-    readsSuccessBody: boolean,
+    read: BodyReader,
     readSuccess: (spec: Spec, response: RawResponse) => Result<T, HttpFailure>,
   ): Promise<Result<T, HttpFailure>> {
     const prepared = await this.prepare(described);
     if (!prepared.ok) return prepared;
 
     const { request, spec } = prepared.value;
-    const response = await this.exchange(request, readsSuccessBody);
+    const response = await this.exchange(request, read, this.options.timeout);
     if (!response.ok) return response;
 
     return this.interpret(spec, response.value, readSuccess);
   }
 
-  private async prepare<Spec extends HttpActionSpec>(
+  /**
+   * The request as it will be sent: the description built, the headers (those of `defaults` for a
+   * spec that says what it accepts, then the spec's own), and the token of the signed-in user with
+   * the user it belongs to.
+   */
+  private async prepare<Spec extends Omit<HttpActionSpec, 'authenticated' | 'forUser'>>(
     described: Described<Spec>,
-  ): Promise<Result<{ request: PreparedRequest; spec: Spec }, HttpFailure>> {
+    defaults: (spec: Spec) => Record<string, string> = () => ({}),
+  ): Promise<
+    Result<{ request: PreparedRequest; spec: Spec; userId: UserId | undefined }, HttpFailure>
+  > {
     let spec: Spec;
     let built: Omit<PreparedRequest, 'init'> & { headers: Record<string, string>; body?: string };
     try {
@@ -256,6 +328,7 @@ export class HttpClient {
         headers: {
           [HTTP_HEADER.Accept]: MEDIA_TYPE_JSON,
           [HTTP_HEADER.CacheControl]: CACHE_CONTROL_NO_STORE,
+          ...defaults(spec),
           ...spec.headers,
           ...(body === undefined ? {} : { [HTTP_HEADER.ContentType]: MEDIA_TYPE_JSON }),
         },
@@ -266,18 +339,22 @@ export class HttpClient {
       return err(unexpected(FAILURE_CAUSE.RequestNotBuilt));
     }
 
-    if (spec.authenticated ?? true) {
+    const { authenticated = true, forUser } = spec as HttpActionSpec;
+    let userId: UserId | undefined;
+    if (authenticated) {
       const token = await this.options.tokens.token();
       if (!token.ok) return err(unexpected(FAILURE_CAUSE.CredentialsUnreadable));
       if (token.value === undefined) return err(unauthorized());
-      if (spec.forUser !== undefined && spec.forUser !== token.value.userId) {
+      if (forUser !== undefined && forUser !== token.value.userId) {
         return err(unauthorized());
       }
       built.headers[HTTP_HEADER.Authorization] = `${BEARER_PREFIX}${token.value.token}`;
+      userId = token.value.userId;
     }
 
     return ok({
       spec,
+      userId,
       request: {
         url: built.url,
         init: {
@@ -293,7 +370,8 @@ export class HttpClient {
   /** Sends the request and reads the whole answer, within the time allowed. */
   private async exchange(
     request: PreparedRequest,
-    readsSuccessBody: boolean,
+    read: BodyReader,
+    timeout: Duration,
   ): Promise<Result<RawResponse, HttpFailure>> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -301,21 +379,14 @@ export class HttpClient {
       timer = setTimeout(() => {
         controller.abort();
         resolve(TIMED_OUT);
-      }, this.options.timeout);
+      }, timeout);
     });
 
     try {
-      const outcome = await Promise.race([
-        this.send(request, controller, readsSuccessBody),
-        expired,
-      ]);
+      const outcome = await Promise.race([this.send(request, controller, read), expired]);
       if (outcome === TIMED_OUT) return err(networkUnavailable());
       if (outcome.ok) return outcome;
-      return err(
-        outcome.error === RESPONSE_FAILURE.TooLarge
-          ? unexpected(FAILURE_CAUSE.ResponseTooLarge)
-          : networkUnavailable(),
-      );
+      return err(failureOfResponse(outcome.error));
     } finally {
       clearTimeout(timer);
     }
@@ -325,17 +396,16 @@ export class HttpClient {
   private async send(
     request: PreparedRequest,
     controller: AbortController,
-    readsSuccessBody: boolean,
+    read: BodyReader,
   ): Promise<Result<RawResponse, ResponseFailure>> {
     try {
       const send = this.options.fetch ?? fetchOverTheNetwork;
       const response = await send(request.url, { ...request.init, signal: controller.signal });
-      if (isSuccess(response.status) && !readsSuccessBody) {
-        return ok({ status: response.status, text: undefined });
-      }
-      const text = await readBounded(response);
-      if (!text.ok) controller.abort();
-      return text.ok ? ok({ status: response.status, text: text.value }) : text;
+      const body = await read(response);
+      // What was not read is dropped with the connection: a failure, and the body of a refusal that
+      // a download leaves unread. Aborting a body that was read to the end changes nothing.
+      if (!body.ok || !isSuccess(response.status)) controller.abort();
+      return body;
     } catch {
       return err(RESPONSE_FAILURE.Network);
     }
@@ -395,37 +465,90 @@ const fetchOverTheNetwork: FetchFunction = async (url, init) => {
     headers: response.headers,
     body: body ? { getReader: () => body.getReader() } : null,
     text: () => response.text(),
+    arrayBuffer: () => response.arrayBuffer(),
   };
 };
 
 const isSuccess = (status: number): boolean =>
   status >= SUCCESS_STATUS_FROM && status < SUCCESS_STATUS_BELOW;
 
+/** What the failure of a response is reported as. */
+function failureOfResponse(failure: ResponseFailure): HttpFailure {
+  switch (failure) {
+    case RESPONSE_FAILURE.TooLarge:
+      return unexpected(FAILURE_CAUSE.ResponseTooLarge);
+    case RESPONSE_FAILURE.WrongMediaType:
+      return unexpected(FAILURE_CAUSE.UnexpectedMediaType);
+    case RESPONSE_FAILURE.Network:
+      return networkUnavailable();
+  }
+}
+
+/** How the body of an answer is read, once its status and its headers are known. */
+type BodyReader = (response: FetchedResponse) => Promise<Result<RawResponse, ResponseFailure>>;
+
 /**
- * The body of a response as text, if it fits in `MAX_RESPONSE_BYTES`. The length it declares is
- * checked first; then the body is read as a stream where the platform gives one, and abandoned as
- * soon as it grows past the maximum. Where it does not (React Native), it is read whole and its
- * length checked after: the protection is then the timeout, which bounds how much can arrive.
+ * Reads the body as text, up to `MAX_RESPONSE_BYTES`. The body of a success is left alone when the
+ * caller does not want it.
  */
-async function readBounded(response: FetchedResponse): Promise<Result<string, ResponseFailure>> {
+function readText(readsSuccessBody: boolean): BodyReader {
+  return async (response) => {
+    if (isSuccess(response.status) && !readsSuccessBody) {
+      return ok({ status: response.status, text: undefined });
+    }
+    const text = await readBounded(response);
+    return text.ok ? ok({ status: response.status, text: text.value }) : text;
+  };
+}
+
+/**
+ * Reads the body of a success as bytes, after checking its media type and the size it declares,
+ * both before a byte of it is read. The body of any other answer is not read: only its status
+ * matters, and the connection is dropped.
+ */
+function readDownload(mediaType: string, maxBytes: number): BodyReader {
+  return async (response) => {
+    if (!isSuccess(response.status)) return ok({ status: response.status, text: undefined });
+    if (mediaTypeOf(response.headers?.get(HTTP_HEADER.ContentType)) !== mediaType) {
+      return err(RESPONSE_FAILURE.WrongMediaType);
+    }
+    const bytes = await readBytes(response, maxBytes);
+    if (!bytes.ok) return bytes;
+    return ok({
+      status: response.status,
+      text: undefined,
+      download: { bytes: bytes.value, etag: response.headers?.get(HTTP_HEADER.ETag) ?? undefined },
+    });
+  };
+}
+
+/** `application/pdf; charset=binary` is `application/pdf`: the type, lower case, without parameters. */
+function mediaTypeOf(contentType: string | null | undefined): string {
+  return (contentType ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+}
+
+/** What the length a response declares says about it: `undefined` when it declares none. */
+function declaredLengthOf(response: FetchedResponse): number | undefined {
   const declared = Number(response.headers?.get(HTTP_HEADER.ContentLength) ?? Number.NaN);
-  if (Number.isInteger(declared) && declared > MAX_RESPONSE_BYTES) {
-    return err(RESPONSE_FAILURE.TooLarge);
-  }
+  return Number.isInteger(declared) ? declared : undefined;
+}
 
-  if (!response.body) {
-    const text = await response.text();
-    return text.length > MAX_RESPONSE_BYTES ? err(RESPONSE_FAILURE.TooLarge) : ok(text);
-  }
-
-  const reader = response.body.getReader();
+/**
+ * The bytes of a stream, if they fit in `limit`: the stream is abandoned as soon as it grows past
+ * it.
+ */
+async function readStream(
+  body: FetchedBody,
+  limit: number,
+): Promise<Result<Uint8Array, ResponseFailure>> {
+  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   for (;;) {
     const chunk = await reader.read();
     if (chunk.done || chunk.value === undefined) break;
     size += chunk.value.byteLength;
-    if (size > MAX_RESPONSE_BYTES) {
+    if (size > limit) {
       await reader.cancel().catch(() => undefined);
       return err(RESPONSE_FAILURE.TooLarge);
     }
@@ -437,7 +560,47 @@ async function readBounded(response: FetchedResponse): Promise<Result<string, Re
     whole.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return ok(new TextDecoder().decode(whole));
+  return ok(whole);
+}
+
+/**
+ * The body of a response as bytes, if it fits in `limit`. The length it declares is checked first;
+ * then the body is read as a stream where the platform gives one, and abandoned as soon as it grows
+ * past the limit. Where it does not, it is read whole and its length checked after: the protection
+ * is then the timeout, which bounds how much can arrive. A platform with neither is a network that
+ * failed.
+ */
+async function readBytes(
+  response: FetchedResponse,
+  limit: number,
+): Promise<Result<Uint8Array, ResponseFailure>> {
+  const declared = declaredLengthOf(response);
+  if (declared !== undefined && declared > limit) return err(RESPONSE_FAILURE.TooLarge);
+  if (response.body) return readStream(response.body, limit);
+  if (response.arrayBuffer === undefined) return err(RESPONSE_FAILURE.Network);
+
+  const whole = new Uint8Array(await response.arrayBuffer());
+  return whole.byteLength > limit ? err(RESPONSE_FAILURE.TooLarge) : ok(whole);
+}
+
+/**
+ * The body of a response as text, if it fits in `MAX_RESPONSE_BYTES`. The length it declares is
+ * checked first; then the body is read as a stream where the platform gives one, and abandoned as
+ * soon as it grows past the maximum. Where it does not (React Native), it is read whole and its
+ * length checked after: the protection is then the timeout, which bounds how much can arrive.
+ */
+async function readBounded(response: FetchedResponse): Promise<Result<string, ResponseFailure>> {
+  const declared = declaredLengthOf(response);
+  if (declared !== undefined && declared > MAX_RESPONSE_BYTES)
+    return err(RESPONSE_FAILURE.TooLarge);
+
+  if (!response.body) {
+    const text = await response.text();
+    return text.length > MAX_RESPONSE_BYTES ? err(RESPONSE_FAILURE.TooLarge) : ok(text);
+  }
+
+  const bytes = await readStream(response.body, MAX_RESPONSE_BYTES);
+  return bytes.ok ? ok(new TextDecoder().decode(bytes.value)) : bytes;
 }
 
 /** `?name=value&...` with every name and value percent-encoded, or nothing for no parameter. */

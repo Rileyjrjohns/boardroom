@@ -19,9 +19,9 @@ import { HttpMeetingRepository } from '@infrastructure/http/HttpMeetingRepositor
 import { HttpVoteRepository } from '@infrastructure/http/HttpVoteRepository';
 import { HTTP_HEADER, HTTP_STATUS } from '@infrastructure/http/protocol';
 import { DEMO_PASSWORD } from '@infrastructure/in-memory/seed';
-import { InMemoryDocumentContent } from '@infrastructure/in-memory/InMemoryDocumentContent';
 import { SessionVault } from '@infrastructure/secure-storage/SessionVault';
 import { MemorySecureStorage } from '@infrastructure/testing/MemorySecureStorage';
+import { testFileStore } from '@infrastructure/testing/testFiles';
 import { createPageRequest } from '@domain/value-objects/PageRequest';
 import { parseEmailAddress } from '@domain/value-objects/EmailAddress';
 
@@ -69,7 +69,7 @@ function aDevice() {
     monitoring,
     auth: new HttpAuthSession({ client, vault, clock, monitoring }),
     meetings: new HttpMeetingRepository(client, monitoring),
-    documents: new HttpDocumentRepository(client, monitoring, new InMemoryDocumentContent()),
+    documents: new HttpDocumentRepository(client, monitoring, testFileStore()),
     votes: new HttpVoteRepository(client, monitoring),
   };
 }

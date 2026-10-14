@@ -1,4 +1,5 @@
 import { FakeClock } from '@application/testing/FakeClock';
+import { FakeMonitoring } from '@application/testing/FakeMonitoring';
 import {
   aDuration,
   aMeetingWithAgenda,
@@ -16,13 +17,15 @@ import { InMemoryAuthSession } from '../in-memory/InMemoryAuthSession';
 import type { DemoAccount } from '../in-memory/InMemoryAuthSession';
 import { InMemoryBackend } from '../in-memory/InMemoryBackend';
 import type { ServerContent } from '../in-memory/InMemoryBackend';
-import { InMemoryDocumentContent } from '../in-memory/InMemoryDocumentContent';
 import { InMemoryDocumentRepository } from '../in-memory/InMemoryDocumentRepository';
 import { InMemoryMeetingRepository } from '../in-memory/InMemoryMeetingRepository';
 import { InMemoryVoteRepository } from '../in-memory/InMemoryVoteRepository';
 import { SimulatedNetwork } from '../in-memory/SimulatedNetwork';
 
+import type { FileStore } from '../files/FileStore';
+
 import { immediateSleep } from './sleep';
+import { testFileStore } from './testFiles';
 
 // Test support, not production code: the simulated server of the tests, wired by hand the way the
 // composition root wires the real one, with a clock that only moves when the test says so and a
@@ -38,6 +41,8 @@ export interface TestServerOptions {
   readonly sleep?: Sleep;
   /** Whether `user-1` is signed in at first. By default, yes. */
   readonly signedIn?: boolean;
+  /** Where the downloads of the documents are kept. By default, a directory of the temporary folder. */
+  readonly files?: FileStore;
 }
 
 /** What the user of an account types to sign in. */
@@ -83,7 +88,8 @@ export function createTestServer(options: TestServerOptions = {}) {
       content: options.content ?? { meetings: [aMeetingWithAgenda()], recordedVotes: [] },
     }),
   );
-  const files = new InMemoryDocumentContent();
+  const files = options.files ?? testFileStore();
+  const monitoring = new FakeMonitoring();
 
   return {
     clock,
@@ -92,10 +98,11 @@ export function createTestServer(options: TestServerOptions = {}) {
     auth,
     backend,
     files,
+    monitoring,
     /** Replaces what the server holds. A content the server refuses is a broken fixture. */
     load: (content: ServerContent) => valid(backend.replaceContent(content)),
     meetings: new InMemoryMeetingRepository(backend),
-    documents: new InMemoryDocumentRepository(backend, files),
+    documents: new InMemoryDocumentRepository(backend, files, monitoring),
     votes: new InMemoryVoteRepository(backend),
   };
 }

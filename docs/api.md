@@ -6,9 +6,9 @@ The constants below (routes, headers, statuses, query parameters) are the ones o
 
 ## Conventions
 
-- JSON, UTF-8. A request with a body sends `Content-Type: application/json`; every request sends `Accept: application/json` and `Cache-Control: no-store`: the answers are confidential, and nothing between the server and the app (a proxy, the cache of the platform) may keep a copy. The server answers with `Cache-Control: no-store` too.
+- JSON, UTF-8, except the content of a document, which is a PDF. A request with a body sends `Content-Type: application/json`; every request sends `Accept: application/json` (`Accept: application/pdf` for the content of a document) and `Cache-Control: no-store`: the answers are confidential, and nothing between the server and the app (a proxy, the cache of the platform) may keep a copy. The server answers with `Cache-Control: no-store` too.
 - **No redirects.** The API does not redirect, and the client does not follow a redirect (`redirect: 'error'`): a redirect would carry the token to another address. Any 3xx is an `unexpected` failure. (React Native's `fetch` may not honour the option; see the README, "What is not verified".)
-- **Size.** An answer is at most 2 MiB (`MAX_RESPONSE_BYTES`). The client refuses one whose `Content-Length` declares more, without reading it, and stops reading a body that grows past it: the answer is an `unexpected` failure with the cause `response too large`. A request body is at most 64 KiB.
+- **Size.** An answer is at most 2 MiB (`MAX_RESPONSE_BYTES`). The client refuses one whose `Content-Length` declares more, without reading it, and stops reading a body that grows past it: the answer is an `unexpected` failure with the cause `response too large`. A request body is at most 64 KiB. The one exception is the content of a document (`GET /documents/{id}/content`), a file: at most 20 MiB (`MAX_DOCUMENT_BYTES`), refused and abandoned the same way.
 - **Instants** are ISO 8601 strings with a zone: `2030-03-17T17:46:40.000Z`, or with an offset (`2030-03-17T18:46:40+01:00`). They are never numbers.
 - **Identifiers** (users, meetings, agenda items, resolutions, documents) are opaque, case-sensitive text of 1 to 128 characters, well-formed UTF-16 (no lone surrogate), and neither `.` nor `..`, which a path would read as a directory. A client puts one in a path percent-encoded and never interprets it; an identifier it cannot encode makes a request that is not sent. Resolution ids are unique across all meetings.
 - **Unknown fields are ignored** by the client, so the server may add fields without breaking it. A field that is missing, or that has the wrong type, makes the answer invalid: the client treats it as an `unexpected` failure and reports the paths of the fields that did not match (never their values).
@@ -153,13 +153,27 @@ The metadata of a document, as in the meeting: `{ "id", "title", "confidentialit
 
 ### `GET /documents/{id}/content`
 
-Where the content of a document can be read:
+The content of a document: the file itself, a PDF. Response `200`:
 
-```json
-{ "location": "memory://documents/3/user-alice/document-1" }
+```http
+HTTP/1.1 200 OK
+Content-Type: application/pdf
+ETag: "3"
+Cache-Control: no-store
+
+%PDF-1.4
+…
 ```
 
-The location is opaque, and it is per user and per version of the document: two users never get the same one, and a document whose content or classification changed gets a new one, so that a download is never reused for somebody else or across versions. Asking twice for the same version answers the same location. The app records the location as downloaded; downloading the content to the private storage of the app comes with the document viewer.
+The same authorisation as the metadata of the document: `401`, `403` and `404` as for `GET /documents/{id}`, with the body of an error (`application/json`), which the client does not read.
+
+- **`Content-Type`** must be `application/pdf` (parameters and case are ignored). The client checks it before it reads a byte of the body, and refuses another type: an `unexpected` failure with the cause `unexpected media type`.
+- **The signature.** The body starts with `%PDF-`. A server that says `application/pdf` and sends something else (an error page, a sign-in form) is not trusted: the client refuses it, stores nothing, and the failure is `unexpected` with the cause `invalid response`.
+- **`ETag`** is the version of the content, and is required. It changes when the content or the classification of the document does, and it is the same while they do not. It is opaque, visible ASCII, 1 to 256 characters (`"3"`, `W/"abc"`). The client names the file it writes after the user the token belongs to, the document and this version, so that a download is never reused for somebody else nor across versions, and asking twice for the same version replaces the file in the same place. An answer without a usable `ETag` is `unexpected`, cause `invalid response`.
+- **Size and time.** At most 20 MiB (`MAX_DOCUMENT_BYTES`): the client refuses a body that declares more without reading it, and stops reading one that grows past it (`unexpected`, cause `response too large`). It has a timeout of its own, one minute (`DOCUMENT_DOWNLOAD_TIMEOUT` in `src/di/config.ts`), since a file takes longer than a page of JSON; past it the failure is `networkUnavailable`, and nothing is stored. The statuses that say the service cannot take the request now (408, 429, 502, 503, 504) are `networkUnavailable` here as everywhere.
+- **No redirect, no cache**, as for every request: the token goes to this address only, and nothing between the server and the app keeps a copy.
+
+The client writes the file to the private storage of the app whole or not at all (a temporary file moved into place when it is complete), and the location of that file is what the use cases carry: the API does not name a location, and the client never reads one from an answer.
 
 ### `POST /votes`
 
@@ -203,3 +217,5 @@ Responses:
 ## What the mock server adds
 
 It is the simulated server of the app behind these routes, so it also has what a simulation has: the seed (`src/infrastructure/in-memory/seed.ts`, generated from its clock: 24 upcoming and 42 past meetings and two accounts that share the password `boardroom-demo`), a configurable latency, and tokens it forgets when it stops. It listens on `127.0.0.1` by default. It answers `503` while its simulated network is cut, which the tests use to take it offline.
+
+The content of a document is generated: a valid PDF with one page of A4 for each page of the document, up to 100 (`DEMO_PDF_MAX_PAGES`), each page showing the title of the document and `page i / n`, in the standard Helvetica font. The same title and page count always give the same bytes. Its `ETag` is the revision of what the server holds, so replacing the content (which the tests do) gives every document a new version.
