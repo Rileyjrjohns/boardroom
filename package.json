@@ -12,6 +12,7 @@
     "android": "expo run:android",
     "mock:api": "node --experimental-transform-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./tooling/mock-api/register.mjs tooling/mock-api/main.ts",
     "lint": "eslint . --max-warnings 0",
+    "lint:architecture": "eslint app src --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -19,6 +20,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "validate": "npm run lint && npm run typecheck && npm run format:check && npm run test:coverage",
+    "e2e": "npm run e2e:android",
+    "e2e:android": "maestro --platform android ${E2E_ANDROID_DEVICE:+--device $E2E_ANDROID_DEVICE} test -e METRO_URL=${METRO_URL-http://localhost:8081} .maestro",
+    "e2e:ios": "maestro --platform ios ${E2E_IOS_DEVICE:+--device $E2E_IOS_DEVICE} test -e METRO_URL=${METRO_URL-http://localhost:8081} .maestro",
     "prepare": "husky || true"
   },
   "lint-staged": {
@@ -33,6 +37,7 @@
   "dependencies": {
     "@expo/log-box": "^57.0.4",
     "@expo/metro-runtime": "~57.0.16",
+    "@sentry/react-native": "~7.11.0",
     "@tanstack/react-query": "^5.104.2",
     "expo": "~57.0.28",
     "expo-constants": "~57.0.21",
@@ -46,6 +51,7 @@
     "expo-router": "~57.0.26",
     "expo-secure-store": "~57.0.4",
     "expo-sqlite": "~57.0.4",
+    "expo-updates": "~57.0.26",
     "i18next": "^26.4.4",
     "react": "19.2.3",
     "react-i18next": "^17.0.16",
