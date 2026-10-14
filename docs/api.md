@@ -6,9 +6,11 @@ The constants below (routes, headers, statuses, query parameters) are the ones o
 
 ## Conventions
 
-- JSON, UTF-8. A request with a body sends `Content-Type: application/json`; every request sends `Accept: application/json`.
+- JSON, UTF-8. A request with a body sends `Content-Type: application/json`; every request sends `Accept: application/json` and `Cache-Control: no-store`: the answers are confidential, and nothing between the server and the app (a proxy, the cache of the platform) may keep a copy. The server answers with `Cache-Control: no-store` too.
+- **No redirects.** The API does not redirect, and the client does not follow a redirect (`redirect: 'error'`): a redirect would carry the token to another address. Any 3xx is an `unexpected` failure. (React Native's `fetch` may not honour the option; see the README, "What is not verified".)
+- **Size.** An answer is at most 2 MiB (`MAX_RESPONSE_BYTES`). The client refuses one whose `Content-Length` declares more, without reading it, and stops reading a body that grows past it: the answer is an `unexpected` failure with the cause `response too large`. A request body is at most 64 KiB.
 - **Instants** are ISO 8601 strings with a zone: `2030-03-17T17:46:40.000Z`, or with an offset (`2030-03-17T18:46:40+01:00`). They are never numbers.
-- **Identifiers** (users, meetings, agenda items, resolutions, documents) are opaque, case-sensitive text of 1 to 128 characters. A client puts one in a path percent-encoded and never interprets it. Resolution ids are unique across all meetings.
+- **Identifiers** (users, meetings, agenda items, resolutions, documents) are opaque, case-sensitive text of 1 to 128 characters, well-formed UTF-16 (no lone surrogate), and neither `.` nor `..`, which a path would read as a directory. A client puts one in a path percent-encoded and never interprets it; an identifier it cannot encode makes a request that is not sent. Resolution ids are unique across all meetings.
 - **Unknown fields are ignored** by the client, so the server may add fields without breaking it. A field that is missing, or that has the wrong type, makes the answer invalid: the client treats it as an `unexpected` failure and reports the paths of the fields that did not match (never their values).
 - A text field is trimmed and checked by the rules of the domain (a title is not blank and is at most 300 characters, and so on). An answer that breaks one of them is invalid like one with a wrong type.
 - There is no version in the path. A change that is not backward compatible is a new version of this document and of the app.
@@ -17,9 +19,9 @@ The constants below (routes, headers, statuses, query parameters) are the ones o
 
 `POST /auth/sign-in` returns a bearer token. Every other route needs `Authorization: Bearer <token>`. The token is read by the client when it creates the request, so the answer is the one for the user who held the token then.
 
-There is no refresh and no endpoint to revoke a token: it expires after `expiresIn` seconds, and the client signs the user out on the first `401`. Signing out forgets the token on the device only.
+There is no refresh and no endpoint to revoke a token: it expires after `expiresIn` seconds. **The first `401` on any route but the sign-in ends the session on the device**: the application layer that met it locks the app, empties the saved copies, and forgets the session and its token, so a restart does not restore a session the server refuses; the votes that wait to be sent stay for the next sign-in of their voter. A `401` is also what the client answers by itself, without sending, when the token it holds belongs to another user than the request is made for (a vote whose voter is not the user who is signed in); that case ends nothing, since the session now open was not refused. Signing out forgets the token on the device only.
 
-The expiry the app uses is computed on the clock of the device from `expiresIn`; the server enforces its own on every call.
+The expiry the app uses is computed on the clock of the device from `expiresIn`; the server enforces its own on every call. The client believes a token only if it is made of visible ASCII characters (no space, no control character) and is at most 4096 characters long, since it goes into a header, and a lifetime only if it is at most 30 days (`2592000` seconds): a sign-in answer that breaks either is invalid.
 
 ## Errors
 
@@ -38,11 +40,13 @@ Every failure has a status, and a body of this shape (the codes are for people a
 | 404           | `notFound`                            | There is no such route or item                                               | `notFound`                                                                |
 | 413           | `badRequest`                          | The body is bigger than 64 KiB                                               | `unexpected` (cause `status 413`)                                         |
 | 422           | the code of a voting error, see below | A business rule refused the vote                                             | a voting error                                                            |
+| 408, 429      |                                       | The server gave up waiting for the request, or asks for fewer of them        | `networkUnavailable`: the offline policy and the retry of the votes apply |
 | 502, 503, 504 | `serviceUnavailable` for 503          | The service behind the gateway cannot be reached                             | `networkUnavailable`: the offline policy and the retry of the votes apply |
+| 3xx           |                                       | A redirect, which the API never sends                                        | `unexpected`, with the status as its only cause                           |
 | anything else | `unexpected` for 500                  | The server failed                                                            | `unexpected`, with the status as its only cause                           |
 | no answer     |                                       | The request failed, was cut off, or took more than the timeout (15 seconds)  | `networkUnavailable`                                                      |
 
-A 5xx other than 502, 503 and 504 is `unexpected`, and a vote that meets it is retried later but counted as an attempt: after 5 it is given up. Gateway errors do not count, because they say nothing about the vote: an outage must not use up the attempts of a queue.
+A 5xx other than 502, 503 and 504 is `unexpected`, and a vote that meets it is retried later but counted as an attempt: after 5 it is given up. Gateway errors, 408 and 429 do not count, because they say nothing about the vote: an outage, or a server that asks for fewer requests, must not use up the attempts of a queue. A server that sends 429 may add a `Retry-After`; the client does not read it, it sends the votes again at the next synchronisation.
 
 The `cause` of an `unexpected` error is the status or the kind of failure, never a URL, a path, a header or a part of a body.
 
@@ -71,13 +75,13 @@ The email is compared as the app writes it: trimmed, in lower case. Response `20
 }
 ```
 
-`expiresIn` is a number of seconds from now. `401` with `invalidCredentials` when the credentials are refused (an unknown email and a wrong password are not told apart). `400` for a body that is not `{ email, password }`.
+`expiresIn` is a number of seconds from now, from 0 to 2592000 (30 days). `401` with `invalidCredentials` when the credentials are refused (an unknown email and a wrong password are not told apart). `400` for a body that is not `{ email, password }`.
 
 ### `GET /meetings?period=upcoming|past&limit=N[&cursor=C]`
 
 A page of the meetings the user takes part in. `period` is `upcoming` or `past`: which list a meeting is in is decided by the server against its clock. Upcoming meetings come soonest first, past ones latest first, ties broken by id.
 
-- `limit`: a whole number from 1 to 50. Required.
+- `limit`: a whole number from 1 to 50, written in decimal digits and nothing else (no sign, no space, no exponent, no leading zero: `1e1`, ` 10`, `0x10` and `05` are refused). Required.
 - `cursor`: the `nextCursor` of the previous page. Absent for the first page. Opaque: the client hands it back as it received it. It stays valid when a meeting moves from one list to the other between two pages.
 
 Response `200`:
@@ -96,7 +100,7 @@ Response `200`:
 }
 ```
 
-`nextCursor` is absent on the last page. `400` for a missing or unknown `period`, a `limit` out of range or not whole, and a cursor the server did not write.
+`nextCursor` is absent on the last page. `400` for a missing or unknown `period`, a `limit` out of range or not written as above, and a cursor the server did not write. A cursor is well-formed UTF-16 text.
 
 ### `GET /meetings/{id}`
 
@@ -180,7 +184,7 @@ Records the vote of the user. A vote is final: one per resolution and voter.
 
 Responses:
 
-- `204`, no body: the vote is recorded (or already was).
+- `204`, no body: the vote is recorded (or already was). The client does not read the body of a success of this route: any 2xx is a recorded vote, whatever it says.
 - `401`: no valid token, or `voterId` is not the user the token belongs to. A vote is only ever recorded for the user it is authenticated as, whoever queued it.
 - `422`: a business rule refused the vote, so sending it again changes nothing. The body is `{ "error": { "code": "…" } }` with one of:
 
