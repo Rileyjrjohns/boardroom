@@ -44,8 +44,10 @@ export interface ViewableDocument {
  *   `MeetingCache`).
  * - The storage key is injective in (owner, document id): free text, encoded, never concatenated
  *   and never normalised (see `MeetingCache`).
- * - The content lives in app-private storage, excluded from backups (no iCloud, no Auto Backup),
- *   and is encrypted at rest where the platform offers it.
+ * - The content lives in app-private storage that is out of the backups (no iCloud, no Auto
+ *   Backup). It is protected by the sandbox and the data protection of the platform; the app does
+ *   not encrypt it. The system may empty a caches directory, which the contract already covers: a
+ *   file that is gone makes the entry a miss.
  */
 export interface DocumentCache {
   save(

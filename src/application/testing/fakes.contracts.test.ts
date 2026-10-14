@@ -58,7 +58,7 @@ describeDocumentCacheContract(
       },
     };
   },
-  { keepsFiles: false },
+  { ...IN_MEMORY_STORE, keepsFiles: false },
 );
 
 describeVoteOutboxContract(

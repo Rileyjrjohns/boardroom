@@ -15,6 +15,7 @@ import type { DocumentCache, ViewableDocument } from '../../ports/DocumentCache'
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 
 import { TRICKY_IDS, mutable } from './support';
+import type { StoreContractOptions } from './support';
 
 /**
  * The files of the device, as far as the contract needs them. Content lives outside the cache, at
@@ -40,12 +41,41 @@ export interface DocumentCacheHarness {
   /** From now on every `save` fails with a storage error. */
   breakWrites(): void;
   repairWrites(): void;
+  /**
+   * Makes the next statement the store sends to its storage fail, once. Only a store that has a
+   * storage to fail provides it (`StoreContractOptions.failsStatements`).
+   */
+  failNextStatement?(): void;
+  /**
+   * Closes the store and opens it again on the same storage and the same files, as a new start of
+   * the app would, and returns the new one. Only a store whose content survives provides it
+   * (`StoreContractOptions.survivesReopen`).
+   */
+  reopen?(): Promise<DocumentCache>;
+}
+
+/** What the suite needs to know of an implementation: its files, and the storage it keeps them in. */
+export interface DocumentCacheContractOptions extends StoreContractOptions {
+  /** Whether the adapter keeps files, so that the checks on the content can run. */
+  readonly keepsFiles: boolean;
 }
 
 export type DocumentCacheFactory = () => DocumentCacheHarness | Promise<DocumentCacheHarness>;
 
 const OWNER = aUserId('owner-1');
 const OTHER_OWNER = aUserId('owner-2');
+
+/**
+ * A text as the hexadecimal digits of its UTF-16 code units: one name per text, whatever it
+ * contains, in characters that every file system keeps apart (no separator, and no letter whose
+ * case could make two names one). The locations of the suite are file names in the directory a
+ * real store keeps its files in.
+ */
+function hexOf(text: string): string {
+  return Array.from(text, (character) =>
+    character.charCodeAt(0).toString(16).padStart(4, '0'),
+  ).join('');
+}
 
 const VIEWABLE: ViewableDocument = { document: aDocument(), location: aDocumentLocation() };
 const OTHER_VIEWABLE: ViewableDocument = {
@@ -62,7 +92,7 @@ const OTHER_VIEWABLE: ViewableDocument = {
 export function describeDocumentCacheContract(
   name: string,
   createHarness: DocumentCacheFactory,
-  options: { readonly keepsFiles: boolean },
+  options: DocumentCacheContractOptions,
 ): void {
   describe(`${name} honours the DocumentCache contract`, () => {
     let harness: DocumentCacheHarness;
@@ -214,9 +244,7 @@ export function describeDocumentCacheContract(
         const pairs = TRICKY_IDS.flatMap((owner) => TRICKY_IDS.map((id) => [owner, id] as const));
         const viewableOf = (owner: string, id: string): ViewableDocument => ({
           document: aDocument({ id: aDocumentId(id), title: JSON.stringify([owner, id]) }),
-          location: aDocumentLocation(
-            `file:///documents/${encodeURIComponent(owner)}/${encodeURIComponent(id)}.pdf`,
-          ),
+          location: aDocumentLocation(`file:///documents/${hexOf(owner)}-${hexOf(id)}.pdf`),
         });
         for (const [owner, id] of pairs) {
           const viewable = await download(viewableOf(owner, id));
@@ -259,6 +287,197 @@ export function describeDocumentCacheContract(
         expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
           ok({ value: VIEWABLE, cachedAt: NOW }),
         );
+      });
+    });
+
+    // A store without a storage to fail, or with nothing to reopen, skips these: they show as skipped.
+    (options.failsStatements ? describe : describe.skip)('a statement that fails', () => {
+      const failNext = () => {
+        if (harness.failNextStatement === undefined)
+          throw new Error('The harness cannot fail a statement.');
+        harness.failNextStatement();
+      };
+
+      it('turns a read that fails into a storage error, and finds the entry again afterwards', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+
+        failNext();
+        const failed = await cache.read(OWNER, VIEWABLE.document.id);
+
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.ReadFailed);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+      });
+
+      it('turns a save that fails into a storage error, and leaves no older entry readable', async () => {
+        await download(VIEWABLE);
+        await download(OTHER_VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.save(OWNER, OTHER_VIEWABLE, at(11));
+
+        failNext();
+        const failed = await cache.save(
+          OWNER,
+          { ...VIEWABLE, document: aDocument({ title: 'Newer' }) },
+          at(12),
+        );
+
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+        expect(await cache.read(OWNER, OTHER_VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: OTHER_VIEWABLE, cachedAt: at(11) }),
+        );
+      });
+
+      it('turns a removal that fails into a storage error, and keeps the entry', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+
+        failNext();
+        const failed = await cache.remove(OWNER, VIEWABLE.document.id);
+
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+      });
+
+      it('turns a purge that fails into a storage error, and keeps every entry, none half removed', async () => {
+        await download(VIEWABLE);
+        await download(OTHER_VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.save(OTHER_OWNER, OTHER_VIEWABLE, at(11));
+
+        failNext();
+        const failed = await cache.purge();
+
+        expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+        expect(await cache.read(OTHER_OWNER, OTHER_VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: OTHER_VIEWABLE, cachedAt: at(11) }),
+        );
+        expect(await cache.purge()).toStrictEqual(ok(undefined));
+      });
+
+      it('fails once and no more: the next call works', async () => {
+        await download(VIEWABLE);
+
+        failNext();
+        await cache.save(OWNER, VIEWABLE, at(10));
+
+        expect(await cache.save(OWNER, VIEWABLE, at(11))).toStrictEqual(ok(undefined));
+        expect(await cache.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(11) }),
+        );
+      });
+    });
+
+    (options.survivesReopen ? describe : describe.skip)('closed and opened again', () => {
+      const reopen = async (): Promise<DocumentCache> => {
+        if (harness.reopen === undefined) throw new Error('The harness cannot reopen the store.');
+        return harness.reopen();
+      };
+
+      it('gives back the documents of every owner as they were, with their locations and their instants', async () => {
+        await download(VIEWABLE);
+        await download(OTHER_VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.save(OTHER_OWNER, OTHER_VIEWABLE, at(11));
+
+        const reopened = await reopen();
+
+        expect(await reopened.read(OWNER, VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: VIEWABLE, cachedAt: at(10) }),
+        );
+        expect(await reopened.read(OTHER_OWNER, OTHER_VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: OTHER_VIEWABLE, cachedAt: at(11) }),
+        );
+        expect(await reopened.read(OTHER_OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+      });
+
+      it('does not give back what was removed before it was closed', async () => {
+        await download(VIEWABLE);
+        await download(OTHER_VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.save(OWNER, OTHER_VIEWABLE, at(11));
+        await cache.remove(OWNER, VIEWABLE.document.id);
+
+        const reopened = await reopen();
+
+        expect(await reopened.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+        expect(await reopened.read(OWNER, OTHER_VIEWABLE.document.id)).toStrictEqual(
+          ok({ value: OTHER_VIEWABLE, cachedAt: at(11) }),
+        );
+      });
+
+      it('does not give back what was purged before it was closed', async () => {
+        await download(VIEWABLE);
+        await cache.save(OWNER, VIEWABLE, at(10));
+        await cache.purge();
+
+        const reopened = await reopen();
+
+        expect(await reopened.read(OWNER, VIEWABLE.document.id)).toStrictEqual(ok(undefined));
+      });
+    });
+
+    describe('writers at the same time', () => {
+      it('leaves one complete version of an entry when several saves of it run together', async () => {
+        await download(VIEWABLE);
+        const versions = [1, 2, 3, 4, 5, 6].map((number) => ({
+          viewable: { ...VIEWABLE, document: aDocument({ title: `Version ${number}` }) },
+          cachedAt: at(number),
+        }));
+
+        await Promise.all(
+          versions.map(({ viewable, cachedAt }) => cache.save(OWNER, viewable, cachedAt)),
+        );
+
+        const read = await cache.read(OWNER, VIEWABLE.document.id);
+        const held = read.ok ? read.value : undefined;
+        expect(
+          versions.map(({ viewable, cachedAt }) => ({ value: viewable, cachedAt })),
+        ).toContainEqual(held);
+      });
+
+      it('keeps every entry when saves of different documents run together', async () => {
+        const documents = [1, 2, 3, 4, 5].map((number) => ({
+          document: aDocument({ id: aDocumentId(`d-${number}`), title: `Document ${number}` }),
+          location: aDocumentLocation(`file:///documents/d-${number}.pdf`),
+        }));
+        for (const viewable of documents) await download(viewable);
+
+        await Promise.all(
+          documents.map((viewable, number) => cache.save(OWNER, viewable, at(number))),
+        );
+
+        for (const [number, viewable] of documents.entries()) {
+          expect(await cache.read(OWNER, viewable.document.id)).toStrictEqual(
+            ok({ value: viewable, cachedAt: at(number) }),
+          );
+        }
+      });
+
+      it('leaves nothing, or one complete version, when a save, a removal and reads run together', async () => {
+        await download(VIEWABLE);
+
+        const answers = await Promise.all([
+          cache.save(OWNER, VIEWABLE, at(1)),
+          cache.read(OWNER, VIEWABLE.document.id),
+          cache.remove(OWNER, VIEWABLE.document.id),
+          cache.save(OWNER, { ...VIEWABLE, document: aDocument({ title: 'Newer' }) }, at(2)),
+          cache.read(OWNER, VIEWABLE.document.id),
+          cache.purge(),
+        ]);
+
+        expect(answers.every((answer) => answer.ok)).toBe(true);
+        const read = await cache.read(OWNER, VIEWABLE.document.id);
+        const held = read.ok ? read.value : undefined;
+        expect([undefined, 'Newer', VIEWABLE.document.title]).toContain(held?.value.document.title);
       });
     });
 

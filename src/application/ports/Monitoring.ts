@@ -35,6 +35,13 @@ export const MONITORING_EVENT = {
   /** A row of the local database no longer reads back as what was stored: it is dropped. */
   StoredRowDiscarded: 'storedRowDiscarded',
   /**
+   * The content of a document was downloaded and could not be written to the files of the device.
+   * The document is not shown.
+   */
+  DocumentContentNotStored: 'documentContentNotStored',
+  /** A file of the documents that no entry points at could not be deleted when the cache started. */
+  OrphanFileNotDeleted: 'orphanFileNotDeleted',
+  /**
    * An entry of the outbox of votes no longer reads back as a vote: it is kept, out of the queue,
    * until the user discards it.
    */
@@ -48,6 +55,10 @@ export const MONITORING_EVENT = {
   DatabaseRecreated: 'databaseRecreated',
   /** A listener of the connectivity threw, which it must not. The others were told all the same. */
   ConnectivityListenerFailed: 'connectivityListenerFailed',
+  /** A listener of the screen capture events threw, which it must not. The others were told all the same. */
+  ScreenProtectionListenerFailed: 'screenProtectionListenerFailed',
+  /** The native side of the screen protection failed or did not answer: the failure is also returned. */
+  ScreenProtectionNativeFailed: 'screenProtectionNativeFailed',
   /** The build lacks what the platform needs to ask for the biometrics (a usage description on iOS). */
   BiometricMisconfigured: 'biometricMisconfigured',
   /** The user asked for the entries of the outbox that cannot be read to be deleted. */

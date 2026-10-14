@@ -18,8 +18,9 @@ export interface DocumentRepository {
 
   /**
    * Makes the content of a document readable on the device and says where. The adapter downloads
-   * it to app-private storage (excluded from backups), so the location stays valid offline.
-   * Calling it twice for the same document is safe.
+   * it to app-private storage (out of the backups), written whole or not at all, so the location
+   * stays valid offline. Calling it twice for the same document is safe: the content is fetched
+   * again, and replaces the file.
    *
    * A download may be reused only for the same signed-in user and the same version of the
    * document: the location is never the same for two users, and a new version of a document (its
