@@ -13,9 +13,11 @@ import { parseInstant } from '@domain/value-objects/Instant';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { Monitoring } from '@application/ports/Monitoring';
 
-import type { BearerTokenSource } from '../http/HttpClient';
+import type { BearerToken, BearerTokenSource } from '../http/HttpClient';
 import type { SignedIn } from '../http/dto/sessionDto';
-import { attempt } from '../shared/attempt';
+import { ATTEMPT_FAILURE, attempt } from '../shared/attempt';
+import type { AttemptFailure } from '../shared/attempt';
+import { createSerialQueue } from '../shared/serialQueue';
 
 import { SECURE_STORAGE_KEY } from './SecureStorage';
 import type { SecureStorage } from './SecureStorage';
@@ -63,6 +65,11 @@ export interface SessionVaultOptions {
  * - Every operation goes through one queue, so that the order in which sign-ins and sign-outs were
  *   asked is the order they happen in, and the memory cannot end up with a session the storage
  *   does not hold.
+ * - A write the vault gave up on, because the keychain took too long, can still land later, after
+ *   the operations that were asked for since. When it does, the vault puts the storage back in the
+ *   state of its memory (through the same queue, so after those operations): the later operation
+ *   always wins, and a session that was signed out is not brought back. That correction is best
+ *   effort and is not itself waited for a second time.
  * - A stored item that no longer reads back (the format changed, the storage was tampered with) is
  *   treated as nobody being signed in: it is captured by the monitoring, without its content, and
  *   deleted.
@@ -73,7 +80,7 @@ export interface SessionVaultOptions {
 export class SessionVault implements BearerTokenSource {
   private held: Held | undefined;
   private loaded = false;
-  private tail: Promise<unknown> = Promise.resolve();
+  private readonly serial = createSerialQueue();
 
   constructor(private readonly options: SessionVaultOptions) {}
 
@@ -84,10 +91,16 @@ export class SessionVault implements BearerTokenSource {
     });
   }
 
-  async token(): Promise<Result<string | undefined, StorageReadFailedError>> {
+  /** The token, with the user it was given to: what the HTTP client needs to send a request. */
+  async token(): Promise<Result<BearerToken | undefined, StorageReadFailedError>> {
     return this.serial(async () => {
       const loaded = await this.load();
-      return loaded.ok ? ok(this.held?.token) : loaded;
+      if (!loaded.ok) return loaded;
+      return ok(
+        this.held === undefined
+          ? undefined
+          : { token: this.held.token, userId: this.held.session.user.id },
+      );
     });
   }
 
@@ -95,9 +108,8 @@ export class SessionVault implements BearerTokenSource {
   async replace(signedIn: SignedIn): Promise<Result<void, StorageWriteFailedError>> {
     return this.serial(async () => {
       const { session, token } = signedIn;
-      const written = await attempt(
-        () => this.options.storage.set(SECURE_STORAGE_KEY.Session, serialise(session, token)),
-        this.timeout(),
+      const written = await this.write(() =>
+        this.options.storage.set(SECURE_STORAGE_KEY.Session, serialise(session, token)),
       );
       if (!written.ok) return err(storageWriteFailed(written.error.cause));
       this.held = { session, token };
@@ -111,9 +123,8 @@ export class SessionVault implements BearerTokenSource {
     return this.serial(async () => {
       this.held = undefined;
       this.loaded = true;
-      const removed = await attempt(
-        () => this.options.storage.remove(SECURE_STORAGE_KEY.Session),
-        this.timeout(),
+      const removed = await this.write(() =>
+        this.options.storage.remove(SECURE_STORAGE_KEY.Session),
       );
       return removed.ok ? ok(undefined) : err(storageWriteFailed(removed.error.cause));
     });
@@ -123,10 +134,39 @@ export class SessionVault implements BearerTokenSource {
     return this.options.timeoutMillis ?? DEFAULT_STORAGE_TIMEOUT_MILLIS;
   }
 
-  private serial<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(operation, operation);
-    this.tail = result.catch(() => undefined);
-    return result;
+  /**
+   * A change of the storage, bounded in time. When it did not settle in time, the storage is put
+   * back in the state of the memory once the call settles, whichever way it ends.
+   */
+  private async write(change: () => Promise<void>): Promise<Result<void, AttemptFailure>> {
+    let call: Promise<void> | undefined;
+    const written = await attempt(() => {
+      call = change();
+      return call;
+    }, this.timeout());
+    if (!written.ok && written.error.kind === ATTEMPT_FAILURE.TimedOut && call !== undefined) {
+      const correct = (): void => {
+        void this.serial(() => this.matchStorageToMemory());
+      };
+      call.then(correct, correct);
+    }
+    return written;
+  }
+
+  /** Makes the storage hold what the memory holds, after a call that landed late. */
+  private async matchStorageToMemory(): Promise<void> {
+    if (!this.loaded) return;
+    const { held } = this;
+    await attempt(
+      () =>
+        held === undefined
+          ? this.options.storage.remove(SECURE_STORAGE_KEY.Session)
+          : this.options.storage.set(
+              SECURE_STORAGE_KEY.Session,
+              serialise(held.session, held.token),
+            ),
+      this.timeout(),
+    );
   }
 
   /** Reads the storage the first time (and again after a read that failed). */

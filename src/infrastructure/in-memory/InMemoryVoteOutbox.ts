@@ -8,7 +8,7 @@ import type { Result } from '@domain/shared/Result';
 import type { ResolutionId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { ENQUEUE_OUTCOME } from '@application/ports/VoteOutbox';
-import type { EnqueueResult, VoteOutbox } from '@application/ports/VoteOutbox';
+import type { EnqueueResult, OutboxListing, VoteOutbox } from '@application/ports/VoteOutbox';
 
 import { clonePlain } from '../shared/clonePlain';
 
@@ -16,7 +16,8 @@ import { clonePlain } from '../shared/clonePlain';
  * A vote outbox in memory: a queue in the order of enqueueing, scoped by voter on every read, with
  * the idempotent writes the port describes and `markAttempt`, which is not. What it is given and
  * what it hands back are copies. It is not durable: it lives as long as the process, which is what
- * the SQLite adapter of the persistence step fixes.
+ * the SQLite adapter of the persistence step fixes. It holds its entries as typed values, so it has
+ * no entry that cannot be read.
  */
 export class InMemoryVoteOutbox implements VoteOutbox {
   private entries: OutboxVote[] = [];
@@ -34,10 +35,18 @@ export class InMemoryVoteOutbox implements VoteOutbox {
     return Promise.resolve(ok({ outcome: ENQUEUE_OUTCOME.Enqueued }));
   }
 
-  list(voterId: UserId): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
+  list(voterId: UserId): Promise<Result<OutboxListing, StorageReadFailedError>> {
     return Promise.resolve(
-      ok(clonePlain(this.entries.filter(({ vote }) => vote.voterId === voterId))),
+      ok({
+        votes: clonePlain(this.entries.filter(({ vote }) => vote.voterId === voterId)),
+        unreadable: 0,
+      }),
     );
+  }
+
+  /** It holds its entries as typed values, so none of them can be unreadable: nothing to discard. */
+  discardUnreadable(): Promise<Result<number, StorageWriteFailedError>> {
+    return Promise.resolve(ok(0));
   }
 
   findByResolution(

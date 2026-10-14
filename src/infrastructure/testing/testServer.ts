@@ -46,7 +46,7 @@ export function credentialsOf(account: DemoAccount): Credentials {
 }
 
 /** The two accounts of the test server: `user-1` (Alice) and `user-2` (Bruno). */
-export function testAccounts(): readonly [DemoAccount, DemoAccount] {
+function testAccounts(): readonly [DemoAccount, DemoAccount] {
   return [
     { user: aUser(), password: TEST_PASSWORD },
     {

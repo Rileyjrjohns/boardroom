@@ -6,5 +6,6 @@ import { InMemoryVoteOutbox } from './InMemoryVoteOutbox';
 describeVoteOutboxContract(
   'InMemoryVoteOutbox',
   () => ({ outbox: new InMemoryVoteOutbox() }),
-  IN_MEMORY_STORE,
+  // It holds its entries as typed values: none can be unreadable.
+  { ...IN_MEMORY_STORE, holdsUnreadable: false },
 );

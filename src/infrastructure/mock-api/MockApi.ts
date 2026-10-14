@@ -20,6 +20,7 @@ import { signInRequestSchema, toSignInResponseWire } from '../http/dto/sessionDt
 import { toVote, voteRequestSchema } from '../http/dto/voteDto';
 import {
   BEARER_PREFIX,
+  CACHE_CONTROL_NO_STORE,
   HTTP_HEADER,
   HTTP_METHOD,
   HTTP_STATUS,
@@ -47,6 +48,12 @@ export const API_ERROR_CODE = {
 type ApiErrorCode = (typeof API_ERROR_CODE)[keyof typeof API_ERROR_CODE];
 
 const MILLIS_PER_SECOND = 1000;
+
+/**
+ * What a `limit` is written as: whole decimal digits, no sign, no space, no exponent, no leading
+ * zero. `Number` alone would take " 10", "1e1" and "0x10" for numbers.
+ */
+const LIMIT_FORMAT = /^(0|[1-9][0-9]*)$/;
 
 export interface MockApiOptions {
   /** The simulated server: the rules, and the content. The API is a window on it. */
@@ -139,7 +146,8 @@ export class MockApi {
     const period = parseMeetingPeriod(query.get(QUERY_PARAMETER.Period) ?? '');
     const rawCursor = query.get(QUERY_PARAMETER.Cursor);
     const cursor = rawCursor === null ? undefined : parsePageCursor(rawCursor);
-    const limit = Number(query.get(QUERY_PARAMETER.Limit) ?? Number.NaN);
+    const rawLimit = query.get(QUERY_PARAMETER.Limit) ?? '';
+    const limit = LIMIT_FORMAT.test(rawLimit) ? Number(rawLimit) : Number.NaN;
     if (!period.ok || (cursor !== undefined && !cursor.ok)) {
       return failure(HTTP_STATUS.BadRequest, API_ERROR_CODE.BadRequest);
     }
@@ -204,7 +212,9 @@ export class MockApi {
     }
 
     const answer = await this.options.backend.submitVote(vote.value, this.callerOf(request));
-    if (answer.ok) return new Response(null, { status: HTTP_STATUS.NoContent });
+    if (answer.ok) {
+      return new Response(null, { status: HTTP_STATUS.NoContent, headers: NOT_STORED });
+    }
     return isVotingError(answer.error) ? rejection(answer.error) : refusal(answer.error);
   }
 
@@ -280,10 +290,13 @@ async function readJson(request: Request): Promise<unknown> {
   }
 }
 
+/** Every answer is confidential: nothing between the server and the app may keep a copy. */
+const NOT_STORED = { [HTTP_HEADER.CacheControl]: CACHE_CONTROL_NO_STORE };
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { [HTTP_HEADER.ContentType]: MEDIA_TYPE_JSON },
+    headers: { [HTTP_HEADER.ContentType]: MEDIA_TYPE_JSON, ...NOT_STORED },
   });
 }
 

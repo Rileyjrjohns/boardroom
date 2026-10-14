@@ -16,7 +16,11 @@ import { domainViolation, HTTP_RESOURCE } from './invalidResponse';
 import { meetingPageSchema, meetingSchema, toMeeting, toMeetingPage } from './dto/meetingDto';
 import { HTTP_METHOD, QUERY_PARAMETER, ROUTES } from './protocol';
 
-/** The meetings of the API (`GET /meetings`, `GET /meetings/{id}`). */
+/**
+ * The meetings of the API (`GET /meetings`, `GET /meetings/{id}`). The request is given to the
+ * client as a function, so that the route, which is made of an identifier, is built where the
+ * client can catch a failure: an adapter never throws.
+ */
 export class HttpMeetingRepository implements MeetingRepository {
   constructor(
     private readonly client: HttpClient,
@@ -27,7 +31,7 @@ export class HttpMeetingRepository implements MeetingRepository {
     period: MeetingPeriod,
     request: PageRequest,
   ): Promise<Result<Page<MeetingSummary>, GatewayError>> {
-    const answer = await this.client.request({
+    const answer = await this.client.request(() => ({
       method: HTTP_METHOD.Get,
       path: ROUTES.meetings,
       query: {
@@ -37,7 +41,7 @@ export class HttpMeetingRepository implements MeetingRepository {
       },
       resource: HTTP_RESOURCE.MeetingPage,
       schema: meetingPageSchema,
-    });
+    }));
     if (!answer.ok) return err(asGatewayError(answer.error));
 
     const page = toMeetingPage(answer.value);
@@ -47,12 +51,12 @@ export class HttpMeetingRepository implements MeetingRepository {
   }
 
   async get(id: MeetingId): Promise<Result<Meeting, RepositoryError>> {
-    const answer = await this.client.request({
+    const answer = await this.client.request(() => ({
       method: HTTP_METHOD.Get,
       path: ROUTES.meeting(id),
       resource: HTTP_RESOURCE.Meeting,
       schema: meetingSchema,
-    });
+    }));
     if (!answer.ok) return err(asRepositoryError(answer.error));
 
     const meeting = toMeeting(answer.value);

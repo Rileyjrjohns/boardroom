@@ -17,7 +17,7 @@ import { parseVoteChoice } from '@domain/value-objects/VoteChoice';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { Monitoring } from '@application/ports/Monitoring';
 import { ENQUEUE_OUTCOME } from '@application/ports/VoteOutbox';
-import type { EnqueueResult, VoteOutbox } from '@application/ports/VoteOutbox';
+import type { EnqueueResult, OutboxListing, VoteOutbox } from '@application/ports/VoteOutbox';
 
 import {
   toRejectionReason,
@@ -26,7 +26,7 @@ import {
 } from '../shared/rejectionSchemas';
 
 import { DEFAULT_STATEMENT_TIMEOUT_MILLIS, guardedRead, guardedWrite } from './guarded';
-import { COLUMN, TABLE } from './schema';
+import { COLUMN, OUTBOX_QUARANTINED, TABLE } from './schema';
 import type { SqlDatabase, SqlRow } from './SqlDatabase';
 
 export interface SqliteVoteOutboxOptions {
@@ -39,6 +39,16 @@ export interface SqliteVoteOutboxOptions {
 /** What a row of the outbox is called in the logs. */
 const OUTBOX_VOTE_RESOURCE = 'outboxVote';
 const UNREADABLE_CAUSE = 'stored vote unreadable';
+
+/** What a row came to, when it was read. */
+const ROW = {
+  Vote: 'vote',
+  Unreadable: 'unreadable',
+} as const;
+
+type DecodedRow =
+  | { readonly kind: typeof ROW.Vote; readonly vote: OutboxVote }
+  | { readonly kind: typeof ROW.Unreadable; readonly sequence: number; readonly known: boolean };
 
 const C = COLUMN;
 const COLUMNS = [
@@ -70,7 +80,8 @@ const REJECT = `UPDATE ${TABLE.OutboxVotes}
   SET ${C.Status} = ?, ${C.RejectionReason} = ?, ${C.RejectedAt} = ?
   WHERE ${C.IdempotencyKey} = ? AND ${C.Status} = ?`;
 const REMOVE = `DELETE FROM ${TABLE.OutboxVotes} WHERE ${C.IdempotencyKey} = ?`;
-const REMOVE_ROW = `DELETE FROM ${TABLE.OutboxVotes} WHERE ${C.Sequence} = ?`;
+const QUARANTINE = `UPDATE ${TABLE.OutboxVotes} SET ${C.Status} = ? WHERE ${C.Sequence} = ?`;
+const DISCARD_ROW = `DELETE FROM ${TABLE.OutboxVotes} WHERE ${C.Sequence} = ?`;
 
 /** The columns of a row, as the engine hands them over. */
 const rowSchema = z.object({
@@ -102,8 +113,13 @@ type Row = z.output<typeof rowSchema>;
  *   instant, a pending one never does.
  * - What is read back is checked against the factories of the domain, and the key must be the one
  *   the vote derives. A row that no longer passes (the file was altered, or written by something
- *   else) is not a vote anybody can send: it is reported to the monitoring, without its content,
- *   left out of the answer and deleted. It never throws.
+ *   else) is not a vote anybody can send, but it may be the only trace of one: it is **quarantined**,
+ *   not deleted. Its status becomes `quarantined` and nothing else about it changes, it is reported
+ *   to the monitoring without its content, it is left out of the answers and counted in `list`, a
+ *   vote queued under its key is refused rather than written over it, and only `discardUnreadable`
+ *   deletes it. A row is attributed to a voter by its `voter_id` text, whatever the rest holds; one
+ *   whose `voter_id` is no voter's belongs to nobody who can ever sign in, and stays where it is.
+ *   It never throws.
  * - Every call settles: a statement that does not answer in time is a storage error.
  *
  * It holds the choices of a secret ballot and outlives the sign-out, so the database it lives in
@@ -121,12 +137,13 @@ export class SqliteVoteOutbox implements VoteOutbox {
           const rows = await tx.all(SELECT_BY_KEY, [vote.idempotencyKey]);
           const [held] = rows;
           if (held !== undefined) {
-            const existing = this.decode(held);
-            if (existing !== undefined) {
-              return { outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing };
+            const row = this.decode(held);
+            if (row.kind === ROW.Vote) {
+              return { outcome: ENQUEUE_OUTCOME.AlreadyQueued, existing: row.vote };
             }
-            // A row that holds the key but is no vote: it makes room for the vote it was meant to be.
-            await tx.run(REMOVE_ROW, [Number(held[C.Sequence])]);
+            // A row that holds the key but is no vote is kept as it is, and the vote is not queued.
+            if (!row.known) await tx.run(QUARANTINE, [OUTBOX_QUARANTINED, row.sequence]);
+            return { outcome: ENQUEUE_OUTCOME.HeldByUnreadable };
           }
           await tx.run(INSERT, [
             vote.idempotencyKey,
@@ -145,19 +162,38 @@ export class SqliteVoteOutbox implements VoteOutbox {
     );
   }
 
-  list(voterId: UserId): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
+  list(voterId: UserId): Promise<Result<OutboxListing, StorageReadFailedError>> {
     return this.readVotes(SELECT_BY_VOTER, [voterId]);
   }
 
-  findByResolution(
+  async findByResolution(
     resolutionId: ResolutionId,
     voterId: UserId,
   ): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
-    return this.readVotes(SELECT_BY_RESOLUTION, [voterId, resolutionId]);
+    const read = await this.readVotes(SELECT_BY_RESOLUTION, [voterId, resolutionId]);
+    return read.ok ? ok(read.value.votes) : read;
+  }
+
+  async discardUnreadable(voterId: UserId): Promise<Result<number, StorageWriteFailedError>> {
+    const { database } = this.options;
+    return guardedWrite(
+      () =>
+        database.transaction(async (tx) => {
+          let discarded = 0;
+          for (const raw of await tx.all(SELECT_BY_VOTER, [voterId])) {
+            const row = this.decode(raw, { report: false });
+            if (row.kind === ROW.Vote) continue;
+            await tx.run(DISCARD_ROW, [row.sequence]);
+            discarded += 1;
+          }
+          return discarded;
+        }),
+      this.timeout(),
+    );
   }
 
   markAttempt(key: IdempotencyKey): Promise<Result<void, StorageWriteFailedError>> {
-    return this.write(MARK_ATTEMPT, [key, OUTBOX_STATUS.Pending]);
+    return this.changeVote(key, MARK_ATTEMPT, [key, OUTBOX_STATUS.Pending]);
   }
 
   reject(
@@ -165,7 +201,7 @@ export class SqliteVoteOutbox implements VoteOutbox {
     reason: RejectionReason,
     rejectedAt: Instant,
   ): Promise<Result<void, StorageWriteFailedError>> {
-    return this.write(REJECT, [
+    return this.changeVote(key, REJECT, [
       OUTBOX_STATUS.Rejected,
       JSON.stringify(toRejectionReasonWire(reason)),
       rejectedAt,
@@ -175,55 +211,96 @@ export class SqliteVoteOutbox implements VoteOutbox {
   }
 
   remove(key: IdempotencyKey): Promise<Result<void, StorageWriteFailedError>> {
-    return this.write(REMOVE, [key]);
+    return this.changeVote(key, REMOVE, [key]);
   }
 
   private timeout(): number {
     return this.options.timeoutMillis ?? DEFAULT_STATEMENT_TIMEOUT_MILLIS;
   }
 
-  private async write(
+  /**
+   * Runs a statement that changes the vote held under a key, only if the row under that key can be
+   * read as a vote. The row is looked at first, in the same transaction: a row that cannot be read
+   * is not the outbox's to change, nor to delete, whatever its status says. It is quarantined if it
+   * was not already, and the statement is not run.
+   */
+  private async changeVote(
+    key: IdempotencyKey,
     statement: string,
     params: readonly (string | number)[],
   ): Promise<Result<void, StorageWriteFailedError>> {
     const { database } = this.options;
-    const done = await guardedWrite(() => database.run(statement, params), this.timeout());
+    const done = await guardedWrite(
+      () =>
+        database.transaction(async (tx) => {
+          const [held] = await tx.all(SELECT_BY_KEY, [key]);
+          if (held === undefined) return;
+
+          const row = this.decode(held);
+          if (row.kind === ROW.Vote) {
+            await tx.run(statement, params);
+          } else if (!row.known) {
+            await tx.run(QUARANTINE, [OUTBOX_QUARANTINED, row.sequence]);
+          }
+        }),
+      this.timeout(),
+    );
     return done.ok ? ok(undefined) : done;
   }
 
   private async readVotes(
     statement: string,
     params: readonly string[],
-  ): Promise<Result<readonly OutboxVote[], StorageReadFailedError>> {
+  ): Promise<Result<OutboxListing, StorageReadFailedError>> {
     const { database } = this.options;
     const rows = await guardedRead(() => database.all(statement, params), this.timeout());
     if (!rows.ok) return rows;
 
     const votes: OutboxVote[] = [];
-    const unreadable: number[] = [];
-    for (const row of rows.value) {
-      const vote = this.decode(row);
-      if (vote === undefined) unreadable.push(Number(row[C.Sequence]));
-      else votes.push(vote);
+    let unreadable = 0;
+    for (const raw of rows.value) {
+      const row = this.decode(raw);
+      if (row.kind === ROW.Vote) {
+        votes.push(row.vote);
+        continue;
+      }
+      unreadable += 1;
+      if (!row.known) {
+        // Best effort: the row is left out of the answer whether or not it can be marked, and it
+        // is looked at again at the next read.
+        await guardedWrite(
+          () => database.run(QUARANTINE, [OUTBOX_QUARANTINED, row.sequence]),
+          this.timeout(),
+        );
+      }
     }
-    for (const sequence of unreadable) {
-      // Best effort: a row that cannot be read is left out whether or not it can be deleted.
-      await guardedWrite(() => database.run(REMOVE_ROW, [sequence]), this.timeout());
-    }
-    return ok(votes);
+    return ok({ votes, unreadable });
   }
 
-  /** The vote a row holds, or `undefined` (and a report to the monitoring) when it holds none. */
-  private decode(raw: SqlRow): OutboxVote | undefined {
-    const decoded = toOutboxVote(raw);
-    if (decoded === undefined) {
+  /**
+   * What a row holds: a vote, or nothing that can be read as one. A row that is already
+   * quarantined is known and not reported again; one that has just failed to read is reported to
+   * the monitoring, without its content (unless the caller is about to delete it for the user).
+   */
+  private decode(
+    raw: SqlRow,
+    options: { readonly report: boolean } = { report: true },
+  ): DecodedRow {
+    const sequence = Number(raw[C.Sequence]);
+    if (raw[C.Status] === OUTBOX_QUARANTINED)
+      return { kind: ROW.Unreadable, sequence, known: true };
+
+    const vote = toOutboxVote(raw);
+    if (vote !== undefined) return { kind: ROW.Vote, vote };
+
+    if (options.report) {
       this.options.monitoring.captureError(
-        MONITORING_EVENT.StoredRowDiscarded,
+        MONITORING_EVENT.StoredRowQuarantined,
         storageReadFailed(UNREADABLE_CAUSE),
         { [LOG_ATTRIBUTE.Resource]: OUTBOX_VOTE_RESOURCE },
       );
     }
-    return decoded;
+    return { kind: ROW.Unreadable, sequence, known: false };
   }
 }
 

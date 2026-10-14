@@ -1,16 +1,15 @@
-import { OPEN_FAILURE } from './DatabaseOpener';
-import { ExpoSqliteOpener } from './ExpoSqliteOpener';
-import { createSqlDatabase } from './SqlDatabase';
 import { fakeExpoSqlite, resetFakeExpoSqlite } from '../testing/fakeExpoSqlite';
 
+import { ExpoSqliteOpener } from './ExpoSqliteOpener';
+import { createSqlDatabase } from './SqlDatabase';
+
 // The native side of expo-sqlite cannot run in Jest, so the module is replaced by a stand-in that
-// runs the statements on node:sqlite and answers like SQLCipher does to a key and to its version
-// (src/infrastructure/testing/fakeExpoSqlite.ts). What is left to check in a wrapper this thin is
-// the conversation with the module.
+// runs the statements on node:sqlite and answers like the module does to the calls the wrapper
+// makes (src/infrastructure/testing/fakeExpoSqlite.ts). The wrapper decides nothing: what is left
+// to check is the conversation with the module. What to do with a key is tested in
+// `unlockDatabase.test.ts` and `protectedDatabase.test.ts`.
 jest.mock('expo-sqlite', () => jest.requireActual('../testing/fakeExpoSqlite'));
 
-const KEY = 'a'.repeat(64);
-const OTHER_KEY = 'b'.repeat(64);
 const NAME = 'boardroom.db';
 
 beforeEach(() => {
@@ -18,21 +17,16 @@ beforeEach(() => {
 });
 
 describe('ExpoSqliteOpener', () => {
-  it('unlocks the database with the key as a raw key, checks it is SQLCipher, and reads the file', async () => {
-    const opened = await new ExpoSqliteOpener().open(NAME, KEY);
+  it('opens the file by its name and sends no statement of its own', async () => {
+    await new ExpoSqliteOpener().open(NAME);
 
-    expect(opened.ok).toBe(true);
-    expect(fakeExpoSqlite.statements).toEqual([
-      `PRAGMA key = "x'${KEY}'"`,
-      'PRAGMA cipher_version',
-      'SELECT count(*) FROM sqlite_master',
-    ]);
+    expect(fakeExpoSqlite.files.has(NAME)).toBe(true);
+    expect(fakeExpoSqlite.statements).toEqual([]);
   });
 
   it('gives a connection that runs statements with their parameters and reads rows', async () => {
-    const opened = await new ExpoSqliteOpener().open(NAME, KEY);
-    if (!opened.ok) throw new Error('should have opened');
-    const database = createSqlDatabase(opened.value);
+    const connection = await new ExpoSqliteOpener().open(NAME);
+    const database = createSqlDatabase(connection);
 
     await database.run('CREATE TABLE t (a TEXT, b INTEGER)');
     const inserted = await database.run('INSERT INTO t VALUES (?, ?)', ['x', 7]);
@@ -48,84 +42,49 @@ describe('ExpoSqliteOpener', () => {
     expect(fakeExpoSqlite.open.size).toBe(0);
   });
 
-  it('says the key is rejected when the file was created with another key', async () => {
-    const opener = new ExpoSqliteOpener();
-    await opener.open(NAME, KEY);
+  it('runs a statement that takes no parameter and answers nothing, as it is', async () => {
+    const connection = await new ExpoSqliteOpener().open(NAME);
 
-    const opened = await opener.open(NAME, OTHER_KEY);
+    await connection.exec('PRAGMA key = "x\'abc\'"');
 
-    expect(opened).toEqual({ ok: false, error: OPEN_FAILURE.KeyRejected });
+    expect(fakeExpoSqlite.statements).toEqual(['PRAGMA key = "x\'abc\'"']);
   });
 
-  it('closes a database it could not unlock, so no connection is left open', async () => {
-    const opener = new ExpoSqliteOpener();
-    await opener.open(NAME, KEY);
-    const before = fakeExpoSqlite.open.size;
-
-    await opener.open(NAME, OTHER_KEY);
-
-    expect(fakeExpoSqlite.open.size).toBe(before);
-  });
-
-  it('refuses to store anything when the engine is plain SQLite, which would ignore the key', async () => {
-    fakeExpoSqlite.sqlcipher = false;
-
-    const opened = await new ExpoSqliteOpener().open(NAME, KEY);
-
-    expect(opened).toEqual({ ok: false, error: OPEN_FAILURE.EncryptionUnavailable });
-    expect(fakeExpoSqlite.open.size).toBe(0);
-  });
-
-  it('says it failed, not that the key is rejected, for any other failure', async () => {
+  it('lets what the module says go, for the caller to turn into a result', async () => {
     fakeExpoSqlite.failOpenWith = 'disk full';
 
-    expect(await new ExpoSqliteOpener().open(NAME, KEY)).toEqual({
-      ok: false,
-      error: OPEN_FAILURE.Failed,
-    });
+    await expect(new ExpoSqliteOpener().open(NAME)).rejects.toThrow('disk full');
   });
 
-  it('survives a database that does not close', async () => {
-    const opener = new ExpoSqliteOpener();
-    await opener.open(NAME, KEY);
-    fakeExpoSqlite.failClose = true;
-
-    expect(await opener.open(NAME, OTHER_KEY)).toEqual({
-      ok: false,
-      error: OPEN_FAILURE.KeyRejected,
-    });
-  });
-
-  it.each([
-    '',
-    'short',
-    'g'.repeat(64),
-    `${KEY}0`,
-    `"; DROP TABLE x; --`.padEnd(64, 'a'),
-    KEY.toUpperCase(),
-  ])(
-    'refuses a key that is not 64 lower case hexadecimal digits, before it reaches a statement: %j',
-    async (key) => {
-      const opened = await new ExpoSqliteOpener().open(NAME, key);
-
-      expect(opened).toEqual({ ok: false, error: OPEN_FAILURE.Failed });
-      expect(fakeExpoSqlite.statements).toEqual([]);
-    },
-  );
-
-  it('opens a scratch database in memory, with no key', async () => {
+  it('opens a scratch database in memory, which is not a file', async () => {
     const scratch = await new ExpoSqliteOpener().openScratch();
 
     expect(await createSqlDatabase(scratch).all('SELECT 1 AS one')).toEqual([{ one: 1 }]);
     expect(fakeExpoSqlite.statements).toEqual(['SELECT 1 AS one']);
+    expect(fakeExpoSqlite.files.size).toBe(0);
   });
 
-  it('deletes the file of a database', async () => {
-    const opener = new ExpoSqliteOpener();
-    await opener.open(NAME, KEY);
+  describe('removing a database', () => {
+    it('deletes the file of a database that is closed', async () => {
+      const opener = new ExpoSqliteOpener();
+      const connection = await opener.open(NAME);
+      await connection.close();
 
-    await opener.delete(NAME);
+      await opener.remove(NAME);
 
-    expect(await opener.open(NAME, OTHER_KEY)).toMatchObject({ ok: true });
+      expect(fakeExpoSqlite.files.has(NAME)).toBe(false);
+    });
+
+    it('succeeds for a database that is not there, which the module rejects', async () => {
+      await expect(new ExpoSqliteOpener().remove(NAME)).resolves.toBeUndefined();
+    });
+
+    it('lets any other failure go: a database that is open cannot be deleted', async () => {
+      const opener = new ExpoSqliteOpener();
+      await opener.open(NAME);
+
+      await expect(opener.remove(NAME)).rejects.toThrow('it is open');
+      expect(fakeExpoSqlite.files.has(NAME)).toBe(true);
+    });
   });
 });

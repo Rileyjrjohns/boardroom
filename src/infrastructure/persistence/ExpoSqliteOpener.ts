@@ -1,37 +1,27 @@
 import * as SQLite from 'expo-sqlite';
 
-import { err, ok } from '@domain/shared/Result';
-import type { Result } from '@domain/shared/Result';
-
-import { OPEN_FAILURE } from './DatabaseOpener';
-import type { DatabaseOpener, OpenFailure } from './DatabaseOpener';
+import type { DatabaseOpener, EngineConnection } from './DatabaseOpener';
 import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from './SqlDatabase';
 
 // The device side of the database: `expo-sqlite`, built with SQLCipher (the `useSQLCipher` option
-// of its config plugin, in app.config.ts). It is as thin as it can be, because it is the one part
-// of the persistence that Jest cannot run for real: a test stands in for the native module and
-// checks what is asked of it, and the encryption itself has been run on no device. Everything that
-// decides anything is in `openProtectedDatabase`, `createSqlDatabase` and the adapters, which are
+// of its config plugin, in app.config.ts). It is as thin as it can be: raw calls to the module and
+// nothing that decides anything, because it is the one part of the persistence that Jest cannot
+// run for real. A test stands in for the native module and checks what is asked of it, and the
+// encryption itself has been run on no device. What to do with a key, with a file that does not
+// unlock and with a file in the way is in `unlockDatabase` and `openProtectedDatabase`, which are
 // tested against SQLite.
-
-const KEY_FORMAT = /^[0-9a-f]{64}$/;
-
-/** What SQLite says when a file is not a database, which is what a wrong key looks like. */
-const NOT_A_DATABASE = /not a database/i;
-
-/** Unlocks an encrypted database with a raw 256-bit key. `PRAGMA` takes no parameter. */
-const unlockWith = (key: string): string => `PRAGMA key = "x'${key}'"`;
-
-/** SQLCipher answers its version. Plain SQLite does not know the pragma, and answers nothing. */
-const CIPHER_VERSION = 'PRAGMA cipher_version';
-
-/** The first read of the file: with a wrong key, it is where SQLite finds out it is not a database. */
-const READ_SCHEMA = 'SELECT count(*) FROM sqlite_master';
 
 const IN_MEMORY = ':memory:';
 
-class ExpoSqliteConnection implements SqlConnection {
+/** What the module says when it is asked to delete a database that is not there. */
+const NOT_FOUND = /not found/i;
+
+class ExpoSqliteConnection implements EngineConnection {
   constructor(private readonly database: SQLite.SQLiteDatabase) {}
+
+  exec(sql: string): Promise<void> {
+    return this.database.execAsync(sql);
+  }
 
   async run(sql: string, params: SqlParams): Promise<SqlRunResult> {
     const { changes } = await this.database.runAsync(sql, [...params]);
@@ -47,41 +37,24 @@ class ExpoSqliteConnection implements SqlConnection {
   }
 }
 
-async function closeQuietly(database: SQLite.SQLiteDatabase | undefined): Promise<void> {
-  try {
-    await database?.closeAsync();
-  } catch {
-    // Nothing more can be done for a database that does not close.
-  }
-}
-
 export class ExpoSqliteOpener implements DatabaseOpener {
-  async open(name: string, key: string): Promise<Result<SqlConnection, OpenFailure>> {
-    // The key goes into a statement, so it is checked to be nothing but the digits it should be.
-    if (!KEY_FORMAT.test(key)) return err(OPEN_FAILURE.Failed);
-
-    let database: SQLite.SQLiteDatabase | undefined;
-    try {
-      database = await SQLite.openDatabaseAsync(name);
-      await database.execAsync(unlockWith(key));
-      if ((await database.getAllAsync(CIPHER_VERSION)).length === 0) {
-        await closeQuietly(database);
-        return err(OPEN_FAILURE.EncryptionUnavailable);
-      }
-      await database.getAllAsync(READ_SCHEMA);
-      return ok(new ExpoSqliteConnection(database));
-    } catch (error) {
-      await closeQuietly(database);
-      const rejected = error instanceof Error && NOT_A_DATABASE.test(error.message);
-      return err(rejected ? OPEN_FAILURE.KeyRejected : OPEN_FAILURE.Failed);
-    }
+  async open(name: string): Promise<EngineConnection> {
+    return new ExpoSqliteConnection(await SQLite.openDatabaseAsync(name));
   }
 
   async openScratch(): Promise<SqlConnection> {
     return new ExpoSqliteConnection(await SQLite.openDatabaseAsync(IN_MEMORY));
   }
 
-  delete(name: string): Promise<void> {
-    return SQLite.deleteDatabaseAsync(name);
+  /**
+   * The module rejects when there is no such database, and deletes the main file only. The first is
+   * not a failure for the caller, who wants the file gone; the second is why a name is never reused.
+   */
+  async remove(name: string): Promise<void> {
+    try {
+      await SQLite.deleteDatabaseAsync(name);
+    } catch (error) {
+      if (!(error instanceof Error && NOT_FOUND.test(error.message))) throw error;
+    }
   }
 }

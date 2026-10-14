@@ -10,8 +10,9 @@
 //               `Request` and `Response` of Node, and the SQLite adapters against `node:sqlite`,
 //               which only Node has: the jest-expo preset replaces the first with the native
 //               ones of Expo, which do not run in Jest. The native modules of Expo that the
-//               device adapters wrap are never loaded here: the composition root asks for them
-//               late, and the tests of the thin wrappers replace each module with a stand-in,
+//               device adapters wrap (`NATIVE_MODULES`) are empty modules here: the platform
+//               factory and the composition root import them like the app does, and nothing native
+//               is loaded. The tests of the thin wrappers replace each module with a stand-in,
 //               each with a comment that says why.
 // - "ui"      : src/presentation, on the jest-expo preset with React Native Testing Library.
 // - "tooling" : tooling/, in a plain node environment. Checks of the repository configuration.
@@ -42,6 +43,29 @@ const moduleNameMapper = Object.fromEntries(
       `<rootDir>/${target.replace(/^\.\//, '').replace('*', '$1')}`,
     ];
   }),
+);
+
+/**
+ * The Expo modules that wrap the device: the database, the keychain, the biometric prompt and the
+ * state of the network. They exist only on a phone.
+ */
+const NATIVE_MODULES = [
+  'expo-sqlite',
+  'expo-secure-store',
+  'expo-local-authentication',
+  'expo-network',
+];
+
+/**
+ * The "infra" project replaces each of them with an empty module, so that importing the device
+ * adapters, as the app does, loads nothing native.
+ * @type {Record<string, string>}
+ */
+const nativeModuleStubs = Object.fromEntries(
+  NATIVE_MODULES.map((name) => [
+    `^${name}$`,
+    '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts',
+  ]),
 );
 
 const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}'];
@@ -149,7 +173,7 @@ const config = {
       testEnvironment: 'node',
       roots: ['<rootDir>/src/infrastructure', '<rootDir>/src/di'],
       testMatch: TEST_FILES,
-      moduleNameMapper,
+      moduleNameMapper: { ...nativeModuleStubs, ...moduleNameMapper },
       transform: infraTransform,
       transformIgnorePatterns: [`/node_modules/(?!(${MSW_PACKAGES.join('|')})/)`],
     },

@@ -1,18 +1,33 @@
+import { storageReadFailed } from '@domain/errors/StorageError';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
-import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@application/ports/Monitoring';
+import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { Monitoring } from '@application/ports/Monitoring';
 
 import { attempt } from '../shared/attempt';
+import { createSerialQueue } from '../shared/serialQueue';
+import type { SerialQueue } from '../shared/serialQueue';
 import { SECURE_STORAGE_KEY } from '../secure-storage/SecureStorage';
 import type { SecureStorage } from '../secure-storage/SecureStorage';
 
-import { CONNECTION_PRAGMAS, OPEN_FAILURE } from './DatabaseOpener';
+import {
+  FIRST_GENERATION,
+  KEY_FORMAT,
+  databaseFileName,
+  formatKeyState,
+  parseKeyState,
+} from './databaseKey';
+import type { KeyState } from './databaseKey';
+import { CONNECTION_PRAGMAS } from './DatabaseOpener';
 import type { DatabaseOpener } from './DatabaseOpener';
+import { RESET_REASON, markLocalDataReset } from './localDataReset';
+import type { ResetReason } from './localDataReset';
 import { MIGRATION_FAILURE, runMigrations } from './migrate';
 import type { Migration } from './migrations';
 import { createSqlDatabase } from './SqlDatabase';
 import type { SqlConnection, SqlDatabase } from './SqlDatabase';
+import { UNLOCK_FAILURE, unlockDatabase } from './unlockDatabase';
+import type { UnlockFailure } from './unlockDatabase';
 
 /** How long opening the database, or the keychain, may take before the app gives up. */
 const DEFAULT_OPEN_TIMEOUT_MILLIS = 20_000;
@@ -20,7 +35,10 @@ const DEFAULT_OPEN_TIMEOUT_MILLIS = 20_000;
 const DATABASE_ERROR_CODE = { Unavailable: 'databaseUnavailable' } as const;
 
 export const DATABASE_FAILURE = {
-  /** The keychain cannot be read or written, or no key can be made: the key cannot be had. */
+  /**
+   * The keychain cannot be read or written, what it holds for the database is not a key, or no key
+   * can be made: the key cannot be had.
+   */
   KeyStorage: 'keyStorage',
   /** The engine has no encryption: nothing is stored rather than store the data in clear. */
   EncryptionUnavailable: 'encryptionUnavailable',
@@ -40,18 +58,6 @@ export interface DatabaseUnavailable {
   readonly reason: DatabaseFailureReason;
 }
 
-/** Why the database was created again, for the logs. */
-export const RECREATION_REASON = {
-  /** The key was not in the keychain, and a database was: it could not be opened. */
-  KeyLost: 'keyLost',
-  /** The keychain had a key, and it did not open the database. */
-  KeyRejected: 'keyRejected',
-} as const;
-
-type RecreationReason = (typeof RECREATION_REASON)[keyof typeof RECREATION_REASON];
-
-/** A 256-bit key, as 64 lower case hexadecimal digits. */
-const KEY_FORMAT = /^[0-9a-f]{64}$/;
 const KEY_BYTES = 32;
 const RANDOM_KEY = `SELECT lower(hex(randomblob(${KEY_BYTES}))) AS key`;
 const KEY_COLUMN = 'key';
@@ -66,7 +72,7 @@ export interface ProtectedDatabaseOptions {
   /** Where the key lives. */
   readonly storage: SecureStorage;
   readonly monitoring: Monitoring;
-  /** The name of the database file. */
+  /** The name of the first database file (see `databaseFileName`). */
   readonly name: string;
   readonly migrations: readonly Migration[];
   /** Defaults to `DEFAULT_OPEN_TIMEOUT_MILLIS`. */
@@ -74,23 +80,54 @@ export interface ProtectedDatabaseOptions {
 }
 
 /**
+ * Starts that wait for each other, one queue for each keychain. The key and the file it opens are
+ * a state kept in two places; two starts at once on the same keychain would each find no key, each
+ * make one, and leave a key that does not open the file the other created. A start runs only when
+ * the one before it is over, and finds the state it left.
+ */
+const startsOfKeychain = new WeakMap<SecureStorage, SerialQueue>();
+
+function queueOf(storage: SecureStorage): SerialQueue {
+  const known = startsOfKeychain.get(storage);
+  if (known !== undefined) return known;
+  const created = createSerialQueue();
+  startsOfKeychain.set(storage, created);
+  return created;
+}
+
+/**
  * Opens the local database, protected by a key that only the secure storage holds, and brings its
- * schema up to date. It is the one place that decides what to do with the key:
+ * schema up to date. It is the one place that decides what to do with the key. Starts are one at a
+ * time for a keychain (see `startsOfKeychain`).
  *
  * - **First start.** There is no key and no file. A key is made (256 random bits, see
  *   `randomKey`), stored first, then the database is created with it. If the app stops in between,
  *   the next start finds a key and no file, and creates it.
  * - **Every start after.** The key is read and the database opened with it.
+ * - **A keychain that cannot be trusted.** What is stored under the key of the database is there
+ *   and is not a key: that is a failure of the keychain (`keyStorage`), not a lost key. Nothing is
+ *   made, set aside or deleted.
  * - **The key is lost** (the keychain was cleared, or the file was restored onto a device whose
  *   keychain does not have the key: the key is device-only on purpose) **or rejected** (the file is
- *   not the one the key belongs to). The content of the file can never be read again, so it is
- *   deleted and a new database is created with a new key. Everything that was in it is gone: the
- *   cache is refilled by the next requests, but a vote that had not been sent is lost. The
- *   monitoring is told, and nothing else is: the app does not start with a database it cannot
- *   read, and does not refuse to start for good either.
- * - **Rotation.** The key is made once for an installation, and replaced only in the case above.
- *   Nothing rotates it while the database is in use: that would be `PRAGMA rekey` with the new key
- *   written to the keychain first, which no policy of the app asks for (see the README).
+ *   not the one the key belongs to, or is not a database). The content of the file cannot be read.
+ *   It is not deleted: the app sets it aside and starts a new database, and everything that was
+ *   in the old one is not in the new one, votes that had not been sent included.
+ *   1. The record that local data was reset is written to the keychain (see `localDataReset`), the
+ *      first thing, so that whatever happens next, the user is told.
+ *   2. The key that did not open the file is kept, in another item.
+ *   3. A new key and the next generation of the file are stored in one write, which is the point
+ *      of no return: the app now looks for its data in a file of another name
+ *      (`databaseFileName`), and the one it could not read stays where it is.
+ *   4. The reset is captured by the monitoring as an error, not as a log.
+ *   5. Once the new database is open and migrated, the copy that was set aside by the reset before
+ *      this one, if any, is removed: **at most one copy of an unreadable database is kept**, the
+ *      latest. There is no rename in the engine, so a name is never reused, which also means a
+ *      leftover journal of the old file cannot be applied to the new one.
+ *   It happens at most once in a start. A start that stops anywhere in it finds the state of the
+ *   last write and goes on from there.
+ * - **Rotation.** The key is made once for a file, and replaced only in the case above. Nothing
+ *   rotates it while the database is in use: that would be `PRAGMA rekey` with the new key written
+ *   to the keychain first, which no policy of the app asks for (see the README).
  * - **No encryption.** An engine that cannot encrypt (plain SQLite: the native build lacks the
  *   `useSQLCipher` option of the `expo-sqlite` plugin) fails the start with `encryptionUnavailable`:
  *   confidential data is never written in clear because the build was wrong.
@@ -98,32 +135,51 @@ export interface ProtectedDatabaseOptions {
  * Never throws. A start that fails with the keychain or the engine is `databaseUnavailable` with
  * the reason; the app then does not start (the container reports it) and nothing is deleted.
  */
-export async function openProtectedDatabase(
+export function openProtectedDatabase(
+  options: ProtectedDatabaseOptions,
+): Promise<Result<SqlDatabase, DatabaseUnavailable>> {
+  return queueOf(options.storage)(() => start(options));
+}
+
+async function start(
   options: ProtectedDatabaseOptions,
 ): Promise<Result<SqlDatabase, DatabaseUnavailable>> {
   const { opener, name, migrations } = options;
   const timeout = options.timeoutMillis ?? DEFAULT_OPEN_TIMEOUT_MILLIS;
 
-  const held = await readKey(options.storage, timeout);
+  const held = await readKeyState(options.storage, timeout);
   if (!held.ok) return held;
 
-  let key = held.value;
-  if (key === undefined) {
-    const made = await makeKey(options, timeout);
+  let state = held.value;
+  if (state === undefined) {
+    const made = await makeState(options, FIRST_GENERATION, timeout);
     if (!made.ok) return made;
-    key = made.value;
+    state = made.value;
   }
 
-  let opened = await open(opener, name, key, timeout);
-  if (!opened.ok && opened.error === OPEN_FAILURE.KeyRejected) {
-    const reason =
-      held.value === undefined ? RECREATION_REASON.KeyLost : RECREATION_REASON.KeyRejected;
-    opened = await startOver(options, reason, timeout);
+  let opened = await openUnlocked(
+    opener,
+    databaseFileName(name, state.generation),
+    state.key,
+    timeout,
+  );
+  let setAside: number | undefined;
+  if (!opened.ok && opened.error === UNLOCK_FAILURE.KeyRejected) {
+    const reason = held.value === undefined ? RESET_REASON.KeyLost : RESET_REASON.KeyRejected;
+    const next = await setAsideAndRenew(options, state, held.value !== undefined, reason, timeout);
+    if (!next.ok) return next;
+    setAside = state.generation;
+    opened = await openUnlocked(
+      opener,
+      databaseFileName(name, next.value.generation),
+      next.value.key,
+      timeout,
+    );
   }
   if (!opened.ok) {
     return err(
       unavailable(
-        opened.error === OPEN_FAILURE.EncryptionUnavailable
+        opened.error === UNLOCK_FAILURE.EncryptionUnavailable
           ? DATABASE_FAILURE.EncryptionUnavailable
           : DATABASE_FAILURE.Open,
       ),
@@ -136,34 +192,72 @@ export async function openProtectedDatabase(
     await attempt(() => database.close(), timeout);
     return prepared;
   }
+  if (setAside !== undefined) await removeOlderCopy(options, setAside, timeout);
   return ok(database);
 }
 
-/** Deletes the file, makes a new key and creates the database again. */
-async function startOver(
+/**
+ * Sets the file that could not be read aside and gives the app a new key and the next file, as
+ * `openProtectedDatabase` describes. `previous` says whether the key that failed came from the
+ * keychain (and is worth keeping) or was made a moment ago for a file that was not there to be
+ * found.
+ */
+async function setAsideAndRenew(
   options: ProtectedDatabaseOptions,
-  reason: RecreationReason,
+  current: KeyState,
+  keepsKey: boolean,
+  reason: ResetReason,
   timeout: number,
-): Promise<Result<SqlConnection, (typeof OPEN_FAILURE)[keyof typeof OPEN_FAILURE]>> {
-  const { opener, name, monitoring } = options;
-  const deleted = await attempt(() => opener.delete(name), timeout);
-  const made = deleted.ok ? await makeKey(options, timeout) : undefined;
-  if (made === undefined || !made.ok) return err(OPEN_FAILURE.Failed);
+): Promise<Result<KeyState, DatabaseUnavailable>> {
+  const { storage, monitoring } = options;
 
-  monitoring.log(LOG_LEVEL.Warn, MONITORING_EVENT.DatabaseRecreated, {
+  if (!(await markLocalDataReset(storage, reason, timeout))) {
+    return err(unavailable(DATABASE_FAILURE.KeyStorage));
+  }
+  if (keepsKey) {
+    // Best effort: the file is kept either way, and the key only makes it readable if the cause
+    // turns out to be somewhere else than the file.
+    await attempt(
+      () => storage.set(SECURE_STORAGE_KEY.DatabaseKeyPrevious, formatKeyState(current)),
+      timeout,
+    );
+  }
+  const renewed = await makeState(options, current.generation + 1, timeout);
+  if (!renewed.ok) return renewed;
+
+  monitoring.captureError(MONITORING_EVENT.DatabaseRecreated, storageReadFailed(reason), {
     [LOG_ATTRIBUTE.Reason]: reason,
   });
-  return open(opener, name, made.value, timeout);
+  return renewed;
 }
 
-async function open(
+/** Removes the copy that an earlier reset set aside, now that there is another one. Best effort. */
+async function removeOlderCopy(
+  options: ProtectedDatabaseOptions,
+  setAside: number,
+  timeout: number,
+): Promise<void> {
+  const older = setAside - 1;
+  if (older < FIRST_GENERATION) return;
+  await attempt(() => options.opener.remove(databaseFileName(options.name, older)), timeout);
+}
+
+/** Opens the file and unlocks it. A file that cannot be opened is `failed`. */
+async function openUnlocked(
   opener: DatabaseOpener,
-  name: string,
+  file: string,
   key: string,
   timeout: number,
-): Promise<Result<SqlConnection, (typeof OPEN_FAILURE)[keyof typeof OPEN_FAILURE]>> {
-  const opened = await attempt(() => opener.open(name, key), timeout);
-  return opened.ok ? opened.value : err(OPEN_FAILURE.Failed);
+): Promise<Result<SqlConnection, UnlockFailure>> {
+  const opened = await attempt(() => opener.open(file), timeout);
+  if (!opened.ok) return err(UNLOCK_FAILURE.Failed);
+
+  const unlocked = await attempt(() => unlockDatabase(opened.value, key), timeout);
+  if (!unlocked.ok) {
+    await attempt(() => opened.value.close(), timeout);
+    return err(UNLOCK_FAILURE.Failed);
+  }
+  return unlocked.value.ok ? ok(opened.value) : unlocked.value;
 }
 
 /** Sets the connection up and migrates the schema. */
@@ -187,28 +281,37 @@ async function prepare(
   );
 }
 
-/** The key in the keychain, or `undefined` when there is none or what is there is not a key. */
-async function readKey(
+/**
+ * The state in the keychain, or `undefined` when there is none. An item that is there and is not a
+ * state is a failure of the keychain: starting over would set aside a database that a key opens.
+ */
+async function readKeyState(
   storage: SecureStorage,
   timeout: number,
-): Promise<Result<string | undefined, DatabaseUnavailable>> {
+): Promise<Result<KeyState | undefined, DatabaseUnavailable>> {
   const read = await attempt(() => storage.get(SECURE_STORAGE_KEY.DatabaseKey), timeout);
   if (!read.ok) return err(unavailable(DATABASE_FAILURE.KeyStorage));
-  return ok(read.value !== undefined && KEY_FORMAT.test(read.value) ? read.value : undefined);
+  if (read.value === undefined) return ok(undefined);
+
+  const state = parseKeyState(read.value);
+  return state === undefined ? err(unavailable(DATABASE_FAILURE.KeyStorage)) : ok(state);
 }
 
-/** Makes a key and stores it. The key is used only once it is safe in the keychain. */
-async function makeKey(
+/** Makes a key and stores it with the generation. The key is used only once it is safe in the keychain. */
+async function makeState(
   options: ProtectedDatabaseOptions,
+  generation: number,
   timeout: number,
-): Promise<Result<string, DatabaseUnavailable>> {
+): Promise<Result<KeyState, DatabaseUnavailable>> {
   const key = await randomKey(options.opener, timeout);
   if (!key.ok) return key;
+
+  const state: KeyState = { generation, key: key.value };
   const stored = await attempt(
-    () => options.storage.set(SECURE_STORAGE_KEY.DatabaseKey, key.value),
+    () => options.storage.set(SECURE_STORAGE_KEY.DatabaseKey, formatKeyState(state)),
     timeout,
   );
-  return stored.ok ? key : err(unavailable(DATABASE_FAILURE.KeyStorage));
+  return stored.ok ? ok(state) : err(unavailable(DATABASE_FAILURE.KeyStorage));
 }
 
 /**
@@ -216,8 +319,8 @@ async function makeKey(
  * that the app can use without a dependency (Hermes has no `crypto.getRandomValues`, and the Expo
  * module that has one is not part of this app), so the bits come from the engine: the
  * `randomblob()` function of SQLite, whose generator is seeded from the operating system
- * (`/dev/urandom`). They are asked of a scratch database in memory, never of the database that
- * is being protected.
+ * (`/dev/urandom`) and falls back on a weaker seed if that cannot be opened (see the README). They
+ * are asked of a scratch database in memory, never of the database that is being protected.
  */
 async function randomKey(
   opener: DatabaseOpener,

@@ -12,11 +12,26 @@ export const HTTP_HEADER = {
   Authorization: 'Authorization',
   Accept: 'Accept',
   ContentType: 'Content-Type',
+  CacheControl: 'Cache-Control',
+  ContentLength: 'Content-Length',
   /** The key of a vote (`idempotencyKeyOf`), percent-encoded: a retry carries the same value. */
   IdempotencyKey: 'Idempotency-Key',
 } as const;
 
 export const MEDIA_TYPE_JSON = 'application/json';
+
+/**
+ * What every request and every answer says about caching: nothing of the API is stored by an
+ * intermediary or by the HTTP cache of the platform. The answers are confidential.
+ */
+export const CACHE_CONTROL_NO_STORE = 'no-store';
+
+/**
+ * How big an answer may be, in bytes. A page of fifty meetings is a few tens of kilobytes and a
+ * meeting with its agenda and its participants some hundreds: two megabytes is far above any
+ * answer the API gives, and far below what a hostile or broken server could make the app hold.
+ */
+export const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 /** The only kind of token the API issues, and the scheme of the `Authorization` header. */
 export const BEARER_TOKEN_TYPE = 'Bearer';
@@ -31,18 +46,29 @@ export const HTTP_STATUS = {
   Unauthorized: 401,
   Forbidden: 403,
   NotFound: 404,
-  /** The request was understood and refused by a business rule: the body says which. */
+  /** The server gave up waiting for the request. */
+  RequestTimeout: 408,
   /** The body of the request is bigger than the server accepts. */
   RequestEntityTooLarge: 413,
+  /** The request was understood and refused by a business rule: the body says which. */
   UnprocessableContent: 422,
+  /** Too many requests: the server asks the client to come back later. */
+  TooManyRequests: 429,
   InternalServerError: 500,
   BadGateway: 502,
   ServiceUnavailable: 503,
   GatewayTimeout: 504,
 } as const;
 
-/** The statuses that say the service behind the gateway cannot be reached right now. */
-export const UNREACHABLE_STATUSES: readonly number[] = [
+/**
+ * The statuses that say nothing about the request but that the service cannot take it right now:
+ * the server gave up waiting for it (408), asks to be given time (429), or the service behind the
+ * gateway cannot be reached (502, 503, 504). The client treats them like a network that failed,
+ * so that the saved copy is served and a queue of votes is not given up during an outage.
+ */
+export const TRANSIENT_STATUSES: readonly number[] = [
+  HTTP_STATUS.RequestTimeout,
+  HTTP_STATUS.TooManyRequests,
   HTTP_STATUS.BadGateway,
   HTTP_STATUS.ServiceUnavailable,
   HTTP_STATUS.GatewayTimeout,

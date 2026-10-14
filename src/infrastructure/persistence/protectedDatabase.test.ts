@@ -1,4 +1,5 @@
-import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@application/ports/Monitoring';
+import { storageReadFailed } from '@domain/errors/StorageError';
+import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import { FakeMonitoring } from '@application/testing/FakeMonitoring';
 
 import { MemorySecureStorage } from '../testing/MemorySecureStorage';
@@ -7,17 +8,21 @@ import { SimulatedCipherOpener } from '../testing/SimulatedCipherOpener';
 import { databaseDirectory } from '../testing/testDatabase';
 import { SECURE_STORAGE_KEY } from '../secure-storage/SecureStorage';
 
-import { OPEN_FAILURE } from './DatabaseOpener';
+import { databaseFileName, formatKeyState } from './databaseKey';
+import { RESET_REASON } from './localDataReset';
 import { MIGRATIONS } from './migrations';
 import type { Migration } from './migrations';
-import { DATABASE_FAILURE, RECREATION_REASON, openProtectedDatabase } from './protectedDatabase';
+import { DATABASE_FAILURE, openProtectedDatabase } from './protectedDatabase';
 import type { ProtectedDatabaseOptions } from './protectedDatabase';
 import type { SqlDatabase } from './SqlDatabase';
 import { TABLE } from './schema';
+import { unlockDatabase } from './unlockDatabase';
 
 const directory = databaseDirectory();
 const files = nodeFileSystem();
-const KEY_FORMAT = /^[0-9a-f]{64}$/;
+/** What the keychain holds for the database: the generation of the file, and the key. */
+const STATE_FORMAT = /^[0-9]+:[0-9a-f]{64}$/;
+const OTHER_KEY = 'c'.repeat(64);
 
 let counter = 0;
 
@@ -26,13 +31,16 @@ function aDevice(overrides: Partial<ProtectedDatabaseOptions> = {}) {
   counter += 1;
   const storage = new MemorySecureStorage();
   const monitoring = new FakeMonitoring();
-  const opener = new SimulatedCipherOpener(new NodeSqliteOpener(directory, files));
+  const nodeFiles = new NodeSqliteOpener(directory, files);
+  const opener = new SimulatedCipherOpener(nodeFiles);
   const name = `protected-${counter}.db`;
   const options = { opener, storage, monitoring, name, migrations: MIGRATIONS, ...overrides };
   return {
     storage,
     monitoring,
     opener,
+    /** The files, to see what is on the device. */
+    files: nodeFiles,
     name,
     /** A start of the app. */
     start: (more: Partial<ProtectedDatabaseOptions> = {}) =>
@@ -40,7 +48,26 @@ function aDevice(overrides: Partial<ProtectedDatabaseOptions> = {}) {
   };
 }
 
-async function started(device: ReturnType<typeof aDevice>): Promise<SqlDatabase> {
+type Device = ReturnType<typeof aDevice>;
+
+/** Counts the connections the device opens and the ones that are closed again. */
+function watchConnections(device: Device) {
+  const counts = { opened: 0, closed: 0 };
+  const open = device.opener.open.bind(device.opener);
+  jest.spyOn(device.opener, 'open').mockImplementation(async (file) => {
+    const connection = await open(file);
+    counts.opened += 1;
+    const close = connection.close.bind(connection);
+    connection.close = async () => {
+      counts.closed += 1;
+      await close();
+    };
+    return connection;
+  });
+  return counts;
+}
+
+async function started(device: Device): Promise<SqlDatabase> {
   const opened = await device.start();
   if (!opened.ok)
     throw new Error(`The database should have opened: ${JSON.stringify(opened.error)}`);
@@ -67,12 +94,20 @@ describe('openProtectedDatabase', () => {
       const database = await started(device);
 
       const key = keyOf(device);
-      expect(key).toMatch(KEY_FORMAT);
-      expect(device.opener.keysUsed).toEqual([key]);
+      expect(key).toMatch(STATE_FORMAT);
+      expect(device.opener.keysUsed).toEqual([key?.slice(-64)]);
       expect(await database.all('PRAGMA user_version')).toEqual([
         { user_version: MIGRATIONS.length },
       ]);
       expect(device.monitoring.logs).toEqual([]);
+    });
+
+    it('sets the connection up to overwrite what is deleted, so that a removed vote does not stay in the file', async () => {
+      const device = aDevice();
+
+      const database = await started(device);
+
+      expect(await database.all('PRAGMA secure_delete')).toEqual([{ secure_delete: 1 }]);
     });
 
     it('makes a different key for each installation', async () => {
@@ -88,7 +123,7 @@ describe('openProtectedDatabase', () => {
 
     it('stores the key before the database exists, so that a start stopped in between loses nothing', async () => {
       const device = aDevice();
-      device.opener.failNextOpenWith(OPEN_FAILURE.Failed);
+      device.opener.failNextOpens();
 
       const stopped = await device.start();
 
@@ -96,14 +131,16 @@ describe('openProtectedDatabase', () => {
         ok: false,
         error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Open },
       });
-      expect(keyOf(device)).toMatch(KEY_FORMAT);
+      const keptKey = keyOf(device);
+      expect(keptKey).toMatch(STATE_FORMAT);
       expect(device.opener.has(device.name)).toBe(false);
 
       const database = await started(device);
       expect(await database.all('PRAGMA user_version')).toEqual([
         { user_version: MIGRATIONS.length },
       ]);
-      expect(device.opener.keysUsed[0]).toBe(device.opener.keysUsed[1]);
+      expect(keyOf(device)).toBe(keptKey);
+      expect(device.opener.keysUsed).toEqual([keptKey?.slice(-64)]);
     });
   });
 
@@ -119,7 +156,7 @@ describe('openProtectedDatabase', () => {
 
       expect(await rowsOf(second)).toBe(1);
       expect(keyOf(device)).toBe(key);
-      expect(device.opener.keysUsed).toEqual([key, key]);
+      expect(device.opener.keysUsed).toEqual([key?.slice(-64), key?.slice(-64)]);
       expect(device.monitoring.logs).toEqual([]);
     });
 
@@ -145,73 +182,365 @@ describe('openProtectedDatabase', () => {
     });
   });
 
-  describe.each([
-    [
-      'the keychain holds something that is not a key, which is a key lost',
-      RECREATION_REASON.KeyLost,
-      (device: ReturnType<typeof aDevice>) =>
-        device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, 'not a key'),
-    ],
-    [
-      'the keychain holds another key',
-      RECREATION_REASON.KeyRejected,
-      (device: ReturnType<typeof aDevice>) =>
-        device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, 'c'.repeat(64)),
-    ],
-  ])('when %s', (_name, reason, lose) => {
-    it('deletes the database that cannot be read, makes a new key and starts over, empty', async () => {
+  describe('a key that is lost, rejected or a file that is not a database', () => {
+    const lostKey = (device: Device) => device.storage.remove(SECURE_STORAGE_KEY.DatabaseKey);
+    const wrongKey = (device: Device) =>
+      device.storage.set(
+        SECURE_STORAGE_KEY.DatabaseKey,
+        formatKeyState({ generation: 0, key: OTHER_KEY }),
+      );
+    const brokenFile = (device: Device) => {
+      device.opener.corrupt(device.name);
+    };
+
+    describe.each([
+      ['the key is not in the keychain', RESET_REASON.KeyLost, lostKey, true],
+      ['the keychain holds another key', RESET_REASON.KeyRejected, wrongKey, true],
+      ['the file is not a database', RESET_REASON.KeyRejected, brokenFile, false],
+    ])('when %s', (_name, reason, lose, readable) => {
+      it('sets the file aside, unread and not deleted, and starts a new database, empty, in another file', async () => {
+        const device = aDevice();
+        const first = await started(device);
+        await mark(first);
+        await first.close();
+        const originalKey = keyOf(device);
+        await lose(device);
+
+        const second = await started(device);
+
+        expect(await rowsOf(second)).toBe(0);
+        expect(device.files.exists(device.name)).toBe(true);
+        expect(device.files.exists(databaseFileName(device.name, 1))).toBe(true);
+        expect(device.opener.removed).toEqual([]);
+        expect(keyOf(device)).toMatch(STATE_FORMAT);
+        expect(keyOf(device)).toContain('1:');
+        expect(keyOf(device)).not.toContain(originalKey?.slice(-64) ?? 'x');
+      });
+
+      it('leaves the data of the old file where it was, readable with its own key when it can be read', async () => {
+        const device = aDevice();
+        const first = await started(device);
+        await mark(first);
+        await first.close();
+        const originalKey = keyOf(device)?.slice(-64) ?? '';
+        await lose(device);
+
+        await started(device);
+
+        // A file that is not a database is readable by nobody: only that it was kept can be seen.
+        expect(device.files.exists(device.name)).toBe(true);
+        const old = await device.opener.open(device.name);
+        const unlocked = await unlockDatabase(old, originalKey);
+        expect(unlocked.ok).toBe(readable);
+        if (readable) {
+          expect(
+            await old.all(`SELECT count(*) AS total FROM ${TABLE.MeetingDetails}`, []),
+          ).toEqual([{ total: 1 }]);
+        }
+      });
+
+      it('reports it as an error to the monitoring, with the reason, and not as a log', async () => {
+        const device = aDevice();
+        const first = await started(device);
+        await first.close();
+        await lose(device);
+
+        await started(device);
+
+        expect(device.monitoring.errors).toEqual([
+          {
+            event: MONITORING_EVENT.DatabaseRecreated,
+            error: storageReadFailed(reason),
+            attributes: { [LOG_ATTRIBUTE.Reason]: reason },
+          },
+        ]);
+        expect(device.monitoring.logs).toEqual([]);
+      });
+
+      it('leaves a record in the keychain that local data was reset, with the reason', async () => {
+        const device = aDevice();
+        const first = await started(device);
+        await first.close();
+        await lose(device);
+
+        await started(device);
+
+        expect(device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBe(reason);
+      });
+
+      it('uses the new file at the starts after, and the record stays until somebody clears it', async () => {
+        const device = aDevice();
+        const first = await started(device);
+        await first.close();
+        await lose(device);
+        const second = await started(device);
+        await mark(second);
+        await second.close();
+
+        const third = await started(device);
+
+        expect(await rowsOf(third)).toBe(1);
+        expect(device.monitoring.errors).toHaveLength(1);
+        expect(device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBe(reason);
+      });
+    });
+
+    it('keeps the key that did not open the file when the keychain had one, and none when it had not', async () => {
+      const rejected = aDevice();
+      await (await started(rejected)).close();
+      const originalKey = keyOf(rejected) ?? '';
+      await wrongKey(rejected);
+      await started(rejected);
+
+      const lost = aDevice();
+      await (await started(lost)).close();
+      await lostKey(lost);
+      await started(lost);
+
+      expect(rejected.storage.snapshot()[SECURE_STORAGE_KEY.DatabaseKeyPrevious]).toBe(
+        formatKeyState({ generation: 0, key: OTHER_KEY }),
+      );
+      expect(originalKey).toMatch(STATE_FORMAT);
+      expect(lost.storage.snapshot()[SECURE_STORAGE_KEY.DatabaseKeyPrevious]).toBeUndefined();
+    });
+
+    it('keeps at most one copy: the second reset removes the copy of the first', async () => {
       const device = aDevice();
-      const first = await started(device);
-      await mark(first);
-      await first.close();
-      const lostKey = keyOf(device);
-      lose(device);
+      await (await started(device)).close();
+      await wrongKey(device);
+      await (await started(device)).close();
+      // The file of generation 1 is lost in its turn.
+      device.storage.seed(
+        SECURE_STORAGE_KEY.DatabaseKey,
+        formatKeyState({ generation: 1, key: OTHER_KEY }),
+      );
+
+      const third = await started(device);
+
+      expect(await rowsOf(third)).toBe(0);
+      expect(device.files.exists(databaseFileName(device.name, 2))).toBe(true);
+      expect(device.files.exists(databaseFileName(device.name, 1))).toBe(true);
+      expect(device.files.exists(databaseFileName(device.name, 0))).toBe(false);
+      expect(device.opener.removed).toEqual([databaseFileName(device.name, 0)]);
+    });
+
+    it('resets at most once in a start: a new file that is no good either is a failure to open', async () => {
+      const device = aDevice();
+      await (await started(device)).close();
+      await lostKey(device);
+      device.opener.corrupt(databaseFileName(device.name, 1));
+
+      const failed = await device.start();
+
+      expect(failed).toEqual({
+        ok: false,
+        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Open },
+      });
+      expect(device.files.exists(device.name)).toBe(true);
+    });
+
+    it('is told before anything is set aside: a record, then the key, then the file', async () => {
+      const device = aDevice();
+      await (await started(device)).close();
+      await wrongKey(device);
+      const order: string[] = [];
+      const set = device.storage.set.bind(device.storage);
+      jest.spyOn(device.storage, 'set').mockImplementation(async (key, value) => {
+        order.push(key);
+        return set(key, value);
+      });
+      const open = device.opener.open.bind(device.opener);
+      jest.spyOn(device.opener, 'open').mockImplementation(async (file) => {
+        order.push(`open ${file}`);
+        return open(file);
+      });
+
+      await started(device);
+
+      expect(order).toEqual([
+        `open ${device.name}`,
+        SECURE_STORAGE_KEY.LocalDataReset,
+        SECURE_STORAGE_KEY.DatabaseKeyPrevious,
+        SECURE_STORAGE_KEY.DatabaseKey,
+        `open ${databaseFileName(device.name, 1)}`,
+      ]);
+    });
+
+    it('does not set anything aside when the record cannot be written, and the key is untouched', async () => {
+      const device = aDevice();
+      await (await started(device)).close();
+      await wrongKey(device);
+      const before = keyOf(device);
+      const set = device.storage.set.bind(device.storage);
+      jest
+        .spyOn(device.storage, 'set')
+        .mockImplementation((key, value) =>
+          key === SECURE_STORAGE_KEY.LocalDataReset
+            ? Promise.reject(new Error('full'))
+            : set(key, value),
+        );
+
+      const failed = await device.start();
+
+      expect(failed).toEqual({
+        ok: false,
+        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+      });
+      expect(keyOf(device)).toBe(before);
+      expect(device.files.exists(databaseFileName(device.name, 1))).toBe(false);
+      expect(device.monitoring.errors).toEqual([]);
+    });
+
+    it('does not start over when the new key cannot be kept: the file is not set aside', async () => {
+      const device = aDevice();
+      await (await started(device)).close();
+      await wrongKey(device);
+      const before = keyOf(device);
+      const set = device.storage.set.bind(device.storage);
+      jest
+        .spyOn(device.storage, 'set')
+        .mockImplementation((key, value) =>
+          key === SECURE_STORAGE_KEY.DatabaseKey
+            ? Promise.reject(new Error('full'))
+            : set(key, value),
+        );
+
+      const failed = await device.start();
+
+      expect(failed).toEqual({
+        ok: false,
+        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+      });
+      expect(keyOf(device)).toBe(before);
+      expect(device.monitoring.errors).toEqual([]);
+      expect(device.opener.removed).toEqual([]);
+    });
+
+    it('goes on when the previous key cannot be kept: it is only a help', async () => {
+      const device = aDevice();
+      await (await started(device)).close();
+      await wrongKey(device);
+      const set = device.storage.set.bind(device.storage);
+      jest
+        .spyOn(device.storage, 'set')
+        .mockImplementation((key, value) =>
+          key === SECURE_STORAGE_KEY.DatabaseKeyPrevious
+            ? Promise.reject(new Error('full'))
+            : set(key, value),
+        );
 
       const second = await started(device);
 
       expect(await rowsOf(second)).toBe(0);
-      expect(keyOf(device)).toMatch(KEY_FORMAT);
-      expect(keyOf(device)).not.toBe(lostKey);
-      expect(device.monitoring.logs).toEqual([
-        {
-          level: LOG_LEVEL.Warn,
-          event: MONITORING_EVENT.DatabaseRecreated,
-          attributes: { [LOG_ATTRIBUTE.Reason]: reason },
-        },
-      ]);
+    });
+
+    it('finishes the reset at the next start when the app stopped after the key was renewed', async () => {
+      const device = aDevice();
+      const first = await started(device);
+      await mark(first);
+      await first.close();
+      await wrongKey(device);
+      device.opener.failNextOpens(0);
+      // The start stops when the new file is opened for the first time.
+      const open = device.opener.open.bind(device.opener);
+      let opens = 0;
+      jest.spyOn(device.opener, 'open').mockImplementation((file) => {
+        opens += 1;
+        return opens === 2 ? Promise.reject(new Error('killed')) : open(file);
+      });
+      const stopped = await device.start();
+      jest.restoreAllMocks();
+
+      const restarted = await started(device);
+
+      expect(stopped.ok).toBe(false);
+      expect(await rowsOf(restarted)).toBe(0);
+      expect(device.monitoring.errors).toHaveLength(1);
+      expect(device.files.exists(device.name)).toBe(true);
+      expect(device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBe(
+        RESET_REASON.KeyRejected,
+      );
     });
   });
 
-  it('calls a key that is missing from the keychain, with a database on the device, a lost key', async () => {
-    const device = aDevice();
-    const first = await started(device);
-    await mark(first);
-    await first.close();
-    await device.storage.remove(SECURE_STORAGE_KEY.DatabaseKey);
+  describe('a keychain that cannot be trusted', () => {
+    it.each([
+      ['text that is not a key', 'not a key'],
+      ['a key of the wrong length', 'a'.repeat(63)],
+      ['a key in upper case', 'A'.repeat(64)],
+      ['an empty value', ''],
+      ['a generation with no key', '1:'],
+      ['a generation that is not a number', 'x:' + 'a'.repeat(64)],
+    ])('fails closed for %s: nothing is made, set aside or deleted', async (_name, value) => {
+      const device = aDevice();
+      const first = await started(device);
+      await mark(first);
+      await first.close();
+      device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, value);
 
-    const second = await started(device);
+      const failed = await device.start();
 
-    expect(await rowsOf(second)).toBe(0);
-    expect(device.monitoring.logs).toEqual([
-      {
-        level: LOG_LEVEL.Warn,
-        event: MONITORING_EVENT.DatabaseRecreated,
-        attributes: { [LOG_ATTRIBUTE.Reason]: RECREATION_REASON.KeyLost },
-      },
-    ]);
+      expect(failed).toEqual({
+        ok: false,
+        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.KeyStorage },
+      });
+      expect(device.storage.snapshot()[SECURE_STORAGE_KEY.DatabaseKey]).toBe(value);
+      expect(device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBeUndefined();
+      expect(device.opener.removed).toEqual([]);
+      expect(device.monitoring.errors).toEqual([]);
+      expect(device.files.exists(device.name)).toBe(true);
+    });
+
+    it('reads the key an app that knew one file kept, as the key of the first file', async () => {
+      const device = aDevice();
+      const first = await started(device);
+      await mark(first);
+      await first.close();
+      const key = keyOf(device)?.slice(-64) ?? '';
+      device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, key);
+
+      const second = await started(device);
+
+      expect(await rowsOf(second)).toBe(1);
+      expect(device.monitoring.errors).toEqual([]);
+    });
   });
 
-  it('keeps the new key in the keychain before it uses it to create the database again', async () => {
-    const device = aDevice();
-    const first = await started(device);
-    await first.close();
-    await device.storage.remove(SECURE_STORAGE_KEY.DatabaseKey);
+  describe('two starts at once on the same keychain', () => {
+    it('make one key, and the database both open is the one with the data', async () => {
+      const device = aDevice();
 
-    const second = await started(device);
-    await second.close();
+      const [one, other] = await Promise.all([device.start(), device.start()]);
 
-    expect(device.opener.keysUsed.at(-1)).toBe(keyOf(device));
-    expect(await rowsOf(await started(device))).toBe(0);
+      expect(one.ok && other.ok).toBe(true);
+      if (!one.ok || !other.ok) return;
+      await mark(one.value);
+      expect(await rowsOf(other.value)).toBe(1);
+      expect(new Set(device.opener.keysUsed).size).toBe(1);
+      expect(device.monitoring.errors).toEqual([]);
+      expect(device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBeUndefined();
+    });
+
+    it('do not hold each other up when the keychains are not the same', async () => {
+      const first = aDevice();
+      const second = aDevice();
+      first.storage.hang();
+
+      const [stuck, free] = await Promise.all([first.start({ timeoutMillis: 20 }), second.start()]);
+
+      expect(stuck.ok).toBe(false);
+      expect(free.ok).toBe(true);
+    });
+
+    it('go on one after the other when the first fails', async () => {
+      const device = aDevice();
+      device.storage.failNext();
+
+      const [failed, retried] = await Promise.all([device.start(), device.start()]);
+
+      expect(failed.ok).toBe(false);
+      expect(retried.ok).toBe(true);
+    });
   });
 
   describe('when the keychain does not work', () => {
@@ -321,7 +650,7 @@ describe('openProtectedDatabase', () => {
       const first = await started(device);
       await mark(first);
       await first.close();
-      device.opener.failNextOpenWith(OPEN_FAILURE.Failed);
+      device.opener.failNextOpens();
 
       const failed = await device.start();
       const again = await started(device);
@@ -331,40 +660,22 @@ describe('openProtectedDatabase', () => {
         error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Open },
       });
       expect(await rowsOf(again)).toBe(1);
-      expect(device.monitoring.logs).toEqual([]);
+      expect(device.monitoring.errors).toEqual([]);
+      expect(device.opener.removed).toEqual([]);
     });
 
-    it('does not start over when the file cannot be deleted', async () => {
+    it('goes on when the copy of an earlier reset cannot be removed: it is only disk space', async () => {
       const device = aDevice();
-      const first = await started(device);
-      await first.close();
-      await device.storage.remove(SECURE_STORAGE_KEY.DatabaseKey);
-      jest.spyOn(device.opener, 'delete').mockRejectedValue(new Error('locked'));
+      await (await started(device)).close();
+      device.storage.seed(
+        SECURE_STORAGE_KEY.DatabaseKey,
+        formatKeyState({ generation: 1, key: OTHER_KEY }),
+      );
+      jest.spyOn(device.opener, 'remove').mockRejectedValue(new Error('locked'));
 
-      const failed = await device.start();
+      const second = await device.start();
 
-      expect(failed).toEqual({
-        ok: false,
-        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Open },
-      });
-      expect(device.monitoring.logs).toEqual([]);
-    });
-
-    it('does not start over when the new key cannot be kept', async () => {
-      const device = aDevice();
-      const first = await started(device);
-      await first.close();
-      device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, 'c'.repeat(64));
-      const set = jest.spyOn(device.storage, 'set').mockRejectedValue(new Error('full'));
-
-      const failed = await device.start();
-
-      expect(set).toHaveBeenCalled();
-      expect(failed).toEqual({
-        ok: false,
-        error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Open },
-      });
-      expect(device.monitoring.logs).toEqual([]);
+      expect(second.ok).toBe(true);
     });
 
     it('does not wait for ever for an engine that does not answer', async () => {
@@ -381,6 +692,7 @@ describe('openProtectedDatabase', () => {
 
     it('reports a schema that cannot be brought up to date, and closes the database', async () => {
       const device = aDevice();
+      const connections = watchConnections(device);
       const broken: Migration = {
         version: MIGRATIONS.length + 1,
         statements: ['INSERT INTO nowhere VALUES (1)'],
@@ -392,6 +704,45 @@ describe('openProtectedDatabase', () => {
         ok: false,
         error: { code: 'databaseUnavailable', reason: DATABASE_FAILURE.Migration },
       });
+      expect(connections.opened).toBe(1);
+      expect(connections.closed).toBe(1);
+    });
+
+    it('closes the database of a newer version of the app that it leaves alone', async () => {
+      const device = aDevice();
+      const newer: Migration = {
+        version: MIGRATIONS.length + 1,
+        statements: ['CREATE TABLE later (id INTEGER)'],
+      };
+      const future = await device.start({ migrations: [...MIGRATIONS, newer] });
+      if (!future.ok) throw new Error('should have opened');
+      await future.value.close();
+      const connections = watchConnections(device);
+
+      await device.start();
+
+      expect(connections.closed).toBe(connections.opened);
+    });
+
+    it('closes the connection of a file that does not unlock, and of one the engine cannot encrypt', async () => {
+      const rejected = aDevice();
+      await (await started(rejected)).close();
+      rejected.storage.seed(
+        SECURE_STORAGE_KEY.DatabaseKey,
+        formatKeyState({ generation: 0, key: OTHER_KEY }),
+      );
+      const rejections = watchConnections(rejected);
+      await started(rejected);
+
+      const plain = aDevice();
+      plain.opener.setCipher(false);
+      const plains = watchConnections(plain);
+      await plain.start();
+
+      // The first one is closed, the second is the new database, which stays open.
+      expect(rejections.opened - rejections.closed).toBe(1);
+      expect(plains.opened).toBe(1);
+      expect(plains.closed).toBe(1);
     });
 
     it('reports a database written by a more recent version of the app, and leaves it alone', async () => {

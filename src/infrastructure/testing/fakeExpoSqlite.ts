@@ -1,9 +1,11 @@
 import { IN_MEMORY_DATABASE, NodeSqliteConnection } from './NodeSqlite';
 
 // Test support, not production code: a stand-in for the native side of `expo-sqlite`, for the test
-// of the thin wrapper over it (`ExpoSqliteOpener`). It runs the statements on `node:sqlite` and
-// behaves like SQLCipher in the two ways the wrapper depends on: it answers a version to
-// `PRAGMA cipher_version`, and it says "file is not a database" to a file opened with another key.
+// of the thin wrapper over it (`ExpoSqliteOpener`). It runs the statements on `node:sqlite`, and it
+// behaves like the module in the ways the wrapper depends on: it answers a version to
+// `PRAGMA cipher_version`, it says "file is not a database" to a file opened with another key, and
+// `deleteDatabaseAsync` rejects for a database that is not there and for one that is open, as the
+// native module does, and removes the main file only.
 
 export const fakeExpoSqlite = {
   /** Whether the engine is SQLCipher. Plain SQLite does not know `PRAGMA cipher_version`. */
@@ -14,6 +16,8 @@ export const fakeExpoSqlite = {
   statements: [] as string[],
   /** The databases that were opened and not closed. */
   open: new Set<FakeDatabase>(),
+  /** The files that exist: those opened by name and not deleted. */
+  files: new Set<string>(),
   /** Makes the next `openDatabaseAsync` reject with this message. */
   failOpenWith: undefined as string | undefined,
   /** Makes the next `closeAsync` reject. */
@@ -25,6 +29,7 @@ export function resetFakeExpoSqlite(): void {
   fakeExpoSqlite.keys.clear();
   fakeExpoSqlite.statements.length = 0;
   fakeExpoSqlite.open.clear();
+  fakeExpoSqlite.files.clear();
   fakeExpoSqlite.failOpenWith = undefined;
   fakeExpoSqlite.failClose = false;
 }
@@ -38,7 +43,7 @@ class FakeDatabase {
   private offered: string | undefined;
   private readonly connection: NodeSqliteConnection;
 
-  constructor(private readonly name: string) {
+  constructor(readonly name: string) {
     this.connection = new NodeSqliteConnection(IN_MEMORY_DATABASE);
   }
 
@@ -91,10 +96,17 @@ export function openDatabaseAsync(name: string): Promise<FakeDatabase> {
   }
   const database = new FakeDatabase(name);
   fakeExpoSqlite.open.add(database);
+  if (name !== IN_MEMORY_DATABASE) fakeExpoSqlite.files.add(name);
   return Promise.resolve(database);
 }
 
 export function deleteDatabaseAsync(name: string): Promise<void> {
+  if (!fakeExpoSqlite.files.has(name))
+    return Promise.reject(new Error(`Database '${name}' not found`));
+  if ([...fakeExpoSqlite.open].some((database) => database.name === name)) {
+    return Promise.reject(new Error(`Unable to delete the database '${name}': it is open`));
+  }
+  fakeExpoSqlite.files.delete(name);
   fakeExpoSqlite.keys.delete(name);
   return Promise.resolve();
 }

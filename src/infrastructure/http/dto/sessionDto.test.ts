@@ -1,7 +1,9 @@
 import { VALIDATION_FIELD } from '@domain/errors/ValidationError';
-import { NOW, aUser, aSession, anEmail } from '@domain/testing/builders';
+import { NOW, aUser, aSession, anEmail, unwrap } from '@domain/testing/builders';
+import { parseInstant } from '@domain/value-objects/Instant';
 
 import {
+  MAX_SESSION_LIFETIME_SECONDS,
   signInRequestSchema,
   signInResponseSchema,
   toSignInRequestWire,
@@ -43,8 +45,23 @@ describe('the sign-in schemas', () => {
     ['a token that is a number', { accessToken: 12 }],
     ['a token type that is not Bearer', { tokenType: 'Basic' }],
     ['a lifetime that is text', { expiresIn: '3600' }],
+    ['a lifetime beyond the maximum', { expiresIn: MAX_SESSION_LIFETIME_SECONDS + 1 }],
+    ['a token with a space', { accessToken: 'two words' }],
+    ['a token with a line break', { accessToken: 'abc\r\nX-Injected: 1' }],
+    ['a token with a control character', { accessToken: 'abc\u0007' }],
+    ['a token with a character that is not ASCII', { accessToken: 'jeton-\u00e9' }],
+    ['a token with a tab', { accessToken: 'abc\tdef' }],
+    ['a token that is too long', { accessToken: 'a'.repeat(4097) }],
   ])('fails for %s', (_name, change) => {
     expect(signInResponseSchema.safeParse({ ...RESPONSE, ...change }).success).toBe(false);
+  });
+
+  it.each([
+    ['the longest lifetime', { expiresIn: MAX_SESSION_LIFETIME_SECONDS }],
+    ['a token of every visible character', { accessToken: '!~09azAZ._-+/=' }],
+    ['the longest token', { accessToken: 'a'.repeat(4096) }],
+  ])('accepts %s', (_name, change) => {
+    expect(signInResponseSchema.safeParse({ ...RESPONSE, ...change }).success).toBe(true);
   });
 
   it('writes the request with the email and the password as typed, and reads it back', () => {
@@ -95,8 +112,15 @@ describe('toSignedIn', () => {
   it.each([
     ['a negative lifetime', -1],
     ['a lifetime that is not whole', 1.0000001],
-    ['a lifetime beyond the range of an instant', 1e15],
   ])('refuses %s', (_name, expiresIn) => {
     expect(toSignedIn(signInResponseSchema.parse({ ...RESPONSE, expiresIn }), NOW).ok).toBe(false);
+  });
+
+  it('refuses a session that would end beyond the range of an instant', () => {
+    const lastInstant = unwrap(parseInstant(8_640_000_000_000_000));
+
+    const signedIn = toSignedIn(signInResponseSchema.parse(RESPONSE), lastInstant);
+
+    expect(signedIn.ok).toBe(false);
   });
 });

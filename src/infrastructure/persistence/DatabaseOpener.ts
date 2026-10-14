@@ -1,33 +1,28 @@
-import type { Result } from '@domain/shared/Result';
-
 import type { SqlConnection } from './SqlDatabase';
 
-/** Why a database could not be opened. */
-export const OPEN_FAILURE = {
-  /** The file exists and the key does not open it: it was written with another key, or it is not a database. */
-  KeyRejected: 'keyRejected',
-  /** The engine cannot encrypt: it is plain SQLite, and nothing is written. */
-  EncryptionUnavailable: 'encryptionUnavailable',
-  /** Anything else: the file cannot be read or created, the storage is full. */
-  Failed: 'failed',
-} as const;
-
-export type OpenFailure = (typeof OPEN_FAILURE)[keyof typeof OPEN_FAILURE];
+/**
+ * A connection as the engine gives it, before it is unlocked: the statements of `SqlConnection`
+ * and `exec`, for the ones that take no parameter and answer nothing, which is what `PRAGMA key`
+ * is (a statement the engine takes no parameter for).
+ */
+export interface EngineConnection extends SqlConnection {
+  exec(sql: string): Promise<void>;
+}
 
 /**
- * The part of an engine that cannot be tested without a device: opening an encrypted database
- * file. `expo-sqlite` (SQLCipher) provides it on a device, and `node:sqlite` in the tests, where
- * the files are not encrypted. Everything that decides what to do with the key (create it, find
- * it lost, start over) is in `openProtectedDatabase`, which is tested.
+ * The part of an engine that cannot be tested without a device: its raw calls. `expo-sqlite`
+ * (SQLCipher) provides it on a device, and `node:sqlite` in the tests, where the files are not
+ * encrypted. It decides nothing: what to do with a key, a file that does not unlock or a file that
+ * is in the way is in `unlockDatabase` and `openProtectedDatabase`, which are tested.
+ *
+ * Every method may reject: the callers bound them in time and turn a failure into a result.
  */
 export interface DatabaseOpener {
   /**
    * Opens the database file of this name in the private storage of the app, creating it if it is
-   * not there, and unlocks it with the key (64 hexadecimal digits: a 256-bit key). It never
-   * rejects. An engine that cannot tell a wrong key from a file that is not a database says
-   * `keyRejected` for both.
+   * not there. The connection is not unlocked: no key has been given to it.
    */
-  open(name: string, key: string): Promise<Result<SqlConnection, OpenFailure>>;
+  open(name: string): Promise<EngineConnection>;
 
   /**
    * A database in memory, which never touches the disk and is not encrypted. It is where random
@@ -35,8 +30,13 @@ export interface DatabaseOpener {
    */
   openScratch(): Promise<SqlConnection>;
 
-  /** Deletes the file of a database, and anything that goes with it. Deleting a file that is not there succeeds. */
-  delete(name: string): Promise<void>;
+  /**
+   * Removes the file of a database. Removing a file that is not there succeeds. Only the main file
+   * is promised to go: what the engine keeps beside it (a journal, which exists only if the app
+   * stopped in the middle of a write) is not. Nothing relies on it: a database is never created
+   * again under the name of one that was removed (see `databaseFileName`).
+   */
+  remove(name: string): Promise<void>;
 }
 
 /**
@@ -44,7 +44,6 @@ export interface DatabaseOpener {
  * with zeros, so that a vote that was removed or a cache that was purged does not stay readable in
  * the free pages of the file. The journal is left at its default (a rollback journal that is
  * deleted after each transaction): there is one connection, so nothing is gained from a write-ahead
- * log, and a log file that outlived the database it belonged to, when the database is deleted and
- * created again, would be applied to the new one.
+ * log.
  */
 export const CONNECTION_PRAGMAS = 'PRAGMA secure_delete = ON';

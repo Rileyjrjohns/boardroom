@@ -1,19 +1,24 @@
+import { ExpoLocalAuthentication } from '../biometrics/ExpoLocalAuthentication';
+import { ExpoNetworkState } from '../connectivity/ExpoNetworkState';
+import { ExpoSqliteOpener } from '../persistence/ExpoSqliteOpener';
+import { ExpoSecureStorage } from '../secure-storage/ExpoSecureStorage';
+
 import { createExpoPlatform } from './createExpoPlatform';
 
-// The native modules cannot be loaded in Jest, so the four are replaced by empty ones: all there is
-// to check is that the platform is made of the wrappers over them, and that making it loads them.
-jest.mock('expo-sqlite', () => ({}));
-jest.mock('expo-secure-store', () => ({ WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6 }));
-jest.mock('expo-local-authentication', () => ({}));
-jest.mock('expo-network', () => ({}));
+// The four native modules are empty ones in this project (jest.config.js), so all there is to check
+// is that the platform is made of the wrappers over them.
 
 describe('createExpoPlatform', () => {
   it('is made of the wrappers over the four native modules', () => {
     const platform = createExpoPlatform();
 
-    expect(platform.databaseOpener.constructor.name).toBe('ExpoSqliteOpener');
-    expect(platform.secureStorage.constructor.name).toBe('ExpoSecureStorage');
-    expect(platform.localAuthentication.hasHardware).toEqual(expect.any(Function));
-    expect(platform.networkState.getState).toEqual(expect.any(Function));
+    expect(platform.databaseOpener).toBeInstanceOf(ExpoSqliteOpener);
+    expect(platform.secureStorage).toBeInstanceOf(ExpoSecureStorage);
+    expect(platform.localAuthentication).toBeInstanceOf(ExpoLocalAuthentication);
+    expect(platform.networkState).toBeInstanceOf(ExpoNetworkState);
+  });
+
+  it('makes a platform each time, with nothing shared between two', () => {
+    expect(createExpoPlatform().secureStorage).not.toBe(createExpoPlatform().secureStorage);
   });
 });

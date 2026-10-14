@@ -5,6 +5,7 @@ import type { Result } from '@domain/shared/Result';
 import type { Duration } from '@domain/value-objects/Duration';
 
 import type { Sleep } from '../clock/sleep';
+import { createSubscribers } from '../shared/subscribers';
 
 /**
  * The longest a request is made to wait, whatever latency is configured. Every port settles in
@@ -44,7 +45,8 @@ export interface SimulatedNetworkOptions {
 export class SimulatedNetwork implements NetworkControl {
   private isOnline = true;
   private currentLatency: Duration;
-  private readonly listeners = new Set<(online: boolean) => void>();
+  // A listener that throws is its own bug: the simulation goes on, and the others are told.
+  private readonly subscribers = createSubscribers<boolean>(() => undefined);
   private readonly sleep: Sleep;
 
   constructor(options: SimulatedNetworkOptions) {
@@ -63,14 +65,11 @@ export class SimulatedNetwork implements NetworkControl {
   setOnline(online: boolean): void {
     if (online === this.isOnline) return;
     this.isOnline = online;
-    for (const listener of [...this.listeners]) listener(online);
+    this.subscribers.notify(online);
   }
 
   subscribe(listener: (online: boolean) => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
+    return this.subscribers.subscribe(listener);
   }
 
   setLatency(latency: Duration): void {

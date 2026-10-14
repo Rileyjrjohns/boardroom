@@ -1,8 +1,4 @@
-import { err, ok } from '@domain/shared/Result';
-import type { Result } from '@domain/shared/Result';
-
-import { OPEN_FAILURE } from '../persistence/DatabaseOpener';
-import type { DatabaseOpener, OpenFailure } from '../persistence/DatabaseOpener';
+import type { DatabaseOpener, EngineConnection } from '../persistence/DatabaseOpener';
 import type { SqlConnection, SqlParams, SqlRow, SqlRunResult } from '../persistence/SqlDatabase';
 
 // Test support, not production code: the SQLite engine of the tests, which is the one that comes
@@ -18,6 +14,7 @@ interface NodeStatement {
 }
 
 interface NodeDatabase {
+  exec(sql: string): void;
   prepare(sql: string): NodeStatement;
   close(): void;
 }
@@ -34,12 +31,18 @@ function loadNodeSqlite(): NodeSqliteModule {
 export const IN_MEMORY_DATABASE = ':memory:';
 
 /** A connection to a database of `node:sqlite`. Its calls are synchronous, wrapped in promises. */
-export class NodeSqliteConnection implements SqlConnection {
+export class NodeSqliteConnection implements EngineConnection {
   private readonly database: NodeDatabase;
 
   constructor(path: string) {
     const { DatabaseSync } = loadNodeSqlite();
     this.database = new DatabaseSync(path);
+  }
+
+  exec(sql: string): Promise<void> {
+    return this.settle(() => {
+      this.database.exec(sql);
+    });
   }
 
   run(sql: string, params: SqlParams): Promise<SqlRunResult> {
@@ -70,8 +73,9 @@ export class NodeSqliteConnection implements SqlConnection {
 
 /**
  * Opens the files of `node:sqlite` in a directory. The files are not encrypted: Node's SQLite has
- * no cipher, so the key is accepted and ignored (see `SimulatedCipherOpener` for a stand-in that
- * enforces it).
+ * no cipher, so a key is accepted and ignored (see `SimulatedCipherOpener` for a stand-in that
+ * enforces it). Like the seam it stands for, it removes the main file of a database and nothing
+ * beside it, and removing a file that is not there succeeds.
  */
 export class NodeSqliteOpener implements DatabaseOpener {
   constructor(
@@ -79,11 +83,11 @@ export class NodeSqliteOpener implements DatabaseOpener {
     private readonly files: FileSystem,
   ) {}
 
-  open(name: string, _key: string): Promise<Result<SqlConnection, OpenFailure>> {
+  open(name: string): Promise<EngineConnection> {
     try {
-      return Promise.resolve(ok(new NodeSqliteConnection(this.files.join(this.directory, name))));
-    } catch {
-      return Promise.resolve(err(OPEN_FAILURE.Failed));
+      return Promise.resolve(new NodeSqliteConnection(this.files.join(this.directory, name)));
+    } catch (error) {
+      return Promise.reject(error as Error);
     }
   }
 
@@ -91,21 +95,29 @@ export class NodeSqliteOpener implements DatabaseOpener {
     return Promise.resolve(new NodeSqliteConnection(IN_MEMORY_DATABASE));
   }
 
-  delete(name: string): Promise<void> {
+  remove(name: string): Promise<void> {
     this.files.remove(this.files.join(this.directory, name));
     return Promise.resolve();
+  }
+
+  /** Whether the file of a database is there, to see what a reset left behind. */
+  exists(name: string): boolean {
+    return this.files.exists(this.files.join(this.directory, name));
   }
 }
 
 /** The part of the file system the tests use, from the same place `node:sqlite` comes from. */
 export interface FileSystem {
   join(...parts: string[]): string;
+  /** Removes the file. A file that is not there is not an error. */
   remove(path: string): void;
+  exists(path: string): boolean;
 }
 
 interface NodeFs {
   rmSync(path: string, options: { force: boolean; recursive?: boolean }): void;
   mkdtempSync(prefix: string): string;
+  existsSync(path: string): boolean;
 }
 interface NodePath {
   join(...parts: string[]): string;
@@ -119,12 +131,11 @@ export function nodeFileSystem(): FileSystem {
   const path = process.getBuiltinModule('node:path') as unknown as NodePath;
   return {
     join: (...parts) => path.join(...parts),
+    // The main file only, like `deleteDatabaseAsync` of the module.
     remove: (target) => {
-      // Companions of a database (its journal) go with it.
-      for (const suffix of ['', '-journal', '-wal', '-shm']) {
-        fs.rmSync(`${target}${suffix}`, { force: true });
-      }
+      fs.rmSync(target, { force: true });
     },
+    exists: (target) => fs.existsSync(target),
   };
 }
 

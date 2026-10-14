@@ -19,6 +19,18 @@ import { BEARER_TOKEN_TYPE } from '../protocol';
 
 const MILLIS_PER_SECOND = 1000;
 
+/**
+ * What a token is made of: visible ASCII, no space, no control character. It goes into the
+ * `Authorization` header, where anything else is at best refused and at worst the means to add a
+ * header of one's own.
+ */
+const TOKEN_FORMAT = /^[\x21-\x7E]+$/;
+/** Far longer than any token, short enough that a hostile answer cannot fill the keychain. */
+const MAX_TOKEN_LENGTH = 4096;
+
+/** The longest session the app accepts: a server that grants more is wrong, or hostile. */
+export const MAX_SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+
 const userSchema = z.object({
   id: z.string(),
   fullName: z.string(),
@@ -31,10 +43,13 @@ export const signInRequestSchema = z.object({
 });
 
 export const signInResponseSchema = z.object({
-  accessToken: z.string().min(1),
+  accessToken: z.string().min(1).max(MAX_TOKEN_LENGTH).regex(TOKEN_FORMAT),
   tokenType: z.literal(BEARER_TOKEN_TYPE),
-  /** How long the token lasts, in seconds, from the moment it is issued. */
-  expiresIn: z.number(),
+  /**
+   * How long the token lasts, in seconds, from the moment it is issued: at most
+   * `MAX_SESSION_LIFETIME_SECONDS`. A lifetime of zero is a session that is already over.
+   */
+  expiresIn: z.number().max(MAX_SESSION_LIFETIME_SECONDS),
   user: userSchema,
 });
 

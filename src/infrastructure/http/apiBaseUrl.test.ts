@@ -14,6 +14,8 @@ describe('parseApiBaseUrl', () => {
     ['https://203.0.113.7', 'https://203.0.113.7'],
     ['https://[2001:db8::1]:8443', 'https://[2001:db8::1]:8443'],
     ['https://a', 'https://a'],
+    ['https://api.boardroom.example:1', 'https://api.boardroom.example:1'],
+    ['https://api.boardroom.example:65535', 'https://api.boardroom.example:65535'],
   ])('reads %j as %s', (raw, expected) => {
     expect(parseApiBaseUrl(raw, RELEASE)).toEqual({ ok: true, value: expected });
   });

@@ -1,4 +1,5 @@
 import type {
+  BiometricsSecurityLevel,
   LocalAuthenticationError,
   LocalAuthenticationResult,
 } from 'expo-local-authentication';
@@ -14,11 +15,34 @@ import type { BiometricAvailabilityError, BiometricError } from '@domain/errors/
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 import type { BiometricGate, BiometricReason } from '@application/ports/BiometricGate';
+import { MONITORING_EVENT } from '@application/ports/Monitoring';
+import type { Monitoring } from '@application/ports/Monitoring';
 
 import { attempt } from '../shared/attempt';
 
 /** How long the questions about the capability (hardware, enrolment) may take. */
 const DEFAULT_CAPABILITY_TIMEOUT_MILLIS = 10_000;
+
+/**
+ * Only a fingerprint or a 3D face scan opens the app and confirms a vote. On Android, `weak` would
+ * also take a camera-based face unlock (a Class 2 biometric), which a photograph can fool; iOS has
+ * no weak biometric, and ignores the option.
+ */
+const BIOMETRIC_SECURITY_LEVEL: BiometricsSecurityLevel = 'strong';
+
+/**
+ * What iOS says when `NSFaceIDUsageDescription` is missing from the build, which `expo-local-authentication`
+ * returns as an error but its types do not list. Face ID cannot be asked for: it is a mistake of
+ * the build, not of the user.
+ */
+const MISSING_USAGE_DESCRIPTION = 'missing_usage_description';
+
+/** What the system prompt says: the reason it is shown and the label of the button that cancels. */
+export interface PromptText {
+  readonly message: string;
+  /** The label of the cancel button of the prompt, in the language of the user. */
+  readonly cancelLabel: string;
+}
 
 /** What the adapter asks of the platform: the three calls of `expo-local-authentication` it uses. */
 export interface LocalAuthenticationApi {
@@ -26,18 +50,23 @@ export interface LocalAuthenticationApi {
   isEnrolled(): Promise<boolean>;
   authenticate(options: {
     readonly promptMessage: string;
+    readonly cancelLabel: string;
     readonly disableDeviceFallback: boolean;
+    readonly biometricsSecurityLevel: BiometricsSecurityLevel;
   }): Promise<LocalAuthenticationResult>;
 }
 
 export interface DeviceBiometricGateOptions {
   readonly api: LocalAuthenticationApi;
   /**
-   * The text of the system prompt for a reason, in the language of the user. The adapter cannot
-   * import the presentation, where the translations are: the composition root hands the function
-   * over, and it reads the current language each time it is called.
+   * The text of the system prompt for a reason, in the language of the user: its message and the
+   * label of its cancel button, which the system would otherwise write in its own language. The
+   * adapter cannot import the presentation, where the translations are: the composition root hands
+   * the function over, and it reads the current language each time it is called.
    */
-  readonly promptText: (reason: BiometricReason) => string;
+  readonly promptText: (reason: BiometricReason) => PromptText;
+  /** Told when the build is missing what the platform needs to ask for the biometrics. */
+  readonly monitoring: Monitoring;
   /**
    * Whether the passcode of the device is accepted when the biometrics do not recognise the user.
    * A setting of the composition root: see `ALLOW_DEVICE_PASSCODE_FALLBACK` in `src/di/config.ts`.
@@ -52,9 +81,12 @@ export interface DeviceBiometricGateOptions {
  * domain. Typed over every code of the library, so that a code added by an update of it fails the
  * typecheck here instead of being treated as something it is not. A code the library sends that is
  * not in the table at run time (a newer library than the types) is `biometricFailed`: the
- * authentication is refused, never granted.
+ * authentication is refused, never granted. The table is read by its own keys only: the name of a
+ * property every object has (`constructor`, `toString`) is not a code.
  */
 const ERROR_OF_OUTCOME = {
+  // Not in the types of the library: see `MISSING_USAGE_DESCRIPTION`.
+  [MISSING_USAGE_DESCRIPTION]: biometricUnavailable,
   authentication_failed: biometricFailed,
   unable_to_process: biometricFailed,
   unknown: biometricFailed,
@@ -69,7 +101,10 @@ const ERROR_OF_OUTCOME = {
   system_cancel: biometricCancelled,
   user_fallback: biometricCancelled,
   timeout: biometricCancelled,
-} as const satisfies Record<LocalAuthenticationError, () => BiometricError>;
+} as const satisfies Record<
+  LocalAuthenticationError | typeof MISSING_USAGE_DESCRIPTION,
+  () => BiometricError
+>;
 
 /**
  * The biometric check of the device, over `expo-local-authentication`. It maps every outcome of
@@ -79,7 +114,10 @@ const ERROR_OF_OUTCOME = {
  *
  * The biometrics prove that a person enrolled on the device is present, not that it is the user of
  * the session. Whether the passcode of the device stands in when they fail is the setting
- * `allowDevicePasscode`.
+ * `allowDevicePasscode`. Only strong biometrics count on Android (`BIOMETRIC_SECURITY_LEVEL`), and
+ * only an outcome that says `success: true` is a success. A build that lacks the usage description
+ * iOS needs to ask for Face ID is `biometricUnavailable`, and is captured by the monitoring as the
+ * mistake of the build it is.
  */
 export class DeviceBiometricGate implements BiometricGate {
   constructor(private readonly options: DeviceBiometricGateOptions) {}
@@ -98,19 +136,46 @@ export class DeviceBiometricGate implements BiometricGate {
 
   async authenticate(reason: BiometricReason): Promise<Result<void, BiometricError>> {
     try {
+      const { message, cancelLabel } = this.options.promptText(reason);
       // The prompt waits for the person: it has no time limit of ours, and always ends.
       const outcome = await this.options.api.authenticate({
-        promptMessage: this.options.promptText(reason),
+        promptMessage: message,
+        cancelLabel,
         disableDeviceFallback: !this.options.allowDevicePasscode,
+        biometricsSecurityLevel: BIOMETRIC_SECURITY_LEVEL,
       });
-      return outcome.success ? ok(undefined) : err(errorOf(outcome.error));
+      if (isSuccess(outcome)) return ok(undefined);
+
+      const code = codeOf(outcome);
+      const error = errorOf(code);
+      if (code === MISSING_USAGE_DESCRIPTION) {
+        this.options.monitoring.captureError(MONITORING_EVENT.BiometricMisconfigured, error);
+      }
+      return err(error);
     } catch {
       return err(biometricUnavailable());
     }
   }
 }
 
-function errorOf(outcome: LocalAuthenticationError): BiometricError {
-  const create: (() => BiometricError) | undefined = ERROR_OF_OUTCOME[outcome];
-  return (create ?? biometricFailed)();
+/** Only `success: true` is a success: a value that is merely truthy is not. */
+function isSuccess(outcome: unknown): boolean {
+  return (
+    typeof outcome === 'object' &&
+    outcome !== null &&
+    'success' in outcome &&
+    outcome.success === true
+  );
+}
+
+/** The code the library gave for a prompt that did not succeed, or `undefined` for anything else. */
+function codeOf(outcome: unknown): string | undefined {
+  if (typeof outcome !== 'object' || outcome === null || !('error' in outcome)) return undefined;
+  return typeof outcome.error === 'string' ? outcome.error : undefined;
+}
+
+function errorOf(code: string | undefined): BiometricError {
+  if (code === undefined || !Object.hasOwn(ERROR_OF_OUTCOME, code)) return biometricFailed();
+  const create: () => BiometricError = ERROR_OF_OUTCOME[code as keyof typeof ERROR_OF_OUTCOME];
+  return create();
 }

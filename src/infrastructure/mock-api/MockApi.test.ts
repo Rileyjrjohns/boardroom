@@ -47,6 +47,7 @@ function aServer() {
     return {
       status: response.status,
       contentType: response.headers.get(HTTP_HEADER.ContentType),
+      cacheControl: response.headers.get(HTTP_HEADER.CacheControl),
       text,
       body: text === '' ? undefined : (JSON.parse(text) as Record<string, any>),
     };
@@ -87,6 +88,28 @@ describe('MockApi, the routes', () => {
     expect(answer.status).toBe(HTTP_STATUS.NotFound);
     expect(answer.body).toEqual({ error: { code: API_ERROR_CODE.NotFound } });
     expect(answer.contentType).toBe('application/json');
+  });
+});
+
+describe('MockApi, what every answer says about being kept', () => {
+  it('asks that no answer be stored: a success, a refusal, a vote without a body and an unknown route', async () => {
+    const { call, signIn } = aServer();
+    const token = await signIn();
+
+    const answers = [
+      await call('GET', `${ROUTES.meetings}?period=past&limit=5`, { token }),
+      await call('GET', `${ROUTES.meetings}?period=past&limit=5`),
+      await call('POST', ROUTES.votes, { token, ...voteRequest() }),
+      await call('GET', '/nowhere', { token }),
+    ];
+
+    expect(answers.map((answer) => answer.status)).toEqual([
+      HTTP_STATUS.Ok,
+      HTTP_STATUS.Unauthorized,
+      HTTP_STATUS.NoContent,
+      HTTP_STATUS.NotFound,
+    ]);
+    expect(answers.map((answer) => answer.cacheControl)).toEqual(answers.map(() => 'no-store'));
   });
 });
 
@@ -280,6 +303,14 @@ describe('MockApi, reading', () => {
     ['a limit that is text', 'period=past&limit=ten'],
     ['a limit that is empty', 'period=past&limit='],
     ['a limit that is not whole', 'period=past&limit=2.5'],
+    ['a limit in exponent notation', 'period=past&limit=1e1'],
+    ['a limit with a space', 'period=past&limit=%2010'],
+    ['a limit with a trailing space', 'period=past&limit=10%20'],
+    ['a limit in hexadecimal', 'period=past&limit=0x10'],
+    ['a limit in binary', 'period=past&limit=0b11'],
+    ['a limit with a sign', 'period=past&limit=%2B5'],
+    ['a limit with a leading zero', 'period=past&limit=05'],
+    ['a limit with a decimal comma', 'period=past&limit=2,5'],
     ['a cursor that is blank', 'period=past&limit=5&cursor=%20'],
     ['a cursor this server did not write', 'period=past&limit=5&cursor=garbage'],
   ])('answers 400 for %s', async (_name, query) => {

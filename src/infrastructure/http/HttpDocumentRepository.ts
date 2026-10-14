@@ -31,7 +31,9 @@ export interface DownloadedContent {
  * The documents of the API (`GET /documents/{id}` and `GET /documents/{id}/content`). The server
  * answers with the location of the content, per user and per version of the document. Downloading
  * it to the private storage of the app is the job of the step that adds the document viewer: until
- * then the location is registered as downloaded, which is what the in-memory repository does.
+ * then the location is registered as downloaded, which is what the in-memory repository does. The
+ * requests are given to the client as functions, so that the route, which is made of an
+ * identifier, is built where the client can catch a failure: an adapter never throws.
  */
 export class HttpDocumentRepository implements DocumentRepository {
   constructor(
@@ -41,12 +43,12 @@ export class HttpDocumentRepository implements DocumentRepository {
   ) {}
 
   async get(id: DocumentId): Promise<Result<Document, RepositoryError>> {
-    const answer = await this.client.request({
+    const answer = await this.client.request(() => ({
       method: HTTP_METHOD.Get,
       path: ROUTES.document(id),
       resource: HTTP_RESOURCE.Document,
       schema: documentSchema,
-    });
+    }));
     if (!answer.ok) return err(asRepositoryError(answer.error));
 
     const document = toDocument(answer.value);
@@ -56,12 +58,12 @@ export class HttpDocumentRepository implements DocumentRepository {
   }
 
   async fetchContent(id: DocumentId): Promise<Result<DocumentLocation, RepositoryError>> {
-    const answer = await this.client.request({
+    const answer = await this.client.request(() => ({
       method: HTTP_METHOD.Get,
       path: ROUTES.documentContent(id),
       resource: HTTP_RESOURCE.DocumentContent,
       schema: documentContentSchema,
-    });
+    }));
     if (!answer.ok) return err(asRepositoryError(answer.error));
 
     const location = toDocumentLocation(answer.value);

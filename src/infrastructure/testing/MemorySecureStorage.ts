@@ -18,6 +18,20 @@ export class MemorySecureStorage implements SecureStorage {
     this.hanging = hanging;
   }
 
+  /**
+   * The next call is held: it neither takes effect nor answers until the function returned is
+   * called, like a call to a keychain that is slow. A call that the caller gave up on, because it
+   * took too long, then lands late, which is what an operation that timed out can do.
+   */
+  holdNext(): () => void {
+    let release: () => void = () => undefined;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.pending.push(released);
+    return release;
+  }
+
   /** What it holds, to see what was and was not stored. */
   snapshot(): Readonly<Record<string, string>> {
     return Object.fromEntries(this.items);
@@ -44,7 +58,11 @@ export class MemorySecureStorage implements SecureStorage {
     });
   }
 
+  private readonly pending: Promise<void>[] = [];
+
   private run<T>(operation: () => T): Promise<T> {
+    const gate = this.pending.shift();
+    if (gate !== undefined) return gate.then(() => operation());
     if (this.hanging) return new Promise<T>(() => undefined);
     if (this.failures > 0) {
       this.failures -= 1;

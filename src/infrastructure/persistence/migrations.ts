@@ -1,6 +1,6 @@
 import { OUTBOX_STATUS } from '@domain/entities/OutboxVote';
 
-import { COLUMN, INDEX, TABLE } from './schema';
+import { COLUMN, INDEX, OUTBOX_QUARANTINED, TABLE } from './schema';
 
 /**
  * A step from one version of the schema to the next. Versions are 1, 2, 3, ... with no gap. The
@@ -18,6 +18,7 @@ export interface Migration {
 
 const pending = `'${OUTBOX_STATUS.Pending}'`;
 const rejected = `'${OUTBOX_STATUS.Rejected}'`;
+const quarantined = `'${OUTBOX_QUARANTINED}'`;
 
 /**
  * Version 1: the cache of meetings and the outbox of votes.
@@ -81,5 +82,63 @@ const indexOutboxByResolution: Migration = {
   ],
 };
 
+/**
+ * Version 3: an entry of the outbox that no longer reads back as a vote can be kept, as it is, out
+ * of the queue (status `quarantined`), instead of being deleted. SQLite cannot change a `CHECK`, so
+ * the table is made again, with the same columns:
+ *
+ * - the status admits `quarantined`, and only for that status are the reason and the instant of a
+ *   rejection not constrained (what is in an entry that cannot be read is whatever it is);
+ * - the rows are copied with their `sequence`, and the high-water mark of the sequence is carried
+ *   over, so that a number that was given to a vote and then freed is still never given again;
+ * - the index of version 2 is created again, since dropping the table dropped it.
+ *
+ * Every vote of an existing database is a row of the new table, as it was.
+ */
+const quarantineUnreadableVotes: Migration = {
+  version: 3,
+  statements: [
+    `CREATE TABLE ${TABLE.OutboxVotesRebuilt} (
+      ${COLUMN.Sequence} INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${COLUMN.IdempotencyKey} TEXT NOT NULL UNIQUE,
+      ${COLUMN.VoterId} TEXT NOT NULL,
+      ${COLUMN.ResolutionId} TEXT NOT NULL,
+      ${COLUMN.MeetingId} TEXT NOT NULL,
+      ${COLUMN.Choice} TEXT NOT NULL,
+      ${COLUMN.CastAt} INTEGER NOT NULL,
+      ${COLUMN.EnqueuedAt} INTEGER NOT NULL,
+      ${COLUMN.Attempts} INTEGER NOT NULL,
+      ${COLUMN.Status} TEXT NOT NULL
+        CHECK (${COLUMN.Status} IN (${pending}, ${rejected}, ${quarantined})),
+      ${COLUMN.RejectionReason} TEXT,
+      ${COLUMN.RejectedAt} INTEGER,
+      CHECK (${COLUMN.Status} = ${quarantined}
+        OR ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectionReason} IS NULL))),
+      CHECK (${COLUMN.Status} = ${quarantined}
+        OR ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectedAt} IS NULL)))
+    )`,
+    `INSERT INTO ${TABLE.OutboxVotesRebuilt}
+      (${COLUMN.Sequence}, ${COLUMN.IdempotencyKey}, ${COLUMN.VoterId}, ${COLUMN.ResolutionId},
+       ${COLUMN.MeetingId}, ${COLUMN.Choice}, ${COLUMN.CastAt}, ${COLUMN.EnqueuedAt},
+       ${COLUMN.Attempts}, ${COLUMN.Status}, ${COLUMN.RejectionReason}, ${COLUMN.RejectedAt})
+      SELECT ${COLUMN.Sequence}, ${COLUMN.IdempotencyKey}, ${COLUMN.VoterId}, ${COLUMN.ResolutionId},
+       ${COLUMN.MeetingId}, ${COLUMN.Choice}, ${COLUMN.CastAt}, ${COLUMN.EnqueuedAt},
+       ${COLUMN.Attempts}, ${COLUMN.Status}, ${COLUMN.RejectionReason}, ${COLUMN.RejectedAt}
+      FROM ${TABLE.OutboxVotes}`,
+    `DELETE FROM sqlite_sequence WHERE name = '${TABLE.OutboxVotesRebuilt}'`,
+    `INSERT INTO sqlite_sequence (name, seq)
+      SELECT '${TABLE.OutboxVotesRebuilt}', seq FROM sqlite_sequence
+      WHERE name = '${TABLE.OutboxVotes}'`,
+    `DROP TABLE ${TABLE.OutboxVotes}`,
+    `ALTER TABLE ${TABLE.OutboxVotesRebuilt} RENAME TO ${TABLE.OutboxVotes}`,
+    `CREATE INDEX ${INDEX.OutboxByResolution}
+      ON ${TABLE.OutboxVotes} (${COLUMN.VoterId}, ${COLUMN.ResolutionId})`,
+  ],
+};
+
 /** Every migration of the database, in order. The last one is the version the app expects. */
-export const MIGRATIONS: readonly Migration[] = [initial, indexOutboxByResolution];
+export const MIGRATIONS: readonly Migration[] = [
+  initial,
+  indexOutboxByResolution,
+  quarantineUnreadableVotes,
+];

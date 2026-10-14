@@ -19,5 +19,13 @@ export interface SecureStorage {
  */
 export const SECURE_STORAGE_KEY = {
   Session: 'boardroom.session',
+  /** The key of the local database and which file it opens (see `databaseKey.ts`). */
   DatabaseKey: 'boardroom.database-key',
+  /**
+   * The key the database file that was set aside had, kept so that the file is not lost for good
+   * if its being unreadable turns out to be a problem of the keychain and not of the file.
+   */
+  DatabaseKeyPrevious: 'boardroom.database-key.previous',
+  /** Present from the moment local data was reset until the user has been told (see `localDataReset.ts`). */
+  LocalDataReset: 'boardroom.local-data-reset',
 } as const;

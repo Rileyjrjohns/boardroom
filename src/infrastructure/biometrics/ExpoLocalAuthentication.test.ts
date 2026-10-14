@@ -32,8 +32,13 @@ describe('ExpoLocalAuthentication', () => {
     expect(mockAsked).toEqual([{ call: 'hasHardwareAsync' }, { call: 'isEnrolledAsync' }]);
   });
 
-  it('shows the prompt with the text and the fallback it is given, and nothing else', async () => {
-    const options = { promptMessage: 'Unlock', disableDeviceFallback: true };
+  it('shows the prompt with the options it is given, and nothing else', async () => {
+    const options = {
+      promptMessage: 'Unlock',
+      cancelLabel: 'Cancel',
+      disableDeviceFallback: true,
+      biometricsSecurityLevel: 'strong',
+    } as const;
 
     const outcome = await new ExpoLocalAuthentication().authenticate(options);
 

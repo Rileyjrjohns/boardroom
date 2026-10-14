@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 import type { Vote } from '@domain/entities/Vote';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
@@ -11,19 +9,21 @@ import { asGatewayError } from './gatewayErrors';
 import { HTTP_FAILURE_CODE } from './HttpClient';
 import type { HttpClient } from './HttpClient';
 import { domainViolation, HTTP_RESOURCE, schemaViolation } from './invalidResponse';
-import { issuePathsOf } from './dto/wire';
+import { issuePathsOf } from '../shared/issuePaths';
 import { HTTP_HEADER, HTTP_METHOD, ROUTES } from './protocol';
 import { toVotingError, votingErrorSchema } from '../shared/rejectionSchemas';
-
-/** The body of a success carries nothing the app needs: it is not read. */
-const ignoredBodySchema = z.unknown();
 
 /**
  * The votes of the API (`POST /votes`). The request carries the idempotency key in a header, so
  * that a retry after a lost answer is recorded once; the key is percent-encoded, because the ids
  * it is made of are free text. A vote the server refuses by a business rule (422) is a voting
- * error, and sending it again changes nothing. A vote whose voter is not the user the token
- * belongs to is refused by the server with 401, which is `unauthorized`.
+ * error, and sending it again changes nothing.
+ *
+ * The request is made for the voter (`forUser`): the client sends it only with the token of that
+ * user, and answers `unauthorized`, without sending, if somebody else is signed in by then. So a
+ * vote is never recorded under the session of another user, whatever the server checks. The body
+ * of a success carries nothing the app needs and is not read: a success is a success, whatever it
+ * says.
  */
 export class HttpVoteRepository implements VoteRepository {
   constructor(
@@ -32,14 +32,14 @@ export class HttpVoteRepository implements VoteRepository {
   ) {}
 
   async submit(vote: Vote): Promise<Result<void, VoteSubmissionError>> {
-    const answer = await this.client.request({
+    const answer = await this.client.perform(() => ({
       method: HTTP_METHOD.Post,
       path: ROUTES.votes,
       headers: { [HTTP_HEADER.IdempotencyKey]: encodeURIComponent(vote.idempotencyKey) },
       body: toVoteRequestWire(vote),
+      forUser: vote.voterId,
       resource: HTTP_RESOURCE.Vote,
-      schema: ignoredBodySchema,
-    });
+    }));
     if (answer.ok) return ok(undefined);
     if (answer.error.code !== HTTP_FAILURE_CODE.RequestRejected) {
       return err(asGatewayError(answer.error));

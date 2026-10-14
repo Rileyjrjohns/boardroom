@@ -16,10 +16,9 @@ export class ExpoLocalAuthentication implements LocalAuthenticationApi {
     return LocalAuthentication.isEnrolledAsync();
   }
 
-  authenticate(options: {
-    readonly promptMessage: string;
-    readonly disableDeviceFallback: boolean;
-  }): Promise<LocalAuthentication.LocalAuthenticationResult> {
+  authenticate(
+    options: Parameters<LocalAuthenticationApi['authenticate']>[0],
+  ): Promise<LocalAuthentication.LocalAuthenticationResult> {
     return LocalAuthentication.authenticateAsync(options);
   }
 }

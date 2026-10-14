@@ -1,8 +1,12 @@
+import { unexpected } from '@domain/errors/RepositoryError';
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { Connectivity, ConnectivityStatus } from '@application/ports/Connectivity';
+import { MONITORING_EVENT } from '@application/ports/Monitoring';
+import type { Monitoring } from '@application/ports/Monitoring';
 import type { Unsubscribe } from '@application/ports/ScreenProtection';
 
-import { attempt } from '../shared/attempt';
+import { attempt, describeFailure } from '../shared/attempt';
+import { createSubscribers } from '../shared/subscribers';
 
 /** How long the platform may take to say where the connection stands. */
 const DEFAULT_NETWORK_STATE_TIMEOUT_MILLIS = 5_000;
@@ -34,6 +38,8 @@ export function statusOf(state: NetworkSnapshot): ConnectivityStatus {
 
 export interface ExpoConnectivityOptions {
   readonly api: NetworkStateApi;
+  /** Told when a listener throws, which it must not. */
+  readonly monitoring: Monitoring;
   /** Defaults to `DEFAULT_NETWORK_STATE_TIMEOUT_MILLIS`. */
   readonly timeoutMillis?: number;
 }
@@ -44,9 +50,18 @@ export interface ExpoConnectivityOptions {
  * of the status, not about each report of the platform, which repeats itself: the starting point is
  * read when the first subscriber arrives, and a report that says what is already known is dropped.
  * A platform that cannot be asked is `online` (see the port).
+ *
+ * Every call of `subscribe` is a subscription of its own, even for the same function, and a
+ * listener that throws is captured by the monitoring and does not stop the others from hearing the
+ * change (`createSubscribers`).
  */
 export class ExpoConnectivity implements Connectivity {
-  private readonly listeners = new Set<(status: ConnectivityStatus) => void>();
+  private readonly subscribers = createSubscribers<ConnectivityStatus>((error) => {
+    this.options.monitoring.captureError(
+      MONITORING_EVENT.ConnectivityListenerFailed,
+      unexpected(describeFailure(error)),
+    );
+  });
   private known: ConnectivityStatus | undefined;
   private stopListening: (() => void) | undefined;
   /** Settles when the starting point is known. Never rejects. */
@@ -63,12 +78,12 @@ export class ExpoConnectivity implements Connectivity {
   }
 
   subscribe(listener: (status: ConnectivityStatus) => void): Unsubscribe {
-    this.listeners.add(listener);
+    const stopSubscription = this.subscribers.subscribe(listener);
     if (this.stopListening === undefined) this.start();
 
     return () => {
-      this.listeners.delete(listener);
-      if (this.listeners.size === 0) this.stop();
+      stopSubscription();
+      if (this.subscribers.size === 0) this.stop();
     };
   }
 
@@ -95,6 +110,6 @@ export class ExpoConnectivity implements Connectivity {
   private report(status: ConnectivityStatus): void {
     if (this.stopListening === undefined || status === this.known) return;
     this.known = status;
-    for (const listener of [...this.listeners]) listener(status);
+    this.subscribers.notify(status);
   }
 }

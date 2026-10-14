@@ -16,13 +16,12 @@ import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import { createPage } from '@domain/value-objects/Page';
 import { parsePageCursor } from '@domain/value-objects/PageCursor';
 
-import { toMeetingWire } from '../http/dto/meetingDto';
-
 import { databaseDirectory, openTestDatabase } from '../testing/testDatabase';
 import type { TestDatabase } from '../testing/testDatabase';
 
 import { COLUMN, TABLE } from './schema';
 import { SqliteMeetingCache } from './SqliteMeetingCache';
+import { storedMeetingOf } from './storedMeeting';
 
 const directory = databaseDirectory();
 
@@ -52,7 +51,7 @@ describeMeetingCacheContract(
 // that does not pass is a miss, reported, and deleted.
 
 function withStatus(status: string) {
-  const wire = toMeetingWire(MEETING);
+  const wire = storedMeetingOf(MEETING);
   return {
     ...wire,
     agenda: wire.agenda.map((item) =>
@@ -62,6 +61,16 @@ function withStatus(status: string) {
     ),
   };
 }
+
+/**
+ * Rows exactly as the first version of the cache wrote them, when it kept what the API sends: the
+ * format of the database is a promise to the rows already on the devices, which these hold it to.
+ */
+const ROW_WRITTEN_BEFORE = {
+  meeting:
+    '{"id":"meeting-1","title":"Board of directors","scheduledAt":"2030-03-18T17:46:40.000Z","location":"Room 1","agenda":[{"id":"agenda-1","position":1,"title":"Budget","resolution":{"id":"resolution-1","title":"Approve the budget","description":"Approve the budget of the next financial year.","status":"open"}}],"documents":[{"id":"document-1","title":"Financial statements","confidentiality":"confidential","pageCount":3}],"participants":[{"userId":"user-1","fullName":"Alice Martin","role":"member"},{"userId":"user-2","fullName":"Bruno Durand","role":"chair"},{"userId":"user-3","fullName":"Chloe Petit","role":"secretary"},{"userId":"user-4","fullName":"David Roux","role":"guest"}]}',
+  page: '{"items":[{"id":"meeting-1","title":"Board of directors","scheduledAt":"2030-03-18T17:46:40.000Z","location":"Room 1"}]}',
+} as const;
 
 const OWNER = aUserId('owner-1');
 const MEETING = aMeeting();
@@ -73,6 +82,46 @@ async function openCache() {
   const cache = new SqliteMeetingCache({ database: test.database, monitoring });
   return { test, monitoring, cache };
 }
+
+describe('SqliteMeetingCache, on rows written by an earlier version', () => {
+  it('reads a meeting as it was written then', async () => {
+    const { test, monitoring, cache } = await openCache();
+    await test.database.run(
+      `INSERT INTO ${TABLE.MeetingDetails} (owner, meeting_id, cached_at, payload) VALUES (?, ?, ?, ?)`,
+      [OWNER, MEETING.id, at(10), ROW_WRITTEN_BEFORE.meeting],
+    );
+
+    expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(
+      ok({ value: MEETING, cachedAt: at(10) }),
+    );
+    expect(monitoring.errors).toEqual([]);
+  });
+
+  it('reads a page as it was written then', async () => {
+    const { test, monitoring, cache } = await openCache();
+    await test.database.run(
+      `INSERT INTO ${TABLE.MeetingPages} (owner, period, cursor_key, page_limit, cached_at, payload) VALUES (?, ?, ?, ?, ?, ?)`,
+      [OWNER, PAGE_KEY.period, 'null', PAGE_KEY.limit, at(10), ROW_WRITTEN_BEFORE.page],
+    );
+
+    expect(await cache.readPage(OWNER, PAGE_KEY)).toStrictEqual(
+      ok({ value: createPage([aMeetingSummary()]), cachedAt: at(10) }),
+    );
+    expect(monitoring.errors).toEqual([]);
+  });
+
+  it('writes what it reads: a row written now is the row written then', async () => {
+    const { test, cache } = await openCache();
+    await cache.saveMeeting(OWNER, MEETING, at(10));
+    await cache.savePage(OWNER, PAGE_KEY, createPage([aMeetingSummary()]), at(10));
+
+    const meetings = await test.database.all(`SELECT payload FROM ${TABLE.MeetingDetails}`);
+    const pages = await test.database.all(`SELECT payload FROM ${TABLE.MeetingPages}`);
+
+    expect(meetings[0]?.payload).toBe(ROW_WRITTEN_BEFORE.meeting);
+    expect(pages[0]?.payload).toBe(ROW_WRITTEN_BEFORE.page);
+  });
+});
 
 describe('SqliteMeetingCache, on rows that no longer read back', () => {
   /** Overwrites the stored payload of the meeting, behind the back of the cache. */
@@ -90,7 +139,7 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
     ['text that is not JSON', 'not json at all'],
     ['JSON that is not the shape of a meeting', JSON.stringify({ id: 'meeting-1' })],
     ['a meeting whose status is not one', JSON.stringify(withStatus('archived'))],
-    ['a meeting with a blank title', JSON.stringify({ ...toMeetingWire(MEETING), title: '   ' })],
+    ['a meeting with a blank title', JSON.stringify({ ...storedMeetingOf(MEETING), title: '   ' })],
   ])('reads %s as a miss, reports it, and deletes the row', async (_name, payload) => {
     const { test, monitoring, cache } = await corrupt(payload);
 
@@ -122,7 +171,7 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
 
   it('reports the places the payload broke the schema, never what it held', async () => {
     const wire = {
-      ...toMeetingWire(MEETING),
+      ...storedMeetingOf(MEETING),
       title: 'A secret title',
       scheduledAt: 'yesterday-ish',
     };

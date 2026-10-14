@@ -12,13 +12,14 @@ import { createHttpWorld, installMockApi, TEST_API_URL } from '../testing/httpWo
 
 import { HTTP_FAILURE_CODE, HttpClient } from './HttpClient';
 import type {
+  BearerToken,
   BearerTokenSource,
   FetchFunction,
   FetchRequestInit,
   FetchedResponse,
 } from './HttpClient';
 import { HTTP_RESOURCE } from './invalidResponse';
-import { HTTP_HEADER, HTTP_METHOD, HTTP_STATUS } from './protocol';
+import { HTTP_HEADER, HTTP_METHOD, HTTP_STATUS, MAX_RESPONSE_BYTES } from './protocol';
 
 const BASE_URL = 'https://api.boardroom.example/v1';
 const TOKEN = 'a-very-secret-token';
@@ -55,10 +56,15 @@ function scriptedFetch(...answers: Answer[]) {
   return { fetch, sent };
 }
 
+const USER = aUserId('user-1');
+
+/** The token of the signed-in user, which says whose it is. */
+const signedInAs = (userId = USER, token = TOKEN) => ok({ token, userId });
+
 function aClient(
   fetch: FetchFunction,
   options: {
-    token?: Result<string | undefined, ReturnType<typeof storageReadFailed>>;
+    token?: Result<BearerToken | undefined, ReturnType<typeof storageReadFailed>>;
     timeout?: number;
   } = {},
 ) {
@@ -67,7 +73,7 @@ function aClient(
   const tokens: BearerTokenSource = {
     token: () => {
       tokenCalls.count += 1;
-      return Promise.resolve(options.token ?? ok(TOKEN));
+      return Promise.resolve(options.token ?? signedInAs());
     },
   };
   const client = new HttpClient({
@@ -101,6 +107,7 @@ describe('HttpClient, the request', () => {
     expect(sent[0]?.init.method).toBe('GET');
     expect(sent[0]?.init.headers).toEqual({
       [HTTP_HEADER.Accept]: 'application/json',
+      [HTTP_HEADER.CacheControl]: 'no-store',
       [HTTP_HEADER.Authorization]: `Bearer ${TOKEN}`,
     });
     expect(sent[0]?.init.body).toBeUndefined();
@@ -145,6 +152,7 @@ describe('HttpClient, the request', () => {
     expect(sent[0]?.init.body).toBe('{"choice":"for","nested":{"n":1}}');
     expect(sent[0]?.init.headers).toEqual({
       [HTTP_HEADER.Accept]: 'application/json',
+      [HTTP_HEADER.CacheControl]: 'no-store',
       [HTTP_HEADER.Authorization]: `Bearer ${TOKEN}`,
       [HTTP_HEADER.ContentType]: 'application/json',
       [HTTP_HEADER.IdempotencyKey]: '12.r.u',
@@ -194,7 +202,7 @@ describe('HttpClient, the request', () => {
     const client = new HttpClient({
       baseUrl: BASE_URL,
       timeout: aDuration(1000),
-      tokens: { token: () => Promise.resolve(ok(current)) },
+      tokens: { token: () => Promise.resolve(signedInAs(USER, current)) },
       monitoring: new FakeMonitoring(),
       fetch,
     });
@@ -247,6 +255,12 @@ describe('HttpClient, the answer', () => {
     expect(await client.request({ ...get(), schema: z.undefined() })).toStrictEqual(ok(undefined));
   });
 
+  it.each([200, 201, 204, 299])('takes the status %s for a success', async (status) => {
+    const { fetch } = scriptedFetch({ status, body: '{"id":"a","count":1}' });
+
+    expect((await aClient(fetch).client.request(get())).ok).toBe(true);
+  });
+
   it.each([
     [HTTP_STATUS.Unauthorized, REPOSITORY_ERROR_CODE.Unauthorized],
     [HTTP_STATUS.Forbidden, REPOSITORY_ERROR_CODE.Forbidden],
@@ -260,7 +274,7 @@ describe('HttpClient, the answer', () => {
     expect(await aClient(fetch).client.request(get())).toStrictEqual(err({ code }));
   });
 
-  it.each([400, 405, 409, 418, 429, 500, 501, 301, 304, 100])(
+  it.each([400, 405, 409, 418, 500, 501, 300, 301, 304, 199, 100])(
     'turns the status %s into unexpected, with the status as the only cause',
     async (status) => {
       const { fetch } = scriptedFetch({ status, body: 'secret-looking text' });
@@ -381,7 +395,24 @@ describe('HttpClient, when the network fails', () => {
     const { fetch } = scriptedFetch('never');
     const { client } = aClient(fetch, { timeout: 20 });
 
+    const started = Date.now();
     await expect(client.request(get())).resolves.toMatchObject({ ok: false });
+
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('waits for the timeout it was given, and not for less: a slow answer inside it is an answer', async () => {
+    const slow: FetchFunction = () =>
+      new Promise((resolve) => {
+        setTimeout(() => {
+          resolve({ status: 200, text: () => Promise.resolve('{"id":"a","count":1}') });
+        }, 60);
+      });
+    const { client } = aClient(slow, { timeout: 2000 });
+
+    const answer = await client.request(get());
+
+    expect(answer.ok).toBe(true);
   });
 
   it('does not leave its timer running once the answer is in', async () => {
@@ -511,5 +542,318 @@ describe('HttpClient, over the global fetch and MSW', () => {
     expect(await world.meetings.list('upcoming', { limit: 5 })).toStrictEqual(
       err({ code: REPOSITORY_ERROR_CODE.NetworkUnavailable }),
     );
+  });
+});
+
+describe('HttpClient, a request that cannot be built', () => {
+  const ILL_FORMED = '\ud800';
+
+  it('answers unexpected, and sends nothing, when the path cannot be built', async () => {
+    const { fetch, sent } = scriptedFetch();
+    const { client } = aClient(fetch);
+
+    const answer = await client.request(() => ({
+      ...get(),
+      path: `/items/${encodeURIComponent(ILL_FORMED)}`,
+    }));
+
+    expect(answer).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'request could not be built' }),
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it('answers unexpected, and sends nothing, when the query cannot be encoded', async () => {
+    const { fetch, sent } = scriptedFetch();
+    const { client } = aClient(fetch);
+
+    const answer = await client.request({ ...get(), query: { cursor: ILL_FORMED } });
+
+    expect(answer).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'request could not be built' }),
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it('answers unexpected, and sends nothing, when a header cannot be built', async () => {
+    const { fetch, sent } = scriptedFetch();
+    const { client } = aClient(fetch);
+
+    const answer = await client.request(() => ({
+      ...get(),
+      headers: { [HTTP_HEADER.IdempotencyKey]: encodeURIComponent(ILL_FORMED) },
+    }));
+
+    expect(answer).toMatchObject({ ok: false, error: { cause: 'request could not be built' } });
+    expect(sent).toEqual([]);
+  });
+
+  it('leaks nothing of what could not be encoded', async () => {
+    const { fetch } = scriptedFetch();
+    const { client, monitoring } = aClient(fetch);
+
+    const answer = await client.request(() => {
+      throw new URIError(`malformed ${TOKEN} https://api.boardroom.example/secret`);
+    });
+
+    const reported = JSON.stringify([answer, monitoring.errors, monitoring.logs]);
+    expect(reported).not.toContain(TOKEN);
+    expect(reported).not.toContain('api.boardroom.example');
+  });
+});
+
+describe('HttpClient, a request made for a user', () => {
+  it('is sent when the token is the one of that user', async () => {
+    const { fetch, sent } = scriptedFetch({ status: 200, body: '{"id":"a","count":1}' });
+    const { client } = aClient(fetch);
+
+    const answer = await client.request({ ...get(), forUser: USER });
+
+    expect(answer.ok).toBe(true);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('is unauthorized, without being sent, when the token is the one of another user', async () => {
+    const { fetch, sent } = scriptedFetch();
+    const { client } = aClient(fetch, { token: signedInAs(aUserId('user-2'), 'token-of-bruno') });
+
+    const answer = await client.request({ ...get(), forUser: USER });
+
+    expect(answer).toStrictEqual(err({ code: REPOSITORY_ERROR_CODE.Unauthorized }));
+    expect(sent).toEqual([]);
+  });
+
+  it('decides on the token and the user it reads together, not on two reads', async () => {
+    // The user who is signed in changes at once after the token is read: the request already
+    // carries the token of the first, and it is for the first. Only a pair read in one go can say so.
+    let current = signedInAs(USER, 'token-of-alice');
+    const sent: Sent[] = [];
+    const client = new HttpClient({
+      baseUrl: BASE_URL,
+      timeout: aDuration(1000),
+      tokens: {
+        token: () => {
+          const read = current;
+          current = signedInAs(aUserId('user-2'), 'token-of-bruno');
+          return Promise.resolve(read);
+        },
+      },
+      monitoring: new FakeMonitoring(),
+      fetch: (url, init) => {
+        sent.push({ url, init });
+        return Promise.resolve({
+          status: 200,
+          text: () => Promise.resolve('{"id":"a","count":1}'),
+        });
+      },
+    });
+
+    const answer = await client.request({ ...get(), forUser: USER });
+
+    expect(answer.ok).toBe(true);
+    expect(sent[0]?.init.headers[HTTP_HEADER.Authorization]).toBe('Bearer token-of-alice');
+  });
+
+  it('is unauthorized, without being sent, when nobody is signed in', async () => {
+    const { fetch, sent } = scriptedFetch();
+    const { client } = aClient(fetch, { token: ok(undefined) });
+
+    expect(await client.request({ ...get(), forUser: USER })).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unauthorized }),
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it('does not ask who the token belongs to when the request is not made for anyone', async () => {
+    const { fetch, sent } = scriptedFetch({ status: 200, body: '{"id":"a","count":1}' });
+    const { client } = aClient(fetch, { token: signedInAs(aUserId('user-2')) });
+
+    expect((await client.request(get())).ok).toBe(true);
+    expect(sent).toHaveLength(1);
+  });
+});
+
+describe('HttpClient, the statuses that say to come back later', () => {
+  it.each([HTTP_STATUS.RequestTimeout, HTTP_STATUS.TooManyRequests])(
+    'turns the status %s into networkUnavailable: nothing is said of the request',
+    async (status) => {
+      const { fetch } = scriptedFetch({ status, body: '{"error":{"code":"later"}}' });
+
+      expect(await aClient(fetch).client.request(get())).toStrictEqual(
+        err({ code: REPOSITORY_ERROR_CODE.NetworkUnavailable }),
+      );
+    },
+  );
+
+  it.each([300, 301, 302, 304, 307, 308])(
+    'does not take the status %s for a success: a redirect is not an answer',
+    async (status) => {
+      const { fetch } = scriptedFetch({ status, body: '{"id":"a","count":1}' });
+
+      expect(await aClient(fetch).client.request(get())).toStrictEqual(
+        err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: `status ${status}` }),
+      );
+    },
+  );
+
+  it('takes the first and the last status of the successes for successes', async () => {
+    for (const status of [200, 299]) {
+      const { fetch } = scriptedFetch({ status, body: '{"id":"a","count":1}' });
+      expect((await aClient(fetch).client.request(get())).ok).toBe(true);
+    }
+  });
+});
+
+describe('HttpClient, what every request says', () => {
+  it('refuses a redirect and asks for nothing to be stored', async () => {
+    const { fetch, sent } = scriptedFetch({ status: 200, body: '{"id":"a","count":1}' });
+
+    await aClient(fetch).client.request(get());
+
+    expect(sent[0]?.init.redirect).toBe('error');
+    expect(sent[0]?.init.headers[HTTP_HEADER.CacheControl]).toBe('no-store');
+  });
+
+  it('says it also for a request that carries no token', async () => {
+    const { fetch, sent } = scriptedFetch();
+
+    await aClient(fetch).client.request({ ...get(), authenticated: false });
+
+    expect(sent[0]?.init.redirect).toBe('error');
+    expect(sent[0]?.init.headers[HTTP_HEADER.CacheControl]).toBe('no-store');
+  });
+});
+
+describe('HttpClient, the size of an answer', () => {
+  const MAX = MAX_RESPONSE_BYTES;
+
+  function answering(response: Partial<FetchedResponse> & { text?: () => Promise<string> }) {
+    const read = jest.fn(response.text ?? (() => Promise.resolve('{"id":"a","count":1}')));
+    const fetch: FetchFunction = () =>
+      Promise.resolve({ status: 200, text: read, ...response } as FetchedResponse);
+    return { fetch, read };
+  }
+
+  const length = (bytes: number | string) => ({
+    get: (name: string) => (name.toLowerCase() === 'content-length' ? String(bytes) : null),
+  });
+
+  it('refuses an answer that declares more than the maximum, without reading it', async () => {
+    const { fetch, read } = answering({ headers: length(MAX + 1) });
+
+    expect(await aClient(fetch).client.request(get())).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'response too large' }),
+    );
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it('accepts an answer that declares exactly the maximum, and one that declares nothing usable', async () => {
+    for (const declared of [MAX, 'nonsense', '', '-5']) {
+      const { fetch } = answering({ headers: length(declared) });
+      expect((await aClient(fetch).client.request(get())).ok).toBe(true);
+    }
+  });
+
+  it('stops reading a body that grows past the maximum, and cancels it', async () => {
+    const chunk = new Uint8Array(MAX / 2 + 1).fill(0x20);
+    let reads = 0;
+    const cancel = jest.fn(() => Promise.resolve());
+    const { fetch } = answering({
+      body: {
+        getReader: () => ({
+          read: () => {
+            reads += 1;
+            return Promise.resolve({ done: false, value: chunk });
+          },
+          cancel,
+        }),
+      },
+    });
+
+    const answer = await aClient(fetch).client.request(get());
+
+    expect(answer).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'response too large' }),
+    );
+    expect(reads).toBe(2);
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a body that arrives in pieces, and puts it back together', async () => {
+    const pieces = [new TextEncoder().encode('{"id":"a",'), new TextEncoder().encode('"count":1}')];
+    let next = 0;
+    const { fetch } = answering({
+      body: {
+        getReader: () => ({
+          read: () => {
+            const value = pieces[next];
+            next += 1;
+            return Promise.resolve(value === undefined ? { done: true } : { done: false, value });
+          },
+          cancel: () => Promise.resolve(),
+        }),
+      },
+    });
+
+    expect(await aClient(fetch).client.request(get())).toStrictEqual(ok({ id: 'a', count: 1 }));
+  });
+
+  it('refuses a text that is longer than the maximum when the platform gives no stream', async () => {
+    const { fetch } = answering({ text: () => Promise.resolve(' '.repeat(MAX + 1)) });
+
+    expect(await aClient(fetch).client.request(get())).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'response too large' }),
+    );
+  });
+
+  it('is networkUnavailable when the stream breaks', async () => {
+    const { fetch } = answering({
+      body: {
+        getReader: () => ({
+          read: () => Promise.reject(new Error('reset')),
+          cancel: () => Promise.resolve(),
+        }),
+      },
+    });
+
+    expect(await aClient(fetch).client.request(get())).toStrictEqual(
+      err({ code: REPOSITORY_ERROR_CODE.NetworkUnavailable }),
+    );
+  });
+});
+
+describe('HttpClient, an action whose answer holds nothing to read', () => {
+  it('succeeds on a success whatever the body is, and does not read it', async () => {
+    for (const body of ['', 'not json', '{"anything":1}', '<html>']) {
+      const read = jest.fn(() => Promise.resolve(body));
+      const client = aClient(() => Promise.resolve({ status: 200, text: read })).client;
+
+      expect(await client.perform({ ...get(), method: HTTP_METHOD.Post })).toStrictEqual(
+        ok(undefined),
+      );
+      expect(read).not.toHaveBeenCalled();
+    }
+  });
+
+  it('reads the description of a rejection, like any request', async () => {
+    const { fetch } = scriptedFetch({
+      status: HTTP_STATUS.UnprocessableContent,
+      body: '{"error":{"code":"resolutionClosed"}}',
+    });
+
+    expect(await aClient(fetch).client.perform(get())).toStrictEqual(
+      err({ code: HTTP_FAILURE_CODE.RequestRejected, error: { code: 'resolutionClosed' } }),
+    );
+  });
+
+  it('fails like any request on the statuses that are not a success', async () => {
+    const { fetch } = scriptedFetch({ status: 401 }, { status: 500 }, new TypeError('offline'));
+    const { client } = aClient(fetch);
+
+    expect(await client.perform(get())).toStrictEqual(err({ code: 'unauthorized' }));
+    expect(await client.perform(get())).toStrictEqual(
+      err({ code: 'unexpected', cause: 'status 500' }),
+    );
+    expect(await client.perform(get())).toStrictEqual(err({ code: 'networkUnavailable' }));
   });
 });

@@ -2,6 +2,9 @@ import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { ConnectivityStatus } from '@application/ports/Connectivity';
 import { describeConnectivityContract } from '@application/testing/contracts/connectivityContract';
 
+import { MONITORING_EVENT } from '@application/ports/Monitoring';
+import { FakeMonitoring } from '@application/testing/FakeMonitoring';
+
 import { FakeNetworkState } from '../testing/FakeNetworkState';
 
 import { ExpoConnectivity, statusOf } from './ExpoConnectivity';
@@ -14,7 +17,7 @@ const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolv
 describeConnectivityContract('ExpoConnectivity', () => {
   const platform = new FakeNetworkState();
   return {
-    connectivity: new ExpoConnectivity({ api: platform }),
+    connectivity: new ExpoConnectivity({ api: platform, monitoring: new FakeMonitoring() }),
     report: async (status) => {
       platform.change(
         status === Online
@@ -44,7 +47,12 @@ describe('statusOf', () => {
 
 describe('ExpoConnectivity', () => {
   function aConnectivity(platform = new FakeNetworkState()) {
-    return { platform, connectivity: new ExpoConnectivity({ api: platform, timeoutMillis: 20 }) };
+    const monitoring = new FakeMonitoring();
+    return {
+      platform,
+      monitoring,
+      connectivity: new ExpoConnectivity({ api: platform, monitoring, timeoutMillis: 20 }),
+    };
   }
 
   it('is online when the platform cannot be asked, and when it does not answer in time', async () => {
@@ -131,5 +139,41 @@ describe('ExpoConnectivity', () => {
     await settle();
 
     expect(received).toEqual([]);
+  });
+
+  it('reports a listener that throws to the monitoring, once for each change, without a cause that says what it was', async () => {
+    const { platform, connectivity, monitoring } = aConnectivity();
+    const heard: ConnectivityStatus[] = [];
+    connectivity.subscribe(() => {
+      throw new Error('secret detail of the listener');
+    });
+    connectivity.subscribe((status) => heard.push(status));
+    await settle();
+
+    platform.change({ isConnected: false });
+    await settle();
+    platform.change({ isConnected: true, isInternetReachable: true });
+    await settle();
+
+    expect(heard).toEqual([Offline, Online]);
+    expect(monitoring.capturedEvents()).toEqual([
+      MONITORING_EVENT.ConnectivityListenerFailed,
+      MONITORING_EVENT.ConnectivityListenerFailed,
+    ]);
+    expect(JSON.stringify(monitoring.errors)).not.toContain('secret detail');
+  });
+
+  it('keeps listening to the platform while one of two subscriptions of the same function is left', async () => {
+    const { platform, connectivity } = aConnectivity();
+    const listener = jest.fn();
+    const stopFirst = connectivity.subscribe(listener);
+    const stopSecond = connectivity.subscribe(listener);
+    await settle();
+
+    stopFirst();
+    expect(platform.listeners.size).toBe(1);
+    stopSecond();
+
+    expect(platform.listeners.size).toBe(0);
   });
 });

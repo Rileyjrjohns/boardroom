@@ -10,6 +10,8 @@ import { SECURE_STORAGE_KEY } from './SecureStorage';
 import { SessionVault } from './SessionVault';
 
 const SIGNED_IN = { token: 'token-of-alice', session: aSession() };
+/** What the vault gives the client for it: the token, with the user it belongs to. */
+const ALICE_TOKEN = { token: 'token-of-alice', userId: aUserId('user-1') };
 const BRUNO = {
   token: 'token-of-bruno',
   session: aSession({
@@ -48,7 +50,7 @@ describe('SessionVault', () => {
     expect(await vault.replace(SIGNED_IN)).toStrictEqual(ok(undefined));
 
     expect(await vault.session()).toStrictEqual(ok(SIGNED_IN.session));
-    expect(await vault.token()).toStrictEqual(ok('token-of-alice'));
+    expect(await vault.token()).toStrictEqual(ok(ALICE_TOKEN));
   });
 
   it('writes one item, so that a session and a token can never be those of two users', async () => {
@@ -73,7 +75,7 @@ describe('SessionVault', () => {
     const restarted = again();
 
     expect(await restarted.session()).toStrictEqual(ok(SIGNED_IN.session));
-    expect(await restarted.token()).toStrictEqual(ok('token-of-alice'));
+    expect(await restarted.token()).toStrictEqual(ok(ALICE_TOKEN));
     expect(await restarted.session()).toStrictEqual(ok(SIGNED_IN.session));
 
     expect(reads).toHaveBeenCalledTimes(1);
@@ -90,7 +92,7 @@ describe('SessionVault', () => {
       err({ code: STORAGE_ERROR_CODE.WriteFailed, cause: 'unknown failure' }),
     );
     expect(await vault.session()).toStrictEqual(ok(SIGNED_IN.session));
-    expect(await vault.token()).toStrictEqual(ok('token-of-alice'));
+    expect(await vault.token()).toStrictEqual(ok(ALICE_TOKEN));
     expect(JSON.parse(storage.snapshot()[SECURE_STORAGE_KEY.Session] ?? '').token).toBe(
       'token-of-alice',
     );
@@ -137,7 +139,7 @@ describe('SessionVault', () => {
     const failed = await restarted.session();
 
     expect(failed).toMatchObject({ ok: false, error: { code: STORAGE_ERROR_CODE.ReadFailed } });
-    expect(await restarted.token()).toMatchObject({ ok: true, value: 'token-of-alice' });
+    expect(await restarted.token()).toMatchObject({ ok: true, value: ALICE_TOKEN });
   });
 
   it('turns a storage that does not answer into a failure within the time it was given', async () => {
@@ -165,7 +167,7 @@ describe('SessionVault', () => {
       vault.replace(SIGNED_IN),
     ]);
 
-    expect(await vault.token()).toStrictEqual(ok('token-of-alice'));
+    expect(await vault.token()).toStrictEqual(ok(ALICE_TOKEN));
     expect(JSON.parse(storage.snapshot()[SECURE_STORAGE_KEY.Session] ?? '').token).toBe(
       'token-of-alice',
     );
@@ -179,7 +181,9 @@ describe('SessionVault', () => {
 
     expect(failed.ok).toBe(false);
     expect(succeeded.ok).toBe(true);
-    expect(await vault.token()).toStrictEqual(ok('token-of-bruno'));
+    expect(await vault.token()).toStrictEqual(
+      ok({ token: 'token-of-bruno', userId: aUserId('user-2') }),
+    );
   });
 
   describe('an item that no longer reads back', () => {
@@ -226,7 +230,116 @@ describe('SessionVault', () => {
       const { vault, storage } = aVault();
       storage.seed(SECURE_STORAGE_KEY.Session, VALID);
 
-      expect(await vault.token()).toStrictEqual(ok('t'));
+      expect(await vault.token()).toStrictEqual(ok({ token: 't', userId: aUserId('user-1') }));
     });
+  });
+});
+
+describe('SessionVault, an operation that landed late', () => {
+  /** Lets what is waiting on the storage and on the timers run. */
+  const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+  it('does not bring a signed-out session back: a sign-in whose write times out, a sign-out, then the write lands', async () => {
+    const { vault, storage } = aVault(20);
+    await vault.replace(SIGNED_IN);
+    const land = storage.holdNext();
+
+    const timedOut = await vault.replace(BRUNO);
+    const signedOut = await vault.clear();
+    land();
+    await settle();
+
+    expect(timedOut).toMatchObject({ ok: false, error: { code: STORAGE_ERROR_CODE.WriteFailed } });
+    expect(signedOut).toStrictEqual(ok(undefined));
+    expect(storage.snapshot()).toEqual({});
+    expect(await vault.session()).toStrictEqual(ok(undefined));
+  });
+
+  it('does not bring a signed-out session back from a storage that never held one', async () => {
+    const { vault, storage, again } = aVault(20);
+    await vault.clear();
+    const land = storage.holdNext();
+
+    await vault.replace(SIGNED_IN);
+    await vault.clear();
+    land();
+    await settle();
+
+    expect(storage.snapshot()).toEqual({});
+    expect(await again().session()).toStrictEqual(ok(undefined));
+  });
+
+  it('does not drop a session that was signed in after a sign-out whose removal timed out', async () => {
+    const { vault, storage } = aVault(20);
+    await vault.replace(SIGNED_IN);
+    const land = storage.holdNext();
+
+    const timedOut = await vault.clear();
+    await vault.replace(BRUNO);
+    land();
+    await settle();
+
+    expect(timedOut).toMatchObject({ ok: false });
+    expect(JSON.parse(storage.snapshot()[SECURE_STORAGE_KEY.Session] ?? '{}').token).toBe(
+      'token-of-bruno',
+    );
+    expect(await vault.token()).toStrictEqual(
+      ok({ token: 'token-of-bruno', userId: aUserId('user-2') }),
+    );
+  });
+
+  it('puts back the session the vault still holds when a write that failed lands anyway', async () => {
+    const { vault, storage } = aVault(20);
+    await vault.replace(SIGNED_IN);
+    const land = storage.holdNext();
+
+    await vault.replace(BRUNO);
+    land();
+    await settle();
+
+    expect(JSON.parse(storage.snapshot()[SECURE_STORAGE_KEY.Session] ?? '{}').token).toBe(
+      'token-of-alice',
+    );
+    expect(await vault.token()).toStrictEqual(ok(ALICE_TOKEN));
+  });
+
+  it('keeps the session it holds when the correction of a late write fails too', async () => {
+    const { vault, storage } = aVault(20);
+    await vault.replace(SIGNED_IN);
+    const land = storage.holdNext();
+    await vault.replace(BRUNO);
+    storage.failNext();
+
+    land();
+    await settle();
+
+    expect(await vault.session()).toStrictEqual(ok(SIGNED_IN.session));
+  });
+
+  it('does not wait for a storage that holds a call for ever: the next operation still settles', async () => {
+    const { vault, storage } = aVault(20);
+    storage.holdNext();
+
+    await vault.replace(SIGNED_IN);
+    const cleared = await vault.clear();
+
+    expect(cleared).toStrictEqual(ok(undefined));
+  });
+
+  it('runs operations in the order they were asked for, even if the storage answers the first one last', async () => {
+    const { vault, storage } = aVault(5000);
+    await vault.replace(SIGNED_IN);
+    const release = storage.holdNext();
+    const calls = jest.spyOn(storage, 'set');
+
+    const first = vault.replace(BRUNO);
+    const second = vault.clear();
+    await settle();
+    // The second operation has not touched the storage: it waits for the first.
+    expect(calls).toHaveBeenCalledTimes(1);
+    release();
+
+    expect((await Promise.all([first, second])).map((answer) => answer.ok)).toEqual([true, true]);
+    expect(storage.snapshot()).toEqual({});
   });
 });

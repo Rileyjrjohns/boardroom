@@ -1,3 +1,5 @@
+import { createSerialQueue } from '../shared/serialQueue';
+
 // The seam between the SQLite adapters (caches, outbox, migrations) and a SQLite engine. The
 // adapters are written against `SqlDatabase`; two engines sit behind it: `expo-sqlite` on a device
 // and `node:sqlite` in the tests, so the contract suites run real SQL in Jest.
@@ -59,14 +61,7 @@ const TRANSACTION_ENDED = 'The transaction has ended.';
  * that the two engines only have to provide the three calls of `SqlConnection`.
  */
 export function createSqlDatabase(connection: SqlConnection): SqlDatabase {
-  let tail: Promise<unknown> = Promise.resolve();
-
-  /** Runs `job` once everything asked for before it has settled, whether it succeeded or not. */
-  function inOrder<T>(job: () => Promise<T>): Promise<T> {
-    const result = tail.then(job, job);
-    tail = result.catch(() => undefined);
-    return result;
-  }
+  const inOrder = createSerialQueue();
 
   return {
     run: (sql, params = []) => inOrder(() => connection.run(sql, params)),

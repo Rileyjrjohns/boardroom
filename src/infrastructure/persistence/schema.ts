@@ -6,6 +6,8 @@ export const TABLE = {
   MeetingPages: 'meeting_pages',
   MeetingDetails: 'meeting_details',
   OutboxVotes: 'outbox_votes',
+  /** Exists during version 3 of the schema only: the outbox, rebuilt (see `migrations.ts`). */
+  OutboxVotesRebuilt: 'outbox_votes_v3',
 } as const;
 
 export const COLUMN = {
@@ -33,6 +35,13 @@ export const COLUMN = {
   RejectionReason: 'rejection_reason',
   RejectedAt: 'rejected_at',
 } as const;
+
+/**
+ * The status of an entry of the outbox that no longer reads back as a vote, kept as it is. It is a
+ * status of the table only: the domain knows a vote as pending or rejected. Added by version 3 of
+ * the schema (see `migrations.ts`).
+ */
+export const OUTBOX_QUARANTINED = 'quarantined';
 
 export const INDEX = {
   OutboxByResolution: 'outbox_votes_by_voter_and_resolution',

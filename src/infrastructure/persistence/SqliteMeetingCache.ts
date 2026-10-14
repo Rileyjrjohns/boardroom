@@ -13,18 +13,18 @@ import type { LogAttributes, Monitoring } from '@application/ports/Monitoring';
 import type { CacheEntry } from '@application/ports/CacheEntry';
 import type { MeetingCache, MeetingPageKey } from '@application/ports/MeetingCache';
 
-import {
-  meetingPageSchema,
-  meetingSchema,
-  toMeeting,
-  toMeetingPage,
-  toMeetingPageWire,
-  toMeetingWire,
-} from '../http/dto/meetingDto';
-import { issuePathsOf } from '../http/dto/wire';
+import { issuePathsOf } from '../shared/issuePaths';
 import { guardedRead, guardedWrite, DEFAULT_STATEMENT_TIMEOUT_MILLIS } from './guarded';
 import { COLUMN, TABLE } from './schema';
 import type { SqlDatabase, SqlParams } from './SqlDatabase';
+import {
+  meetingOf,
+  pageOf,
+  storedMeetingOf,
+  storedMeetingPageSchema,
+  storedMeetingSchema,
+  storedPageOf,
+} from './storedMeeting';
 import type { z } from 'zod';
 
 export interface SqliteMeetingCacheOptions {
@@ -61,14 +61,14 @@ const PURGE_PAGES = `DELETE FROM ${TABLE.MeetingPages}`;
 const PURGE_MEETINGS = `DELETE FROM ${TABLE.MeetingDetails}`;
 
 /**
- * The cache of meetings on SQLite. It keeps the pages and the meetings of each owner as the API
- * writes them (JSON), under a key made of one column for each of its parts: the owner and the id
+ * The cache of meetings on SQLite. It keeps the pages and the meetings of each owner as JSON in
+ * the format of its own (`storedMeeting.ts`), not the one of the API, under a key made of one column for each of its parts: the owner and the id
  * (or the period, the cursor and the size of the page) are never joined into one text, so two
  * different keys cannot share a row whatever characters they hold. The cursor is written as JSON
  * in its column (`null` is the first page, `"abc"` a cursor), which keeps "no cursor" apart from
  * any cursor.
  *
- * - A read checks what comes out of the database against the schema of the API and the factories
+ * - A read checks what comes out of the database against its stored schema and the factories
  *   of the domain. A row that no longer passes (the format moved on, the file was altered) is a
  *   miss: it is reported to the monitoring, without its content, and deleted. It never throws.
  * - A save that fails removes the older entry of the key, so that it is not served afterwards as
@@ -88,7 +88,7 @@ export class SqliteMeetingCache implements MeetingCache {
     const params = pageKeyParams(owner, key);
     return this.save(
       SAVE_PAGE,
-      [...params, cachedAt, JSON.stringify(toMeetingPageWire(page))],
+      [...params, cachedAt, JSON.stringify(storedPageOf(page))],
       REMOVE_PAGE,
       params,
     );
@@ -100,7 +100,7 @@ export class SqliteMeetingCache implements MeetingCache {
   ): Promise<Result<CacheEntry<Page<MeetingSummary>> | undefined, StorageReadFailedError>> {
     const params = pageKeyParams(owner, key);
     return this.read(STORED.Page, READ_PAGE, params, REMOVE_PAGE, (payload) =>
-      decode(payload, meetingPageSchema, toMeetingPage),
+      decode(payload, storedMeetingPageSchema, pageOf),
     );
   }
 
@@ -116,7 +116,7 @@ export class SqliteMeetingCache implements MeetingCache {
     const params = [owner, meeting.id];
     return this.save(
       SAVE_MEETING,
-      [...params, cachedAt, JSON.stringify(toMeetingWire(meeting))],
+      [...params, cachedAt, JSON.stringify(storedMeetingOf(meeting))],
       REMOVE_MEETING,
       params,
     );
@@ -127,7 +127,7 @@ export class SqliteMeetingCache implements MeetingCache {
     id: MeetingId,
   ): Promise<Result<CacheEntry<Meeting> | undefined, StorageReadFailedError>> {
     return this.read(STORED.Meeting, READ_MEETING, [owner, id], REMOVE_MEETING, (payload) =>
-      decode(payload, meetingSchema, toMeeting),
+      decode(payload, storedMeetingSchema, meetingOf),
     );
   }
 
