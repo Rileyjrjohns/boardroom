@@ -8,6 +8,8 @@ import { queryKeys } from '../query/queryKeys';
 import { unwrapResult } from '../query/QueryFailure';
 import { useAppServices } from '../services/AppServices';
 
+import { useSessionOpen } from './useSessionOpen';
+
 /**
  * One meeting with its agenda, documents and participants, and where it comes from (the server,
  * or the copy saved on the device). Calls the `GetMeeting` use case and turns its `Result` into
@@ -15,9 +17,11 @@ import { useAppServices } from '../services/AppServices';
  */
 export function useMeeting(meetingId: MeetingId) {
   const { useCases } = useAppServices();
+  const open = useSessionOpen();
 
   return useQuery<Loaded<Meeting>, Error>({
     queryKey: queryKeys.meetings.detail(meetingId),
     queryFn: async () => unwrapResult(await useCases.getMeeting.execute({ meetingId })),
+    enabled: open,
   });
 }

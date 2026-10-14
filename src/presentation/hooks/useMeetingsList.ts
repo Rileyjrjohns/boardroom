@@ -11,6 +11,7 @@ import { unwrapResult } from '../query/QueryFailure';
 import { useAppServices } from '../services/AppServices';
 
 import { selectMeetingsListView } from './meetingPages';
+import { useSessionOpen } from './useSessionOpen';
 import type { MeetingsListView, MeetingsPage, MeetingsPages } from './meetingPages';
 
 /**
@@ -27,6 +28,7 @@ import type { MeetingsListView, MeetingsPage, MeetingsPages } from './meetingPag
 export function useMeetingsList(period: MeetingPeriod) {
   const { useCases, settings } = useAppServices();
   const queryClient = useQueryClient();
+  const open = useSessionOpen();
   const { meetingsPageSize } = settings;
   const queryKey = useMemo(
     () => queryKeys.meetings.list(period, meetingsPageSize),
@@ -56,6 +58,7 @@ export function useMeetingsList(period: MeetingPeriod) {
     // A reference that does not change between renders: the query keeps the result it computed
     // for the pages it holds, and only computes again when they change.
     select: selectMeetingsListView,
+    enabled: open,
   });
 
   const { refetch } = query;
