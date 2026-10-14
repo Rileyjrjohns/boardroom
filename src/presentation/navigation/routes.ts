@@ -8,6 +8,8 @@ export const ROUTES = {
   meetings: '/',
   /** The detail of a meeting: `app/meetings/[meetingId].tsx`. */
   meetingDetail: '/meetings/[meetingId]',
+  /** A document, in the viewer: `app/documents/[documentId].tsx`. */
+  document: '/documents/[documentId]',
   /** The votes waiting to be sent and the rejected ones: `app/pending-votes.tsx`. */
   pendingVotes: '/pending-votes',
   /** The sign-in form: `app/sign-in.tsx`. */
@@ -20,6 +22,7 @@ export const ROUTES = {
 export const ROUTE_NAMES = {
   meetings: 'index',
   meetingDetail: 'meetings/[meetingId]',
+  document: 'documents/[documentId]',
   pendingVotes: 'pending-votes',
   signIn: 'sign-in',
   lock: 'lock',
@@ -28,4 +31,5 @@ export const ROUTE_NAMES = {
 /** The dynamic segments of the routes: the name inside the brackets of the file name. */
 export const ROUTE_PARAMS = {
   meetingId: 'meetingId',
+  documentId: 'documentId',
 } as const;

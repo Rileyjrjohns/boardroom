@@ -20,6 +20,7 @@ export const fr: TranslationResource = {
   navigation: {
     meetings: 'Réunions',
     meeting: 'Réunion',
+    document: 'Document',
     signIn: 'Connexion',
     locked: 'Verrouillé',
     pendingVotes: 'Votes en attente',
@@ -56,6 +57,29 @@ export const fr: TranslationResource = {
     pageCount_one: '{{formattedCount}} page',
     pageCount_many: '{{formattedCount}} de pages',
     pageCount_other: '{{formattedCount}} pages',
+    documentLabel: '{{title}}, {{confidentiality}}, {{pages}}',
+    openDocumentHint: 'Ouvre le document',
+  },
+  document: {
+    loading: 'Ouverture du document',
+    rendering: 'Affichage du document',
+    protectedBadge: 'Écran protégé',
+    pageIndicator: 'Page {{page}} sur {{total}}',
+    notFound: 'Ce document n’existe pas, ou vous n’y avez plus accès.',
+    renderFailed: 'Le document n’a pas pu être affiché. Réessayez.',
+    capture: {
+      screenshot: 'Une capture d’écran a été détectée. Elle a été consignée.',
+      recording: 'Un enregistrement de l’écran a été détecté. Il a été consigné.',
+    },
+    errors: {
+      networkUnavailable:
+        'Ce document n’est pas enregistré sur cet appareil, il n’est donc pas disponible hors ligne. Vérifiez votre connexion puis réessayez.',
+      forbidden: 'Vous n’avez pas accès à ce document.',
+      screenProtectionUnsupported:
+        'Ce document est confidentiel et l’écran de cet appareil ne peut pas être protégé, il n’est donc pas affiché.',
+      screenProtectionFailed:
+        'L’écran n’a pas pu être protégé, le document n’est donc pas affiché. Réessayez.',
+    },
   },
   states: {
     retry: 'Réessayer',

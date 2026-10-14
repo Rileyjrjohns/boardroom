@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Meeting } from '@domain/entities/Meeting';
 import { parseMeetingId } from '@domain/value-objects/ids';
-import type { MeetingId } from '@domain/value-objects/ids';
+import type { DocumentId, MeetingId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { FRESHNESS } from '@application/shared/Loaded';
@@ -33,17 +33,19 @@ import { colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 interface MeetingDetailScreenProps {
   /** The `meetingId` segment of the route, as the router gives it. */
   readonly meetingId: string | undefined;
+  /** Opens a document of the meeting in the viewer: the route file wires it to the navigation. */
+  readonly onOpenDocument: (id: DocumentId) => void;
 }
 
 /**
  * The detail of a meeting. The route parameter is a string from outside, so it is parsed first:
  * one that is no meeting id cannot be a meeting that exists, and is shown as not found.
  */
-export function MeetingDetailScreen({ meetingId }: MeetingDetailScreenProps) {
+export function MeetingDetailScreen({ meetingId, onOpenDocument }: MeetingDetailScreenProps) {
   const parsed = meetingId === undefined ? undefined : parseMeetingId(meetingId);
 
   if (parsed === undefined || !parsed.ok) return <NotFound />;
-  return <MeetingDetail id={parsed.value} />;
+  return <MeetingDetail id={parsed.value} onOpenDocument={onOpenDocument} />;
 }
 
 function NotFound() {
@@ -56,7 +58,13 @@ function NotFound() {
   );
 }
 
-function MeetingDetail({ id }: { readonly id: MeetingId }) {
+function MeetingDetail({
+  id,
+  onOpenDocument,
+}: {
+  readonly id: MeetingId;
+  readonly onOpenDocument: (id: DocumentId) => void;
+}) {
   const { t } = useTranslation();
   const { data, error, isPending, isError, isRefetchError, refetch } = useMeeting(id);
   const errorCode = isError ? errorCodeOf(error) : undefined;
@@ -102,6 +110,7 @@ function MeetingDetail({ id }: { readonly id: MeetingId }) {
       refreshing={refreshing}
       onRefresh={refresh}
       onRetry={retry}
+      onOpenDocument={onOpenDocument}
     />
   );
 }
@@ -118,6 +127,7 @@ interface MeetingContentProps {
   readonly refreshing: boolean;
   readonly onRefresh: () => void;
   readonly onRetry: () => void;
+  readonly onOpenDocument: (id: DocumentId) => void;
 }
 
 function MeetingContent({
@@ -128,6 +138,7 @@ function MeetingContent({
   refreshing,
   onRefresh,
   onRetry,
+  onOpenDocument,
 }: MeetingContentProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
@@ -178,7 +189,9 @@ function MeetingContent({
         {meeting.documents.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.documentsEmpty')}</Text>
         ) : (
-          meeting.documents.map((document) => <DocumentRow key={document.id} document={document} />)
+          meeting.documents.map((document) => (
+            <DocumentRow key={document.id} document={document} onOpen={onOpenDocument} />
+          ))
         )}
       </Section>
 

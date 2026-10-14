@@ -18,6 +18,16 @@ function meetingScreenId(_name: string, params: Record<string, unknown>): string
   return typeof value === 'string' ? value : undefined;
 }
 
+/**
+ * The identity of a document screen in the stack: the document it shows. A second tap on a row
+ * before the screen has come up goes to the screen that is open: two screens would count two views
+ * of the document, and only the one on top would be left on the screen.
+ */
+function documentScreenId(_name: string, params: Record<string, unknown>): string | undefined {
+  const value = params[ROUTE_PARAMS.documentId];
+  return typeof value === 'string' ? value : undefined;
+}
+
 /** The header of the list. A function of the module, not of the component, so that it is stable. */
 function renderListHeaderActions() {
   return <HeaderActions />;
@@ -30,7 +40,8 @@ function renderListHeaderActions() {
  *
  * **Which routes exist depends on where the user stands**, with the protected screens of expo-router
  * (`Stack.Protected`): the sign-in screen exists for a signed-out user only, the lock screen for a
- * locked app only, and the meetings, their details and the pending votes for an open app only. A
+ * locked app only, and the meetings, their details, the documents and the pending votes for an open
+ * app only. A
  * screen whose guard is false is not in the stack at all, and that gives the two guarantees the
  * app depends on:
  *
@@ -74,6 +85,11 @@ export function AppNavigator() {
           name={ROUTE_NAMES.meetingDetail}
           options={{ title: t(SCREEN_TITLE_KEYS[ROUTE_NAMES.meetingDetail]) }}
           dangerouslySingular={meetingScreenId}
+        />
+        <Stack.Screen
+          name={ROUTE_NAMES.document}
+          options={{ title: t(SCREEN_TITLE_KEYS[ROUTE_NAMES.document]) }}
+          dangerouslySingular={documentScreenId}
         />
         <Stack.Screen
           name={ROUTE_NAMES.pendingVotes}

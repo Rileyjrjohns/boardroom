@@ -1,21 +1,59 @@
-import { screen, within } from '@testing-library/react-native';
+import { fireEvent, screen, within } from '@testing-library/react-native';
 
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import { aDocument, aDocumentId } from '@domain/testing/builders';
 
 import { documentTestId } from '../testIds';
 import { renderScreen } from '../testing/renderScreen';
-import { colors } from '../theme/tokens';
+import { colors, touchTarget } from '../theme/tokens';
 
 import { DocumentRow } from './DocumentRow';
 
 function renderDocument(overrides: Parameters<typeof aDocument>[0], language: 'en' | 'fr' = 'en') {
   const document = aDocument({ id: aDocumentId('doc'), ...overrides });
-  const rendered = renderScreen(<DocumentRow document={document} />, { language });
-  return { ...rendered, row: screen.getByTestId(documentTestId(document.id)) };
+  const onOpen = jest.fn();
+  const rendered = renderScreen(<DocumentRow document={document} onOpen={onOpen} />, { language });
+  return { ...rendered, onOpen, document, row: screen.getByTestId(documentTestId(document.id)) };
 }
 
 describe('DocumentRow', () => {
+  describe('as a button', () => {
+    it('opens its document when it is pressed', () => {
+      const { onOpen, row } = renderDocument({});
+
+      fireEvent.press(row);
+
+      expect(onOpen).toHaveBeenCalledTimes(1);
+      expect(onOpen).toHaveBeenCalledWith('doc');
+    });
+
+    it('is a button for the screen reader, named by its title, its level and its pages, with a hint', () => {
+      const { t, row } = renderDocument({ title: 'Board pack', pageCount: 4 });
+
+      expect(
+        screen.getByRole('button', {
+          name: `Board pack, ${t('confidentiality.internal')}, 4 pages`,
+        }),
+      ).toBe(row);
+      expect(row.props.accessibilityHint).toBe(t('meeting.openDocumentHint'));
+    });
+
+    it('is named in French in French, with the number of pages written the French way', () => {
+      const { t, row } = renderDocument({ title: 'Dossier', pageCount: 1234 }, 'fr');
+
+      expect(row.props.accessibilityLabel).toMatch(
+        new RegExp(`^Dossier, ${t('confidentiality.internal')}, 1[\\u202f\\u00a0 ]234 pages$`),
+      );
+      expect(row.props.accessibilityHint).toBe('Ouvre le document');
+    });
+
+    it('is at least as tall as a touch target', () => {
+      const { row } = renderDocument({});
+
+      expect(row).toHaveStyle({ minHeight: touchTarget.min });
+    });
+  });
+
   it('shows the title, the confidentiality and the number of pages', () => {
     const { t, row } = renderDocument({ title: 'Board pack', pageCount: 4 });
 

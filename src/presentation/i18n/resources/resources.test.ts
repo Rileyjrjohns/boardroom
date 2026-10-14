@@ -24,6 +24,8 @@ const french = flatten(fr);
 // write alike, or a text made only of placeholders. Any other equal value is an untranslated text.
 const SAME_IN_BOTH_LANGUAGES = [
   'meeting.agendaItem', // Only placeholders and a full stop.
+  'meeting.documentLabel', // Only placeholders and commas.
+  'navigation.document', // "Document" in both.
   'meeting.documents', // "Documents" in both.
   'meeting.participants', // "Participants" in both.
   'meeting.pageCount_one', // "page" in both.

@@ -53,6 +53,8 @@ import type { RenderScreenOptions } from '../testing/renderScreen';
 
 import { MeetingDetailScreen } from './MeetingDetailScreen';
 
+const noDocument = (): void => undefined;
+
 // Voting, on the detail of a meeting: who may vote and why the others may not, the confirmation
 // that states the vote is final, every outcome of casting it, and what the screen shows at each
 // stage. The use cases are the real ones, over the fakes of the ports.
@@ -121,7 +123,10 @@ function renderMeeting(meeting = SINGLE, options: RenderScreenOptions = {}) {
       fakes.meetings.addMeeting(withVoteRecorded(meeting, vote));
     }
   };
-  return renderScreen(<MeetingDetailScreen meetingId={meeting.id} />, { ...options, fakes });
+  return renderScreen(<MeetingDetailScreen meetingId={meeting.id} onOpenDocument={noDocument} />, {
+    ...options,
+    fakes,
+  });
 }
 
 /** Lets the timers of the query library run: it tells its observers on a timer of its own. */

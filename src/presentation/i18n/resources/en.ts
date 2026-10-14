@@ -22,6 +22,7 @@ export const en = {
   navigation: {
     meetings: 'Meetings',
     meeting: 'Meeting',
+    document: 'Document',
     signIn: 'Sign in',
     locked: 'Locked',
     pendingVotes: 'Pending votes',
@@ -58,6 +59,29 @@ export const en = {
     pageCount_one: '{{formattedCount}} page',
     pageCount_many: '{{formattedCount}} pages',
     pageCount_other: '{{formattedCount}} pages',
+    documentLabel: '{{title}}, {{confidentiality}}, {{pages}}',
+    openDocumentHint: 'Opens the document',
+  },
+  document: {
+    loading: 'Opening the document',
+    rendering: 'Displaying the document',
+    protectedBadge: 'Protected screen',
+    pageIndicator: 'Page {{page}} of {{total}}',
+    notFound: 'This document does not exist, or you no longer have access to it.',
+    renderFailed: 'The document could not be displayed. Try again.',
+    capture: {
+      screenshot: 'A screenshot was detected. It has been recorded.',
+      recording: 'A screen recording was detected. It has been recorded.',
+    },
+    errors: {
+      networkUnavailable:
+        'This document is not saved on this device, so it is not available offline. Check your connection and try again.',
+      forbidden: 'You do not have access to this document.',
+      screenProtectionUnsupported:
+        'This document is confidential and the screen of this device cannot be protected, so it is not shown.',
+      screenProtectionFailed:
+        'The screen could not be protected, so the document is not shown. Try again.',
+    },
   },
   states: {
     retry: 'Try again',

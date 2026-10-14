@@ -10,6 +10,9 @@ import { SignIn } from '@application/use-cases/auth/SignIn';
 import { SignOut } from '@application/use-cases/auth/SignOut';
 import { UnlockApp } from '@application/use-cases/auth/UnlockApp';
 import { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
+import { CloseDocument } from '@application/use-cases/documents/CloseDocument';
+import { ObserveScreenCapture } from '@application/use-cases/documents/ObserveScreenCapture';
+import { OpenDocument } from '@application/use-cases/documents/OpenDocument';
 import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 import { AcknowledgeRejectedVote } from '@application/use-cases/votes/AcknowledgeRejectedVote';
@@ -77,6 +80,9 @@ function createTestServices(
       getCurrentUser: new GetCurrentUser(fakes),
       listMeetings: new ListMeetings(fakes),
       getMeeting: new GetMeeting(fakes),
+      openDocument: new OpenDocument(fakes),
+      closeDocument: new CloseDocument(fakes),
+      observeScreenCapture: new ObserveScreenCapture(fakes),
       observeConnectivity: new ObserveConnectivity(fakes),
       castVote: new CastVote(fakes),
       syncPendingVotes: new SyncPendingVotes(fakes),

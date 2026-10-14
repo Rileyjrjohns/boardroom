@@ -29,6 +29,10 @@ export const colors = {
   positiveBadgeText: '#14532b',
   confidentialBadgeBackground: '#fde2e5',
   confidentialBadgeText: '#7a1424',
+  /** The text of the watermark: dark, and made faint by `watermark.opacity`, so it reads on any page. */
+  watermarkText: '#1f2933',
+  /** Behind the page of a document, where the page does not reach. */
+  documentBackdrop: '#e4e7ec',
 } as const;
 
 export const spacing = {
@@ -81,6 +85,23 @@ export const disabledOpacity = 0.4;
 
 /** How much of the screen shows through behind a dialog: dark enough to put it in the background. */
 export const dimmedOpacity = 0.55;
+
+/**
+ * The watermark that is drawn over a confidential document, tile after tile, across the whole area
+ * of the page. It identifies the reader on a screenshot or a photograph, so it must stay legible
+ * without hiding what is under it.
+ */
+export const watermark = {
+  /** How much of the page shows through: faint enough to read the page, strong enough to read it. */
+  opacity: 0.16,
+  /** The slope of the lines of text, in degrees: negative rises to the right. */
+  angleDegrees: -30,
+  /** The width of a tile, text and space around it, in points. */
+  tileWidth: 240,
+  /** The height of a tile, in points. */
+  tileHeight: 96,
+  fontSize: 13,
+} as const;
 
 /** The widest a form or a dialog gets, in points, so that it stays readable on a tablet. */
 export const maxContentWidth = {

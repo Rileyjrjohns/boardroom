@@ -1,5 +1,6 @@
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@domain/errors/ScreenProtectionError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@domain/errors/ValidationError';
 
@@ -35,6 +36,11 @@ describe('the retry policy', () => {
   it.each(NOT_RETRYABLE)('never tries %s again: asking again cannot change it', (code) => {
     expect(shouldRetry(0, new QueryFailure({ code }))).toBe(false);
     expect(isRetryableCode(code)).toBe(false);
+  });
+
+  it('offers a retry for a screen protection that failed, and not for a platform that has none', () => {
+    expect(isRetryableCode(SCREEN_PROTECTION_ERROR_CODE.Failed)).toBe(true);
+    expect(isRetryableCode(SCREEN_PROTECTION_ERROR_CODE.Unsupported)).toBe(false);
   });
 
   it('reads a rejection that is not the failure of a use case as unexpected, and tries it again', () => {

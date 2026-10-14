@@ -104,9 +104,13 @@ const MEETING = aMeeting({
 
 /** The screen for what the router gives as `meetingId`, with the standard meeting on the server. */
 function renderDetailAt(meetingId: string | undefined, options: RenderScreenOptions = {}) {
-  const rendered = renderScreen(<MeetingDetailScreen meetingId={meetingId} />, options);
+  const onOpenDocument = jest.fn();
+  const rendered = renderScreen(
+    <MeetingDetailScreen meetingId={meetingId} onOpenDocument={onOpenDocument} />,
+    options,
+  );
   rendered.fakes.meetings.addMeeting(MEETING);
-  return rendered;
+  return { ...rendered, onOpenDocument };
 }
 
 const renderDetail = (options: RenderScreenOptions = {}) => renderDetailAt(MEETING.id, options);
@@ -250,11 +254,33 @@ describe('MeetingDetailScreen', () => {
     });
   });
 
-  it('only displays: it has no button, since voting and opening a document come later', async () => {
-    renderDetail();
-    await screen.findByTestId(TEST_IDS.meetingDetail);
+  describe('opening a document', () => {
+    it('makes each document a button that opens it, and nothing else on the screen a button', async () => {
+      const { onOpenDocument } = renderDetail();
+      await screen.findByTestId(TEST_IDS.meetingDetail);
 
-    expect(screen.queryAllByRole('button')).toEqual([]);
+      const buttons = screen.getAllByRole('button');
+      fireEvent.press(screen.getByTestId(documentTestId('report')));
+
+      expect(buttons.map((button) => button.props.testID)).toEqual([
+        documentTestId('report'),
+        documentTestId('pack'),
+      ]);
+      expect(onOpenDocument).toHaveBeenCalledTimes(1);
+      expect(onOpenDocument).toHaveBeenCalledWith('report');
+    });
+
+    it('names a document by its title, its confidentiality and its pages, and says where it leads', async () => {
+      const { t } = renderDetail();
+      await screen.findByTestId(TEST_IDS.meetingDetail);
+
+      const report = screen.getByTestId(documentTestId('report'));
+
+      expect(report.props.accessibilityLabel).toBe(
+        `Remuneration report, ${t('confidentiality.confidential')}, 12 pages`,
+      );
+      expect(report.props.accessibilityHint).toBe(t('meeting.openDocumentHint'));
+    });
   });
 
   describe('the states', () => {

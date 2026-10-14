@@ -2,6 +2,8 @@ import type { ParseKeys } from 'i18next';
 
 import type { BiometricReason } from '@application/ports/BiometricGate';
 import { BIOMETRIC_REASON } from '@application/ports/BiometricGate';
+import { SCREEN_CAPTURE_KIND } from '@application/ports/ScreenProtection';
+import type { ScreenCaptureKind } from '@application/ports/ScreenProtection';
 import type { ConfidentialityLevel } from '@domain/entities/Document';
 import { CONFIDENTIALITY_LEVEL } from '@domain/entities/Document';
 import type { ParticipantRole } from '@domain/entities/Participant';
@@ -11,6 +13,7 @@ import { BIOMETRIC_ERROR_CODE } from '@domain/errors/BiometricError';
 import type { BiometricError } from '@domain/errors/BiometricError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@domain/errors/ScreenProtectionError';
 import { VALIDATION_ERROR_CODE, VALIDATION_RULE } from '@domain/errors/ValidationError';
 import type { ValidationError, ValidationRule } from '@domain/errors/ValidationError';
 import { VOTE_DELIVERY_ERROR_CODE } from '@domain/errors/VoteDeliveryError';
@@ -23,6 +26,7 @@ import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import type { VoteChoice } from '@domain/value-objects/VoteChoice';
 import type { SignInError } from '@application/use-cases/auth/SignIn';
+import type { OpenDocumentError } from '@application/use-cases/documents/OpenDocument';
 import type { GetMeetingError } from '@application/use-cases/meetings/GetMeeting';
 import type { ListMeetingsError } from '@application/use-cases/meetings/ListMeetings';
 import type { AcknowledgeRejectedVoteError } from '@application/use-cases/votes/AcknowledgeRejectedVote';
@@ -241,3 +245,38 @@ export const ACKNOWLEDGE_ERROR_KEYS = {
   [VOTE_DELIVERY_ERROR_CODE.NotRejected]: 'voting.failure.voteNotRejected',
   [REPOSITORY_ERROR_CODE.Unexpected]: 'errors.unexpected',
 } as const satisfies Record<OrUnexpected<AcknowledgeRejectedVoteError['code']>, TranslationKey>;
+
+/** Every way opening a document can fail. */
+export type DocumentErrorCode = OpenDocumentError['code'];
+
+/**
+ * What the screen of a document says when it cannot show it. `networkUnavailable` is told apart on
+ * purpose: opening a document is the one place where it means the document is not on the device, so
+ * the user is told why it cannot be read offline and not just that the server is out of reach. A
+ * document that does not exist or that the user may not have is told as a document, not as a
+ * meeting.
+ */
+export const DOCUMENT_ERROR_KEYS = {
+  [AUTHENTICATION_ERROR_CODE.NotAuthenticated]: 'errors.notAuthenticated',
+  [AUTHENTICATION_ERROR_CODE.SessionExpired]: 'errors.sessionExpired',
+  [AUTHENTICATION_ERROR_CODE.AppLocked]: 'errors.appLocked',
+  [AUTHENTICATION_ERROR_CODE.SessionChanged]: 'errors.sessionChanged',
+  [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
+  [REPOSITORY_ERROR_CODE.NetworkUnavailable]: 'document.errors.networkUnavailable',
+  [REPOSITORY_ERROR_CODE.Unauthorized]: 'errors.unauthorized',
+  [REPOSITORY_ERROR_CODE.Forbidden]: 'document.errors.forbidden',
+  [REPOSITORY_ERROR_CODE.NotFound]: 'document.notFound',
+  [REPOSITORY_ERROR_CODE.Unexpected]: 'errors.unexpected',
+  [SCREEN_PROTECTION_ERROR_CODE.Unsupported]: 'document.errors.screenProtectionUnsupported',
+  [SCREEN_PROTECTION_ERROR_CODE.Failed]: 'document.errors.screenProtectionFailed',
+} as const satisfies Record<DocumentErrorCode, TranslationKey>;
+
+/**
+ * What the screen of a document says when the system reports a capture. The end of a recording
+ * says nothing new: the capture was told when it began, and the notice stays.
+ */
+export const CAPTURE_NOTICE_KEYS = {
+  [SCREEN_CAPTURE_KIND.ScreenshotTaken]: 'document.capture.screenshot',
+  [SCREEN_CAPTURE_KIND.RecordingStarted]: 'document.capture.recording',
+  [SCREEN_CAPTURE_KIND.RecordingStopped]: undefined,
+} as const satisfies Record<ScreenCaptureKind, TranslationKey | undefined>;

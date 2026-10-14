@@ -55,7 +55,9 @@ function renderList() {
 }
 
 function renderDetail() {
-  const rendered = renderScreen(<MeetingDetailScreen meetingId={MEETING.id} />);
+  const rendered = renderScreen(
+    <MeetingDetailScreen meetingId={MEETING.id} onOpenDocument={noop} />,
+  );
   rendered.fakes.meetings.addMeeting(MEETING);
   return rendered;
 }
