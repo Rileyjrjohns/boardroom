@@ -34,7 +34,7 @@ export function PdfViewer({ uri, onLoaded, onPageChanged, onFailed }: PdfViewerP
   const source = useMemo(() => ({ uri, cache: false }), [uri]);
 
   return (
-    <View style={styles.container} testID={TEST_IDS.documentPdf}>
+    <View style={styles.container} collapsable={false} testID={TEST_IDS.documentPdf}>
       <Pdf
         source={source}
         style={styles.pdf}

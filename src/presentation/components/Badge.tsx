@@ -8,13 +8,20 @@ interface BadgeProps {
   /** The translated text. */
   readonly label: string;
   readonly tone?: BadgeTone;
+  /** On the text, the element that renders: a bare container may not reach the native tree. */
+  readonly testID?: string;
 }
 
 /** A short label on a coloured pill: a status, a confidentiality level, a role. */
-export function Badge({ label, tone = 'neutral' }: BadgeProps) {
+export function Badge({ label, tone = 'neutral', testID }: BadgeProps) {
   return (
     <View style={[styles.badge, toneStyles[tone].badge]}>
-      <Text style={[styles.label, toneStyles[tone].label]}>{label}</Text>
+      <Text
+        style={[styles.label, toneStyles[tone].label]}
+        {...(testID === undefined ? {} : { testID })}
+      >
+        {label}
+      </Text>
     </View>
   );
 }

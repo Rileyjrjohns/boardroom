@@ -26,8 +26,12 @@ export function DocumentErrorState({ code, onRetry }: DocumentErrorStateProps) {
   const { t } = useTranslation();
 
   return (
-    <View style={styles.container} testID={TEST_IDS.documentError}>
-      <LiveText message={t(DOCUMENT_ERROR_KEYS[code])} style={styles.message} />
+    <View style={styles.container}>
+      <LiveText
+        message={t(DOCUMENT_ERROR_KEYS[code])}
+        style={styles.message}
+        testID={TEST_IDS.documentError}
+      />
       {isRetryableCode(code) ? (
         <Button title={t('states.retry')} onPress={onRetry} testID={TEST_IDS.retryButton} />
       ) : null}

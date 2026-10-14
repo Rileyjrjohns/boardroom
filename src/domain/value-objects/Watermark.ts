@@ -2,7 +2,7 @@ import type { EmailAddress } from './EmailAddress';
 import type { Instant } from './Instant';
 
 /**
- * What a confidential document shows on every page to identify who is reading it.
+ * What every document shows on every page to identify who is reading it.
  *
  * The domain guarantees the content: the full name and the email of the signed-in user, taken from
  * validated data (never blank, a well-formed email), and the instant at which the document was

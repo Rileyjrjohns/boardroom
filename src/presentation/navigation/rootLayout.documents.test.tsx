@@ -72,11 +72,9 @@ describe('a document, with the real composition root', () => {
       expect(pdfProps().source.uri).toMatch(
         new RegExp(`^${DOCUMENTS_DIRECTORY}[0-9a-f]{64}\\.pdf$`),
       );
-      expect(
-        within(screen.getByTestId(TEST_IDS.documentProtectedBadge)).getByText(
-          t('document.protectedBadge'),
-        ),
-      ).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toHaveTextContent(
+        t('document.protectedBadge'),
+      );
       const [tile] = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
         includeHiddenElements: true,
       });

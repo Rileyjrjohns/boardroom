@@ -18,14 +18,21 @@ interface CaptureNoticeProps {
  * recorded. Calm on purpose: it states what happened, it does not accuse (a reader may well have
  * taken the screenshot by accident). It is announced to the screen reader when it appears, and
  * again for each new capture, since the words are the same: the `key` makes each notice a new
- * one for the live region.
+ * one for the live region. The id is on the text, the element that renders: a container with no
+ * text of its own may not reach the native tree, and a flow that looks for the notice would not
+ * find it.
  */
 export function CaptureNotice({ notice, onDismiss }: CaptureNoticeProps) {
   const { t } = useTranslation();
 
   return (
-    <View style={styles.container} testID={TEST_IDS.documentCaptureNotice}>
-      <LiveText key={notice.sequence} message={t(notice.message)} style={styles.message} />
+    <View style={styles.container}>
+      <LiveText
+        key={notice.sequence}
+        message={t(notice.message)}
+        style={styles.message}
+        testID={TEST_IDS.documentCaptureNotice}
+      />
       <Button
         title={t('banner.dismiss')}
         variant="secondary"

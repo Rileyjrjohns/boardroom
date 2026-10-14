@@ -17,13 +17,13 @@ import { DocumentErrorState } from '../components/DocumentErrorState';
 import { DocumentWatermark } from '../components/DocumentWatermark';
 import { LiveText } from '../components/LiveText';
 import { LoadingState } from '../components/LoadingState';
-import { Message } from '../components/Message';
 import { PdfViewer } from '../components/PdfViewer';
 import { StatusBanner } from '../components/StatusBanner';
 import { useFormatters } from '../format/FormattersProvider';
 import { DOCUMENT_VIEW_STATUS, useDocumentView } from '../hooks/useDocumentView';
 import { useScreenCaptureNotice } from '../hooks/useScreenCaptureNotice';
 import { CONFIDENTIALITY_KEYS } from '../i18n/translationKeys';
+import { useUiStore } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 
@@ -48,7 +48,11 @@ function NotFound() {
 
   return (
     <View style={styles.screen}>
-      <Message centered message={t('document.notFound')} testID={TEST_IDS.documentNotFound} />
+      <View style={styles.notFound}>
+        <Text style={styles.notFoundMessage} testID={TEST_IDS.documentNotFound}>
+          {t('document.notFound')}
+        </Text>
+      </View>
     </View>
   );
 }
@@ -63,7 +67,7 @@ function DocumentViewer({ id }: { readonly id: DocumentId }) {
   const { notice, dismiss } = useScreenCaptureNotice(id);
 
   return (
-    <View style={styles.screen} testID={TEST_IDS.documentScreen}>
+    <View style={styles.screen} collapsable={false} testID={TEST_IDS.documentScreen}>
       <StatusBanner
         {...(state.status === DOCUMENT_VIEW_STATUS.Ready &&
         state.opened.source.freshness === FRESHNESS.Stale
@@ -104,26 +108,22 @@ interface OpenedDocumentViewProps {
 }
 
 /**
- * An opened document: its title and what protects it, the file, the watermark over the file, and
- * where the reader is in it. Remounted for each file (the `key` is its location), so a document
- * that is opened again starts from the first page, loading.
+ * An opened document: its title and what protects it, and below them the pages. Remounted for each
+ * file (the `key` is its location), so a document that is opened again starts from the first page,
+ * loading.
+ *
+ * **The PDF view is mounted only while the app is active.** The privacy cover is up from the
+ * moment the app goes inactive or to the background, and stays up on the way back until the lock
+ * has been judged (see `useAppLifecycle`), so it is the signal: while it is up the native view is
+ * unmounted, and it is mounted again, from the first page, when the cover is lifted. On Android the
+ * native view renders pages again when the app resumes, and when the lock removes the screen at the
+ * same moment it renders on a document that is already closed, which kills the app. A locked app
+ * removes this screen, so nothing mounts again for it.
  */
 function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
   const { t } = useTranslation();
-  const { number } = useFormatters();
-  const insets = useSafeAreaInsets();
-  const [pdf, setPdf] = useState<PdfState>(PDF_LOADING);
-  const { document, location, screenProtected, watermark } = opened;
-
-  const loaded = useCallback((pageCount: number) => {
-    setPdf({ status: 'ready', page: FIRST_PAGE, pageCount });
-  }, []);
-  const pageChanged = useCallback((page: number, pageCount: number) => {
-    setPdf({ status: 'ready', page, pageCount });
-  }, []);
-  const failed = useCallback(() => {
-    setPdf({ status: 'failed' });
-  }, []);
+  const covered = useUiStore((state) => state.privacyCover);
+  const { document, screenProtected } = opened;
 
   return (
     <View style={styles.document}>
@@ -137,16 +137,51 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
             tone={CONFIDENTIALITY_TONES[document.confidentiality]}
           />
           {screenProtected ? (
-            <View testID={TEST_IDS.documentProtectedBadge}>
-              <Badge label={t('document.protectedBadge')} />
-            </View>
+            <Badge label={t('document.protectedBadge')} testID={TEST_IDS.documentProtectedBadge} />
           ) : null}
         </View>
       </View>
 
+      {covered ? <View style={styles.page} /> : <DocumentPages opened={opened} onRetry={onRetry} />}
+    </View>
+  );
+}
+
+/**
+ * The pages of an opened document: the file in the PDF view, the watermark of the reader over it,
+ * and where the reader is in the file. It holds the state of the view, so it starts again, loading,
+ * each time the view is mounted.
+ *
+ * **Every document carries the watermark**, protected or not: the screen protection and the badge
+ * are decided by the classification of the document (see `OpenDocument`), but the name of the
+ * reader on a page deters a photograph of any document.
+ */
+function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
+  const { t } = useTranslation();
+  const { number } = useFormatters();
+  const insets = useSafeAreaInsets();
+  const [pdf, setPdf] = useState<PdfState>(PDF_LOADING);
+  const { location, watermark } = opened;
+
+  const loaded = useCallback((pageCount: number) => {
+    setPdf({ status: 'ready', page: FIRST_PAGE, pageCount });
+  }, []);
+  const pageChanged = useCallback((page: number, pageCount: number) => {
+    setPdf({ status: 'ready', page, pageCount });
+  }, []);
+  const failed = useCallback(() => {
+    setPdf({ status: 'failed' });
+  }, []);
+
+  return (
+    <>
       {pdf.status === 'failed' ? (
-        <View style={styles.failure} testID={TEST_IDS.documentPdfError}>
-          <LiveText message={t('document.renderFailed')} style={styles.failureMessage} />
+        <View style={styles.failure}>
+          <LiveText
+            message={t('document.renderFailed')}
+            style={styles.failureMessage}
+            testID={TEST_IDS.documentPdfError}
+          />
           <Button title={t('states.retry')} onPress={onRetry} testID={TEST_IDS.retryButton} />
         </View>
       ) : (
@@ -165,7 +200,7 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
               />
             </View>
           ) : null}
-          {screenProtected ? <DocumentWatermark watermark={watermark} /> : null}
+          <DocumentWatermark watermark={watermark} />
         </View>
       )}
 
@@ -178,11 +213,22 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
           {t('document.pageIndicator', { page: number(pdf.page), total: number(pdf.pageCount) })}
         </Text>
       ) : null}
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  notFound: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+  },
+  notFoundMessage: {
+    textAlign: 'center',
+    fontSize: fontSizes.body,
+    color: colors.textSecondary,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,

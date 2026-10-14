@@ -147,6 +147,10 @@ describe('opening a document from a meeting', () => {
 
     expect(fakes.screenProtection.enabled).toBe(false);
     expect(screen.queryByTestId(TEST_IDS.documentProtectedBadge)).toBeNull();
+    // Every document viewed carries the name of the reader, protected or not.
+    expect(
+      screen.getAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('goes back to the meeting, and releases the screen, when the user goes back', async () => {
@@ -219,6 +223,114 @@ describe('opening a document from a meeting', () => {
       ]);
     },
   );
+});
+
+describe('the app leaving the active state while a document is shown', () => {
+  async function inactive(app: Awaited<ReturnType<typeof openDocument>>): Promise<void> {
+    act(() => app.appState.emit(APP_STATE.Inactive));
+    await settle();
+  }
+
+  async function awayAndBack(app: Awaited<ReturnType<typeof openDocument>>, away: number) {
+    act(() => app.appState.emit(APP_STATE.Inactive));
+    act(() => app.appState.emit(APP_STATE.Background));
+    app.fakes.clock.advance(away);
+    await act(async () => {
+      app.appState.emit(APP_STATE.Active);
+    });
+    await settle();
+  }
+
+  it('unmounts the PDF view as soon as the app is inactive, and keeps the document protected', async () => {
+    const app = await openDocument('report');
+    await viewed();
+    expect(pdfStub.mounted).toBe(1);
+
+    await inactive(app);
+
+    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(pdfStub.latest).toBeUndefined();
+    expect(app.fakes.screenProtection.enabled).toBe(true);
+    expect(app.fakes.screenProtection.disableCalls).toBe(0);
+  });
+
+  it('mounts the PDF view again when the app is active again before the grace period is over', async () => {
+    const app = await openDocument('report');
+    await viewed();
+
+    await awayAndBack(app, TEST_GRACE_PERIOD_MILLIS - 1);
+
+    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(pdfStub.mounted).toBe(2);
+    expect(pdfStub.latest).toBeDefined();
+    expect(app.fakes.screenProtection.enabled).toBe(true);
+    expect(app.fakes.documents.fetchContentCalls).toHaveLength(1);
+  });
+
+  it('mounts it again after a return from inactive that never went to the background', async () => {
+    const app = await openDocument('report');
+    await viewed();
+    await inactive(app);
+
+    await act(async () => {
+      app.appState.emit(APP_STATE.Active);
+    });
+    await settle();
+
+    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(pdfStub.mounted).toBe(2);
+  });
+
+  it('mounts nothing again when the return finds the app locked: the screen is gone, the view stays unmounted', async () => {
+    const app = await openDocument('report');
+    await viewed();
+
+    await awayAndBack(app, TEST_GRACE_PERIOD_MILLIS);
+
+    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
+    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
+    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(pdfStub.latest).toBeUndefined();
+    // The view was mounted once, before the app left: it was never mounted for the lock to catch.
+    expect(pdfStub.mounted).toBe(1);
+    expect(app.fakes.screenProtection.enabled).toBe(false);
+    expect(app.fakes.screenProtection.disableCalls).toBe(1);
+  });
+
+  it('keeps the view unmounted until the lock has been judged on the way back', async () => {
+    const app = await openDocument('report');
+    await viewed();
+    let release: () => void = () => undefined;
+    const judging = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const evaluate = app.services.useCases.evaluateAppLock.execute.bind(
+      app.services.useCases.evaluateAppLock,
+    );
+    jest
+      .spyOn(app.services.useCases.evaluateAppLock, 'execute')
+      .mockImplementation(async (input) => {
+        await judging;
+        return evaluate(input);
+      });
+
+    act(() => app.appState.emit(APP_STATE.Inactive));
+    act(() => app.appState.emit(APP_STATE.Background));
+    await act(async () => {
+      app.appState.emit(APP_STATE.Active);
+    });
+    await settle();
+
+    // Active again, but the lock is not judged: the cover is up and the view is out.
+    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(pdfStub.mounted).toBe(1);
+
+    release();
+    await settle();
+
+    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(pdfStub.mounted).toBe(2);
+  });
 });
 
 describe('leaving the document without going back', () => {
