@@ -8,6 +8,7 @@ import { createFormatters } from '../format/formatters';
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
 import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';
 import type { SupportedLanguage } from '../i18n/constants';
+import { ACCESS } from '../state/uiStore';
 import { TEST_IDS, meetingRowTestId, periodOptionTestId } from '../testIds';
 import { touchTarget } from '../theme/tokens';
 import {
@@ -306,14 +307,15 @@ describe('MeetingsListScreen', () => {
       expect(screen.queryByTestId(TEST_IDS.meetingsError)).toBeNull();
     });
 
-    it('does not retry, and offers no retry, when trying again cannot help', async () => {
-      const { fakes, t } = renderList();
+    it('does not retry, and ends the session, when trying again cannot help', async () => {
+      const { fakes, uiStore } = renderList();
       fakes.meetings.failure = unauthorized();
 
-      const error = await screen.findByTestId(TEST_IDS.sessionEnded);
+      await waitFor(() => {
+        expect(uiStore.getState().sessionEndedBy).toBe('unauthorized');
+      });
 
-      expect(within(error).getByText(t('errors.unauthorized'))).toBeTruthy();
-      expect(within(error).queryByRole('button')).toBeNull();
+      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
       expect(fakes.meetings.listCalls).toHaveLength(1);
     });
 

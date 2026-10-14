@@ -3,14 +3,18 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { Resolution } from '@domain/entities/Resolution';
 import { getVotingState } from '@domain/policies/votingState';
+import type { MeetingId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
 import { useFormatters } from '../format/FormattersProvider';
+import { VOTE_VIEW } from '../hooks/resolutionVote';
+import type { ResolutionVoteView } from '../hooks/resolutionVote';
 import { VOTING_DATE_KEYS, VOTING_STATE_KEYS, VOTE_CHOICE_KEYS } from '../i18n/translationKeys';
 import { resolutionTestId } from '../testIds';
 import { borderWidths, colors, fontSizes, fontWeights, radii, spacing } from '../theme/tokens';
 
 import { Badge } from './Badge';
+import { ResolutionVoting } from './ResolutionVoting';
 import { VOTING_STATE_TONES } from './badgeTones';
 
 interface ResolutionViewProps {
@@ -21,22 +25,40 @@ interface ResolutionViewProps {
    * closing time shows the state as of the last load until it is refreshed.
    */
   readonly now: Instant;
+  /**
+   * The vote of the user, with the meeting it belongs to. Without it the resolution is display
+   * only: it tells the vote the server recorded and offers nothing to do.
+   */
+  readonly voting?: {
+    readonly meetingId: MeetingId;
+    readonly view: ResolutionVoteView;
+  };
 }
 
 /**
  * The resolution of an agenda item: its title and text, where voting stands (open, closed, or its
  * window over, told by the same rule as the eligibility to vote), the deadline or the date it
- * closed on, and the vote of the user if they cast one.
- *
- * Display only. Voting arrives with step 4: the vote buttons will be added under the line that
- * shows the recorded vote, through `CastVote`, and until then this component takes no callback,
- * so there is nothing to tap and nothing to disable.
+ * closed on, and the vote of the user: the one the server recorded, the one that waits to be sent,
+ * or none. Given the state of their vote (`voting`), it also offers what the user can do about it
+ * (see `ResolutionVoting`).
  */
-export function ResolutionView({ resolution, now }: ResolutionViewProps) {
+export function ResolutionView({ resolution, now, voting }: ResolutionViewProps) {
   const { t } = useTranslation();
   const { dateTime } = useFormatters();
   const { recordedVote, closesAt } = resolution;
   const votingState = getVotingState(resolution, now);
+  const view = voting?.view;
+  // While the outbox is unknown the user may have a vote waiting that the line cannot tell yet:
+  // saying "you have not voted" then would be a guess, so the line stays out.
+  const voteUnknown = view?.kind === VOTE_VIEW.Loading || view?.kind === VOTE_VIEW.Unavailable;
+  let voteLine: string | undefined;
+  if (recordedVote !== undefined) {
+    voteLine = t('meeting.resolutionYourVote', { choice: t(VOTE_CHOICE_KEYS[recordedVote]) });
+  } else if (view?.kind === VOTE_VIEW.Queued) {
+    voteLine = t('meeting.resolutionYourVoteQueued', { choice: t(VOTE_CHOICE_KEYS[view.choice]) });
+  } else if (!voteUnknown) {
+    voteLine = t('meeting.resolutionNoVote');
+  }
 
   return (
     <View style={styles.resolution} testID={resolutionTestId(resolution.id)}>
@@ -48,11 +70,10 @@ export function ResolutionView({ resolution, now }: ResolutionViewProps) {
           {t(VOTING_DATE_KEYS[votingState], { date: dateTime(closesAt) })}
         </Text>
       )}
-      <Text style={styles.detail}>
-        {recordedVote === undefined
-          ? t('meeting.resolutionNoVote')
-          : t('meeting.resolutionYourVote', { choice: t(VOTE_CHOICE_KEYS[recordedVote]) })}
-      </Text>
+      {voteLine === undefined ? null : <Text style={styles.detail}>{voteLine}</Text>}
+      {voting === undefined ? null : (
+        <ResolutionVoting meetingId={voting.meetingId} resolution={resolution} view={voting.view} />
+      )}
     </View>
   );
 }

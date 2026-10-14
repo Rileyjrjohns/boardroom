@@ -38,6 +38,7 @@ import {
   resolutionTestId,
 } from '../testIds';
 import { createFakes } from '@application/testing/createFakes';
+import { ACCESS } from '../state/uiStore';
 import { renderScreen } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
@@ -192,7 +193,8 @@ describe('MeetingDetailScreen', () => {
       const closed = screen.getByTestId(resolutionTestId('elections-vote'));
 
       expect(within(closed).getByText(t('votingState.closed'))).toBeTruthy();
-      expect(within(closed).getByText(t('meeting.resolutionNoVote'))).toBeTruthy();
+      // Said once the outbox is known: a vote that waits would change it.
+      expect(await within(closed).findByText(t('meeting.resolutionNoVote'))).toBeTruthy();
       expect(within(closed).queryByText(/Vote by|Closed on/)).toBeNull();
     });
 
@@ -290,14 +292,15 @@ describe('MeetingDetailScreen', () => {
       expect(fakes.meetingCache.isEmpty()).toBe(true);
     });
 
-    it('says the app is locked, with no way to retry', async () => {
-      const { fakes, t } = renderDetail();
+    it('sends the user to the lock screen, without asking the server, when the app is locked', async () => {
+      const { fakes, uiStore } = renderDetail();
       fakes.appLock.lock();
 
-      const error = await screen.findByTestId(TEST_IDS.sessionEnded);
+      await waitFor(() => {
+        expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      });
 
-      expect(within(error).getByText(t('errors.appLocked'))).toBeTruthy();
-      expect(within(error).queryByRole('button')).toBeNull();
+      expect(uiStore.getState().sessionEndedBy).toBe('appLocked');
       expect(fakes.meetings.getCalls).toEqual([]);
     });
 
@@ -405,7 +408,7 @@ describe('MeetingDetailScreen', () => {
       expect(screen.getByText('Votre vote : Contre')).toBeTruthy();
       expect(screen.getByText('12 pages')).toBeTruthy();
       expect(screen.getByText('1 page')).toBeTruthy();
-      expect(screen.getByText('Vous n’avez pas voté.')).toBeTruthy();
+      expect(await screen.findByText('Vous n’avez pas voté.')).toBeTruthy();
     });
 
     it('translates a meeting that is not found into French', async () => {

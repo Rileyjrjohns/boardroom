@@ -10,7 +10,7 @@ import { ErrorState } from './ErrorState';
 import { InlineError } from './InlineError';
 import { LiveText } from './LiveText';
 import { LoadingState } from './LoadingState';
-import { StaleBanner } from './StaleBanner';
+import { StatusBanner } from './StatusBanner';
 
 // What the screen reader is told about the states that appear on their own: loading, an error, a
 // notice that the data is a saved copy. A live region does it on Android, an announcement on iOS.
@@ -96,7 +96,7 @@ describe('LoadingState', () => {
 describe('the notice that the data is a saved copy', () => {
   it('is an alert and a live region, in each language', () => {
     onPlatform('android');
-    const { t, format } = renderScreen(<StaleBanner cachedAt={NOW} />);
+    const { t, format } = renderScreen(<StatusBanner staleSince={NOW} />);
 
     const alert = screen.getByRole('alert');
 
@@ -106,7 +106,7 @@ describe('the notice that the data is a saved copy', () => {
 
   it('is announced on iOS', () => {
     const announce = onPlatform('ios');
-    const { t, format } = renderScreen(<StaleBanner cachedAt={NOW} />);
+    const { t, format } = renderScreen(<StatusBanner staleSince={NOW} />);
 
     expect(announce).toHaveBeenCalledWith(t('states.staleData', { date: format.dateTime(NOW) }));
   });

@@ -18,7 +18,8 @@ import { MeetingRow } from '../components/MeetingRow';
 import { Message } from '../components/Message';
 import { SegmentedControl } from '../components/SegmentedControl';
 import type { SegmentedOption } from '../components/SegmentedControl';
-import { StaleBanner } from '../components/StaleBanner';
+import { StatusBanner } from '../components/StatusBanner';
+import { DemoOfflineSwitch } from '../components/DemoControls';
 import { useFormatters } from '../format/FormattersProvider';
 import { useMeetingsList } from '../hooks/useMeetingsList';
 import { EMPTY_LIST_KEYS, MEETING_PERIOD_KEYS } from '../i18n/translationKeys';
@@ -61,6 +62,7 @@ export function MeetingsListScreen({ onOpenMeeting }: MeetingsListScreenProps) {
 
   return (
     <View style={styles.screen}>
+      <DemoOfflineSwitch />
       <SegmentedControl
         options={options}
         value={period}
@@ -200,7 +202,7 @@ function PeriodList({ period, onOpenMeeting }: PeriodListProps) {
 
   return (
     <>
-      {data?.staleSince === undefined ? null : <StaleBanner cachedAt={data.staleSince} />}
+      <StatusBanner {...(data?.staleSince === undefined ? {} : { staleSince: data.staleSince })} />
       {refreshFailed && errorCode !== undefined ? (
         <InlineError code={errorCode} onRetry={retry} testID={TEST_IDS.refreshError} />
       ) : null}

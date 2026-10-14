@@ -18,10 +18,12 @@ import { LoadingState } from '../components/LoadingState';
 import { Message } from '../components/Message';
 import { ParticipantRow } from '../components/ParticipantRow';
 import { Section } from '../components/Section';
-import { StaleBanner } from '../components/StaleBanner';
+import { StatusBanner } from '../components/StatusBanner';
+import { DemoOfflineSwitch } from '../components/DemoControls';
 import { useAnnounce } from '../accessibility/useAnnounce';
 import { useFormatters } from '../format/FormattersProvider';
 import { useMeeting } from '../hooks/useMeeting';
+import { VOTES_STATUS, useResolutionVotes } from '../hooks/useResolutionVotes';
 import type { MeetingsErrorCode } from '../i18n/translationKeys';
 import { errorCodeOf } from '../query/errorCode';
 import { isRetryableCode } from '../query/retryPolicy';
@@ -130,6 +132,7 @@ function MeetingContent({
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { fullDateTime } = useFormatters();
+  const votes = useResolutionVotes(meeting, loadedAt);
   useAnnounce(refreshing ? t('states.refreshing') : undefined);
 
   return (
@@ -139,10 +142,14 @@ function MeetingContent({
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       testID={TEST_IDS.meetingDetail}
     >
-      {staleSince === undefined ? null : <StaleBanner cachedAt={staleSince} />}
+      <StatusBanner {...(staleSince === undefined ? {} : { staleSince })} />
+      <DemoOfflineSwitch />
       {refreshError === undefined ? null : (
         <InlineError code={refreshError} onRetry={onRetry} testID={TEST_IDS.refreshError} />
       )}
+      {votes.status === VOTES_STATUS.Unavailable ? (
+        <InlineError code={votes.error} onRetry={votes.retry} testID={TEST_IDS.votingError} />
+      ) : null}
 
       <View style={styles.header}>
         <Text accessibilityRole="header" style={styles.title} testID={TEST_IDS.meetingTitle}>
@@ -156,7 +163,14 @@ function MeetingContent({
         {meeting.agenda.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.agendaEmpty')}</Text>
         ) : (
-          meeting.agenda.map((item) => <AgendaItemView key={item.id} item={item} now={loadedAt} />)
+          meeting.agenda.map((item) => (
+            <AgendaItemView
+              key={item.id}
+              item={item}
+              now={loadedAt}
+              votes={{ meetingId: meeting.id, state: votes }}
+            />
+          ))
         )}
       </Section>
 

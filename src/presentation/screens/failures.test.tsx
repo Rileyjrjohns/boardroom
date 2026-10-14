@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, within } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { View } from 'react-native';
 
 import { unauthorized, unexpected } from '@domain/errors/RepositoryError';
@@ -13,6 +13,8 @@ import {
 import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 
 import { discardSessionData } from '../query/createQueryClient';
+import type { QueryClient } from '@tanstack/react-query';
+import { ACCESS } from '../state/uiStore';
 import { TEST_IDS, meetingRowTestId } from '../testIds';
 import {
   MEETING_ROW_TEST_ID_PATTERN,
@@ -27,8 +29,10 @@ import { MeetingsListScreen } from './MeetingsListScreen';
 
 // What the screens do when something that was loaded cannot be loaded again. A failure that asking
 // again cannot fix is final for the screen: it shows the error and never the data it had before.
-// One that ends the session also empties the whole cache. One that can pass leaves the data and
-// offers the retry.
+// One that ends the session also empties the whole cache and tells the interface store where the
+// user goes (the sign-in or the lock screen); the screens are removed by the navigator, which is
+// tested with the real one in `sessionEnd.test.tsx`. One that can pass leaves the data and offers
+// the retry.
 
 const noop = (): void => undefined;
 
@@ -108,33 +112,53 @@ const SESSION_ENDINGS: readonly [string, string, (fakes: TestFakes) => void][] =
   ],
 ];
 
+/**
+ * The data the cache holds. A screen that is still mounted when the session ends (the navigator
+ * removes it, but these tests have none) may build its query again, and the empty query it leaves
+ * holds nothing of the user: it is data that must not be left.
+ */
+function cachedData(client: QueryClient): unknown[] {
+  return client
+    .getQueryCache()
+    .getAll()
+    .map((query) => query.state.data)
+    .filter((data) => data !== undefined);
+}
+
+/** Where the user goes when the session ends, for each way it ends. */
+function accessAfter(code: string) {
+  return code === 'appLocked' ? ACCESS.Locked : ACCESS.SignedOut;
+}
+
 describe('when the session ends while a list is on the screen', () => {
   it.each(SESSION_ENDINGS)(
-    'replaces the rows with the error and empties the cache: %s',
-    async (_code, key, end) => {
-      const { fakes, queryClient, t } = renderList();
+    'sends the user to the screen that fits and empties the cache: %s',
+    async (code, _key, end) => {
+      const { fakes, queryClient, uiStore } = renderList();
       await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
       expect(queryClient.getQueryCache().getAll().length).toBeGreaterThan(0);
+      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
 
       end(fakes);
       await pullToRefresh();
 
-      const ended = await screen.findByTestId(TEST_IDS.sessionEnded);
-      expect(within(ended).getByText(t(key as 'errors.unauthorized'))).toBeTruthy();
-      expect(within(ended).queryByRole('button')).toBeNull();
-      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
-      expect(shownIds()).toEqual([]);
-      expect(queryClient.getQueryCache().getAll()).toEqual([]);
+      await waitFor(() => {
+        expect(uiStore.getState().access).toBe(accessAfter(code));
+      });
+      expect(uiStore.getState().sessionEndedBy).toBe(code);
+      expect(cachedData(queryClient)).toEqual([]);
     },
   );
 
   it('does not ask again once the session has ended', async () => {
-    const { fakes } = renderList();
+    const { fakes, uiStore } = renderList();
     await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
     fakes.meetings.failure = unauthorized();
 
     await pullToRefresh();
-    await screen.findByTestId(TEST_IDS.sessionEnded);
+    await waitFor(() => {
+      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+    });
     const calls = fakes.meetings.listCalls.length;
     await act(async () => {
       jest.advanceTimersByTime(10 * MILLIS_PER_HOUR);
@@ -144,7 +168,7 @@ describe('when the session ends while a list is on the screen', () => {
   });
 
   it('does the same when the next page is the one that is refused', async () => {
-    const { fakes, queryClient, t } = renderList();
+    const { fakes, queryClient, uiStore } = renderList();
     await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
     fakes.meetings.failure = unauthorized();
 
@@ -152,18 +176,18 @@ describe('when the session ends while a list is on the screen', () => {
       fireEvent(screen.getByTestId(TEST_IDS.meetingsList), 'endReached');
     });
 
-    const ended = await screen.findByTestId(TEST_IDS.sessionEnded);
-    expect(within(ended).getByText(t('errors.unauthorized'))).toBeTruthy();
-    expect(shownIds()).toEqual([]);
-    expect(queryClient.getQueryCache().getAll()).toEqual([]);
+    await waitFor(() => {
+      expect(uiStore.getState().sessionEndedBy).toBe('unauthorized');
+    });
+    expect(cachedData(queryClient)).toEqual([]);
   });
 });
 
 describe('when the session ends while a meeting is on the screen', () => {
   it.each(SESSION_ENDINGS)(
-    'replaces the meeting with the error and empties the cache: %s',
-    async (_code, key, end) => {
-      const { fakes, queryClient, t } = renderDetail();
+    'sends the user to the screen that fits and empties the cache: %s',
+    async (code, _key, end) => {
+      const { fakes, queryClient, uiStore } = renderDetail();
       await screen.findByRole('header', { name: MEETING.title });
 
       end(fakes);
@@ -171,12 +195,11 @@ describe('when the session ends while a meeting is on the screen', () => {
         void queryClient.refetchQueries();
       });
 
-      const ended = await screen.findByTestId(TEST_IDS.sessionEnded);
-      expect(within(ended).getByText(t(key as 'errors.unauthorized'))).toBeTruthy();
-      expect(within(ended).queryByRole('button')).toBeNull();
-      expect(screen.queryByText(MEETING.title)).toBeNull();
-      expect(screen.queryByTestId(TEST_IDS.meetingDetail)).toBeNull();
-      expect(queryClient.getQueryCache().getAll()).toEqual([]);
+      await waitFor(() => {
+        expect(uiStore.getState().access).toBe(accessAfter(code));
+      });
+      expect(uiStore.getState().sessionEndedBy).toBe(code);
+      expect(cachedData(queryClient)).toEqual([]);
     },
   );
 });
@@ -339,20 +362,19 @@ describe('a second user on the same device', () => {
   });
 
   it('is told, by the use case, when the user changed under a request that was in flight', async () => {
-    const { fakes } = renderList();
+    const { fakes, uiStore } = renderList();
     fakes.meetings.onRequest = () => {
       fakes.auth.session = SECOND;
     };
 
-    const ended = await screen.findByTestId(TEST_IDS.sessionEnded);
-
-    expect(ended).toBeTruthy();
-    expect(shownIds()).toEqual([]);
+    await waitFor(() => {
+      expect(uiStore.getState().sessionEndedBy).toBe('sessionChanged');
+    });
   });
 });
 
 it('does not end the session for a meeting that is refused: only that meeting is lost', async () => {
-  const { fakes, queryClient } = renderDetail();
+  const { fakes, queryClient, uiStore } = renderDetail();
   await screen.findByRole('header', { name: MEETING.title });
   fakes.meetings.forbid(MEETING.id);
 
@@ -361,6 +383,8 @@ it('does not end the session for a meeting that is refused: only that meeting is
   });
 
   await screen.findByTestId(TEST_IDS.meetingError);
-  expect(screen.queryByTestId(TEST_IDS.sessionEnded)).toBeNull();
-  expect(queryClient.getQueryCache().getAll()).toHaveLength(1);
+  expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+  expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+  // The meeting itself, and who the user is and what waits in their outbox, are still held.
+  expect(cachedData(queryClient)).not.toEqual([]);
 });
