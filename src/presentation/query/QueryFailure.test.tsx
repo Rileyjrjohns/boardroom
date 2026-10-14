@@ -77,6 +77,19 @@ describe('the Result to query state convention', () => {
   });
 
   it('keeps the data of the last success next to the error of a failed refetch', async () => {
+    // A failure that can pass is retried, so it is scripted for every attempt.
+    answers = [ok('first'), err(unexpected()), err(unexpected()), err(unexpected())];
+    const client = renderProbe();
+    await screen.findByText('true false first -');
+
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    expect(await screen.findByText('false true first unexpected')).toBeTruthy();
+  });
+
+  it('drops the data of the last success when the refetch says the item is gone', async () => {
     answers = [ok('first'), err(notFound())];
     const client = renderProbe();
     await screen.findByText('true false first -');
@@ -85,7 +98,8 @@ describe('the Result to query state convention', () => {
       await client.refetchQueries();
     });
 
-    expect(await screen.findByText('false true first notFound')).toBeTruthy();
+    expect(await screen.findByText('false true - notFound')).toBeTruthy();
+    expect(client.getQueryData(['probe'])).toBeUndefined();
   });
 
   it('retries a failure that a retry can fix, and not one that it cannot', async () => {

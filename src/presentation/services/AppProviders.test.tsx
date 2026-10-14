@@ -150,7 +150,10 @@ describe('createAppState', () => {
 
   it.each([
     ['signs out', (store: AppState['uiStore']) => store.getState().signedOut()],
-    ['locks', (store: AppState['uiStore']) => store.getState().locked()],
+    [
+      'locks',
+      (store: AppState['uiStore']) => store.getState().locked(store.getState().accessEpoch),
+    ],
   ])('empties the cache, queries and mutations, when the user %s', (_action, leave) => {
     const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
     trackClient(queryClient);
@@ -161,6 +164,53 @@ describe('createAppState', () => {
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
     expect(queryClient.getMutationCache().getAll()).toEqual([]);
+  });
+
+  it('ignores the failure of an action that a user who left had started, for the user who came after', async () => {
+    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    trackClient(queryClient);
+    const first = uiStore.getState().accessEpoch;
+    uiStore.getState().signedOut();
+    uiStore.getState().signedIn();
+
+    await queryClient
+      .getMutationCache()
+      .build(queryClient, {
+        mutationFn: () =>
+          Promise.reject(
+            new QueryFailure({ code: AUTHENTICATION_ERROR_CODE.SessionChanged }, first),
+          ),
+      })
+      .execute(undefined)
+      .catch(() => undefined);
+
+    expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+  });
+
+  it('does not let a query that was removed from the cache end the session of the next user', async () => {
+    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    trackClient(queryClient);
+    let refuse: () => void = () => undefined;
+    const pending = queryClient
+      .fetchQuery({
+        queryKey: ['meetings', 'list'],
+        queryFn: () =>
+          new Promise((_resolve, reject) => {
+            refuse = () => {
+              reject(new QueryFailure({ code: AUTHENTICATION_ERROR_CODE.SessionChanged }));
+            };
+          }),
+      })
+      .catch(() => undefined);
+    uiStore.getState().signedOut();
+    uiStore.getState().signedIn();
+
+    refuse();
+    await pending;
+
+    expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
   });
 
   it('keeps the cache while the user goes from one screen of the open app to another', () => {

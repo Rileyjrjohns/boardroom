@@ -1,21 +1,21 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { StyleSheet, View } from 'react-native';
 
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 
-import { ErrorState } from '../components/ErrorState';
+import { DialogHost } from '../components/DialogHost';
 import { LoadingState } from '../components/LoadingState';
 import { PrivacyCover } from '../components/PrivacyCover';
+import { RestoreFailure } from '../components/RestoreFailure';
 import { useAppServices } from '../services/AppServices';
 import { ACCESS, useUiStore } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
-import { colors } from '../theme/tokens';
 
 import { useAppLifecycle } from './useAppLifecycle';
 import { useConnectivityStatus } from './useConnectivityStatus';
 import { useRestoreSession } from './useRestoreSession';
+import { useSessionWatch } from './useSessionWatch';
 import { useVoteSync } from './useVoteSync';
 
 interface SessionControllerProps {
@@ -30,7 +30,10 @@ interface SessionControllerProps {
  *   the loading state (and its failure, with a way to ask again);
  * - the connection of the device is followed, for the banner and for the synchronisation;
  * - the app going to the background and coming back is followed: the privacy cover, and the lock
- *   evaluated before anything is shown;
+ *   and the session evaluated before anything is shown;
+ * - an app that stays open is asked, on a timer, whether its session is still good;
+ * - while the privacy cover or a dialog is over the content, the content is out of reach of the
+ *   screen reader (`DialogHost`);
  * - the votes that wait are sent when the connection comes back, when the app returns to the
  *   foreground and when the user signs in or unlocks;
  * - a session that ended in use (not by the user's own sign-out) is also ended on the device, so
@@ -46,6 +49,7 @@ export function SessionController({ children }: SessionControllerProps) {
   const requestSync = useVoteSync();
   useConnectivityStatus(requestSync);
   useAppLifecycle(requestSync);
+  useSessionWatch();
   useSignOutEndedSession();
 
   // After a sign-in or an unlock, what waits is sent. A start that is already open (a test, a
@@ -60,19 +64,13 @@ export function SessionController({ children }: SessionControllerProps) {
       restore.failure === undefined ? (
         <LoadingState accessibilityLabel={t('startup.loading')} testID={TEST_IDS.startupLoading} />
       ) : (
-        <View style={styles.screen}>
-          <ErrorState
-            code={restore.failure.code}
-            onRetry={restore.retry}
-            testID={TEST_IDS.restoreError}
-          />
-        </View>
+        <RestoreFailure code={restore.failure.code} onRetry={restore.retry} />
       );
   }
 
   return (
     <>
-      {content}
+      <DialogHost covered={covered}>{content}</DialogHost>
       {covered ? <PrivacyCover /> : null}
     </>
   );
@@ -104,10 +102,3 @@ const FORGOTTEN_HERE: ReadonlySet<string> = new Set<string>([
   AUTHENTICATION_ERROR_CODE.SessionExpired,
   AUTHENTICATION_ERROR_CODE.SessionChanged,
 ]);
-
-const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-});

@@ -4,6 +4,8 @@ import { useCallback, useRef } from 'react';
 import type { UnexpectedError } from '@domain/errors/RepositoryError';
 import type { Result } from '@domain/shared/Result';
 
+import { useUiStoreApi } from '../state/uiStore';
+
 import { failureOf, unwrapResult } from './QueryFailure';
 import type { CodedError, QueryFailure } from './QueryFailure';
 
@@ -14,9 +16,17 @@ export interface ResultMutationOptions<Input, Output, E extends CodedError> {
    * Runs when the use case succeeded, and the mutation stays pending until it settles: a screen
    * that refreshes what the action changed keeps its button busy until the refresh is done.
    */
-  readonly onSuccess?: (output: Output, input: Input) => void | Promise<void>;
-  /** Runs when the use case failed, with the error it returned, for what the failure leaves stale. */
-  readonly onFailure?: (failure: E | UnexpectedError, input: Input) => void | Promise<void>;
+  readonly onSuccess?: (output: Output, input: Input, startedUnder: number) => void | Promise<void>;
+  /**
+   * Runs when the use case failed, with the error it returned, for what the failure leaves stale.
+   * Both callbacks are told the epoch of the access the action started under (see `uiStore`), for
+   * the ones that move the user and must not do it for somebody else.
+   */
+  readonly onFailure?: (
+    failure: E | UnexpectedError,
+    input: Input,
+    startedUnder: number,
+  ) => void | Promise<void>;
 }
 
 export interface ResultMutation<Input, E extends CodedError> {
@@ -47,21 +57,27 @@ export interface ResultMutation<Input, E extends CodedError> {
  *   the key factory (`queryKeys`), never optimistically: what the screen shows afterwards is what
  *   the use cases answer;
  * - nothing of the action stays in memory once its screen is gone (`createQueryClient` drops a
- *   mutation as soon as nothing observes it).
+ *   mutation as soon as nothing observes it);
+ * - a failure carries the epoch of the access the action started under, so that one which ends the
+ *   session does so only for the session it started in.
  */
 export function useResultMutation<Input, Output, E extends CodedError>(
   options: ResultMutationOptions<Input, Output, E>,
 ): ResultMutation<Input, E> {
   const running = useRef(false);
+  const startedUnder = useRef(0);
+  const store = useUiStoreApi();
 
   const mutation = useMutation<Output, QueryFailure<E>, Input>({
-    mutationFn: async (input) => unwrapResult(await options.execute(input)),
+    // The failure says which access the action started under: the user who left is not to end the
+    // session of the one who came after (see `QueryFailure`).
+    mutationFn: async (input) => unwrapResult(await options.execute(input), startedUnder.current),
     retry: false,
     onSuccess: async (output, input) => {
-      await options.onSuccess?.(output, input);
+      await options.onSuccess?.(output, input, startedUnder.current);
     },
     onError: async (error, input) => {
-      await options.onFailure?.(failureOf<E>(error), input);
+      await options.onFailure?.(failureOf<E>(error), input, startedUnder.current);
     },
     onSettled: () => {
       running.current = false;
@@ -73,9 +89,10 @@ export function useResultMutation<Input, Output, E extends CodedError>(
     (input: Input) => {
       if (running.current) return;
       running.current = true;
+      startedUnder.current = store.getState().accessEpoch;
       mutate(input);
     },
-    [mutate],
+    [mutate, store],
   );
 
   return {

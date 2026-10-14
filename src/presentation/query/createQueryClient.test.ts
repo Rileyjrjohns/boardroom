@@ -168,6 +168,94 @@ describe('a failure that ends the session', () => {
   });
 });
 
+describe('a failure that says the item is refused or gone', () => {
+  const REFUSALS = [REPOSITORY_ERROR_CODE.Forbidden, REPOSITORY_ERROR_CODE.NotFound] as const;
+
+  /** A query that holds a meeting, then fails to refresh it with this error. */
+  async function refreshFails(code: string) {
+    const client = newClient({ retryDelay: () => 0 });
+    client.setQueryData(['meetings', 'detail', 'm1'], 'the meeting');
+    client.setQueryData(['meetings', 'detail', 'm2'], 'another meeting');
+    await client
+      .fetchQuery({
+        queryKey: ['meetings', 'detail', 'm1'],
+        staleTime: 0,
+        queryFn: () => Promise.reject(new QueryFailure({ code })),
+      })
+      .catch(() => undefined);
+    return client;
+  }
+
+  it.each(REFUSALS)(
+    'drops the data of that query when it is %s, and keeps its error',
+    async (code) => {
+      const client = await refreshFails(code);
+
+      const state = client.getQueryState(['meetings', 'detail', 'm1']);
+      expect(client.getQueryData(['meetings', 'detail', 'm1'])).toBeUndefined();
+      expect(state?.data).toBeUndefined();
+      expect(state?.dataUpdatedAt).toBe(0);
+      expect(state?.error).toBeInstanceOf(QueryFailure);
+      expect(state?.status).toBe('error');
+    },
+  );
+
+  it.each(REFUSALS)('leaves the other queries alone when it is %s', async (code) => {
+    const client = await refreshFails(code);
+
+    expect(client.getQueryData(['meetings', 'detail', 'm2'])).toBe('another meeting');
+  });
+
+  it.each([REPOSITORY_ERROR_CODE.Unexpected, REPOSITORY_ERROR_CODE.NetworkUnavailable])(
+    'keeps the data next to the error when it is %s: the item may well be there',
+    async (code) => {
+      const client = await refreshFails(code);
+
+      expect(client.getQueryData(['meetings', 'detail', 'm1'])).toBe('the meeting');
+    },
+  );
+
+  it('does not end the session: it concerns one item', async () => {
+    const endings: unknown[] = [];
+    const client = newClient({
+      retryDelay: () => 0,
+      onSessionEnded: (code) => endings.push(code),
+    });
+
+    await client
+      .fetchQuery({
+        queryKey: ['meetings', 'detail', 'm1'],
+        queryFn: () => Promise.reject(new QueryFailure({ code: REPOSITORY_ERROR_CODE.NotFound })),
+      })
+      .catch(() => undefined);
+
+    expect(endings).toEqual([]);
+  });
+});
+
+describe('a failure that ends the session, and the access it started under', () => {
+  it('says which access a mutation started under, which a query does not', async () => {
+    const told: (number | undefined)[] = [];
+    const client = newClient({
+      retryDelay: () => 0,
+      onSessionEnded: (_code, startedUnder) => told.push(startedUnder),
+    });
+    const failure = (startedUnder?: number) =>
+      new QueryFailure({ code: REPOSITORY_ERROR_CODE.Unauthorized }, startedUnder);
+
+    await client
+      .getMutationCache()
+      .build(client, { mutationFn: () => Promise.reject(failure(4)) })
+      .execute(undefined)
+      .catch(() => undefined);
+    await client
+      .fetchQuery({ queryKey: ['failing'], queryFn: () => Promise.reject(failure()) })
+      .catch(() => undefined);
+
+    expect(told).toEqual([4, undefined]);
+  });
+});
+
 describe('discardSessionData', () => {
   it('empties the cache of a client: what a sign-out calls', () => {
     const client = new QueryClient();

@@ -47,8 +47,9 @@ export function createAppState(options: AppStateOptions = {}): AppState {
   });
   const queryClient = createQueryClient({
     ...clientOptions,
-    onSessionEnded: (code) => {
-      uiStore.getState().endSession(code);
+    onSessionEnded: (code, startedUnder) => {
+      const { accessEpoch, endSession } = uiStore.getState();
+      endSession(code, startedUnder ?? accessEpoch);
     },
   });
   uiStore.subscribe((state, previous) => {

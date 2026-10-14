@@ -7,10 +7,8 @@ import type { Instant } from '@domain/value-objects/Instant';
 import { useAppServices } from '../services/AppServices';
 import { ACCESS, useUiStoreApi } from '../state/uiStore';
 
-/** The states in which the system may take a snapshot of the app, or show it to nobody. */
-function isHidden(state: AppStateStatus): boolean {
-  return state === 'inactive' || state === 'background';
-}
+import { APP_STATE, isHidden } from './appState';
+import { useSessionCheck } from './useSessionCheck';
 
 /**
  * What the app does as it goes to the background and comes back, from the events of React Native's
@@ -27,8 +25,13 @@ function isHidden(state: AppStateStatus): boolean {
  *   it against the grace period, before the content is shown: when the unlock is required, or the
  *   answer cannot be known, the state moves to `Locked`, which empties the cache and removes the
  *   screens. Failing to judge fails closed.
- * - **The synchronisation.** Once the lock has been judged and the app is still open, `onResumed`
- *   asks for the votes that wait to be sent.
+ * - **The session.** When no lock is required, the session is still checked before anything is
+ *   uncovered (`useSessionCheck`): an app that was away past the expiry of its session would
+ *   otherwise show the previous content until the first request found out. The cover stays up
+ *   until the answer; a session that is over ends, with the reason, and the cover is lifted on the
+ *   sign-in screen.
+ * - **The synchronisation.** Once the lock has been judged, the session checked and the app is
+ *   still open, `onResumed` asks for the votes that wait to be sent.
  *
  * A return from inactive that never went to the background (the prompt closing, a pulled-down
  * control centre) only uncovers the content.
@@ -36,6 +39,7 @@ function isHidden(state: AppStateStatus): boolean {
 export function useAppLifecycle(onResumed: () => void): void {
   const { useCases, clock } = useAppServices();
   const store = useUiStoreApi();
+  const checkSession = useSessionCheck();
   const latestOnResumed = useRef(onResumed);
 
   useEffect(() => {
@@ -48,9 +52,14 @@ export function useAppLifecycle(onResumed: () => void): void {
     store.getState().setPrivacyCover(isHidden(current));
 
     const resume = async (since: Instant): Promise<void> => {
+      const epoch = store.getState().accessEpoch;
       if (store.getState().access === ACCESS.Unlocked) {
         const required = await useCases.evaluateAppLock.execute({ backgroundedAt: since });
-        if (!required.ok || required.value) store.getState().locked();
+        if (!required.ok || required.value) {
+          store.getState().locked(epoch);
+        } else {
+          await checkSession(epoch);
+        }
       }
       // The app may have gone away again while the lock was being judged: it stays covered then.
       if (!isHidden(current)) store.getState().setPrivacyCover(false);
@@ -63,7 +72,9 @@ export function useAppLifecycle(onResumed: () => void): void {
       current = next;
       if (isHidden(next)) {
         store.getState().setPrivacyCover(true);
-        if (next === 'background' && backgroundedAt === undefined) backgroundedAt = clock.now();
+        if (next === APP_STATE.Background && backgroundedAt === undefined) {
+          backgroundedAt = clock.now();
+        }
         return;
       }
       const since = backgroundedAt;
@@ -77,5 +88,5 @@ export function useAppLifecycle(onResumed: () => void): void {
     return () => {
       subscription.remove();
     };
-  }, [store, useCases, clock]);
+  }, [store, useCases, clock, checkSession]);
 }

@@ -16,6 +16,7 @@ import { createFakes } from '@application/testing/createFakes';
 
 import { queryKeys } from '../query/queryKeys';
 import { ACCESS } from '../state/uiStore';
+import { epochOf } from '../testing/accessEpoch';
 import { renderScreenHook } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
@@ -58,6 +59,26 @@ async function sync(rendered: ReturnType<typeof renderSync>): Promise<void> {
     rendered.requestSync();
   });
   await settle();
+}
+
+/** Holds the answer of the server to the first vote until the test lets it go. */
+function holdServer(fakes: ReturnType<typeof createFakes>) {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = fakes.votes.submit.bind(fakes.votes);
+  let running = 0;
+  let overlapped = false;
+  fakes.votes.submit = async (vote) => {
+    running += 1;
+    overlapped ||= running > 1;
+    await gate;
+    const answer = await original(vote);
+    running -= 1;
+    return answer;
+  };
+  return { release: () => release(), overlapped: () => overlapped };
 }
 
 describe('useVoteSync', () => {
@@ -201,26 +222,6 @@ describe('useVoteSync', () => {
   });
 
   describe('never two runs at once', () => {
-    /** Holds the answer of the server to the first vote until the test lets it go. */
-    function holdServer(fakes: ReturnType<typeof createFakes>) {
-      let release: () => void = () => undefined;
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const original = fakes.votes.submit.bind(fakes.votes);
-      let running = 0;
-      let overlapped = false;
-      fakes.votes.submit = async (vote) => {
-        running += 1;
-        overlapped ||= running > 1;
-        await gate;
-        const answer = await original(vote);
-        running -= 1;
-        return answer;
-      };
-      return { release: () => release(), overlapped: () => overlapped };
-    }
-
     it('answers a request that comes during a run with one more run after it, not a concurrent one', async () => {
       const fakes = createFakes();
       fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
@@ -262,13 +263,14 @@ describe('useVoteSync', () => {
       fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
       const server = holdServer(fakes);
       const rendered = renderSync({ fakes });
+      const run = jest.spyOn(rendered.services.useCases.syncPendingVotes, 'execute');
       await act(async () => {
         rendered.requestSync();
         rendered.requestSync();
       });
 
       act(() => {
-        rendered.uiStore.getState().locked();
+        rendered.uiStore.getState().locked(epochOf(rendered.uiStore));
       });
       await act(async () => {
         server.release();
@@ -277,6 +279,7 @@ describe('useVoteSync', () => {
       await settle();
 
       expect(fakes.votes.received).toHaveLength(1);
+      expect(run).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -355,6 +358,118 @@ describe('useVoteSync', () => {
       await sync(rendered);
 
       expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    });
+  });
+
+  describe('the summary the runs leave', () => {
+    it('adds up what the runs sent, until the user dismisses it', async () => {
+      const fakes = createFakes();
+      const rendered = renderSync({ fakes });
+      fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
+      await sync(rendered);
+      fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R2 })));
+      fakes.votes.answerNext(err({ code: VOTING_ERROR_CODE.NoVotingRights }));
+
+      await sync(rendered);
+
+      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 1, rejected: 1 });
+
+      act(() => {
+        rendered.uiStore.getState().dismissSyncSummary();
+      });
+      fakes.outbox.seed(aPendingVote(aVote({ resolutionId: aResolutionId('r3') })));
+      await sync(rendered);
+
+      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 1, rejected: 0 });
+    });
+  });
+
+  describe('a run that outlives the user who started it', () => {
+    /** The user of the run leaves, and somebody else signs in, while the server is answering. */
+    function swapUsers(rendered: ReturnType<typeof renderSync>): void {
+      act(() => {
+        rendered.uiStore.getState().signedOut();
+        rendered.uiStore.getState().signedIn();
+      });
+    }
+
+    it('does not show what it sent to the user who signed in after', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
+      const server = holdServer(fakes);
+      const rendered = renderSync({ fakes });
+      await act(async () => {
+        rendered.requestSync();
+      });
+
+      swapUsers(rendered);
+      await act(async () => {
+        server.release();
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      await settle();
+
+      expect(fakes.votes.received).toHaveLength(1);
+      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    });
+
+    it.each([
+      [
+        'unauthorized',
+        (fakes: ReturnType<typeof createFakes>) => fakes.votes.answerNext(err(unauthorized())),
+      ],
+      [
+        'notAuthenticated',
+        (fakes: ReturnType<typeof createFakes>) => {
+          fakes.votes.onReceive = () => {
+            fakes.auth.session = undefined;
+          };
+        },
+      ],
+    ] as const)(
+      'does not sign the user who signed in after out when it meets %s',
+      async (_code, script) => {
+        const fakes = createFakes();
+        fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
+        script(fakes);
+        const server = holdServer(fakes);
+        const rendered = renderSync({ fakes });
+        await act(async () => {
+          rendered.requestSync();
+        });
+
+        swapUsers(rendered);
+        await act(async () => {
+          server.release();
+          await jest.advanceTimersByTimeAsync(0);
+        });
+        await settle();
+
+        expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+        expect(rendered.uiStore.getState().sessionEndedBy).toBeUndefined();
+      },
+    );
+
+    it('is followed by a run of its own for the user who signed in after, when they asked for one', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
+      const server = holdServer(fakes);
+      const rendered = renderSync({ fakes });
+      const run = jest.spyOn(rendered.services.useCases.syncPendingVotes, 'execute');
+      await act(async () => {
+        rendered.requestSync();
+      });
+
+      swapUsers(rendered);
+      rendered.requestSync();
+      await act(async () => {
+        server.release();
+        await jest.advanceTimersByTimeAsync(0);
+      });
+      await settle();
+
+      expect(run).toHaveBeenCalledTimes(2);
     });
   });
 });

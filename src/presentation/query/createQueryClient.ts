@@ -1,4 +1,5 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
+import type { Query } from '@tanstack/react-query';
 
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
@@ -47,6 +48,28 @@ const SESSION_ENDING_CODES = [
 
 export type SessionEndingCode = (typeof SESSION_ENDING_CODES)[number];
 
+/**
+ * The failures that say the user may not have this item, or that it is not there: the screen of
+ * the item stops showing it, and so does the memory (see `forgetRefusedItem`).
+ */
+const ITEM_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  REPOSITORY_ERROR_CODE.Forbidden,
+  REPOSITORY_ERROR_CODE.NotFound,
+]);
+
+/**
+ * A refusal of one item (`forbidden`, `notFound`) means that what this query held is not the
+ * user's to see any more: a meeting they lost access to, or that was removed. A failed refetch
+ * keeps the data of the last success next to its error, which is right for a connection that
+ * dropped and wrong here, since the screen hides the item and the memory would still hold it. The
+ * data is dropped from the query, which keeps its error. (The copy on the device is the business
+ * of the application layer, which removes it when it meets the same refusal.)
+ */
+function forgetRefusedItem(error: unknown, query: Query<unknown, unknown, unknown>): void {
+  if (!isQueryFailure(error) || !ITEM_REFUSAL_CODES.has(errorCodeOf(error))) return;
+  query.setState({ data: undefined, dataUpdatedAt: 0 });
+}
+
 const SESSION_ENDING_SET: ReadonlySet<string> = new Set(SESSION_ENDING_CODES);
 
 /** Any code, not only those of the meetings: a synchronisation and an action meet them too. */
@@ -59,11 +82,13 @@ export interface QueryClientOptions {
   readonly retryDelay?: (failureCount: number) => number;
   /**
    * Told why, before the cache is emptied, when a failure ends the session, whether a query or a
-   * mutation met it. The app uses it to send the user to the sign-in or the lock screen (see
+   * mutation met it, and which access the failing action started under when it said (a mutation
+   * does, see `QueryFailure`; a query removed from the cache when the access changed never gets
+   * here). The app uses it to send the user to the sign-in or the lock screen (see
    * `createAppState`): once the cache is empty a screen would ask again, which the answer would
    * end again.
    */
-  readonly onSessionEnded?: (code: SessionEndingCode) => void;
+  readonly onSessionEnded?: (code: SessionEndingCode, startedUnder: number | undefined) => void;
 }
 
 /**
@@ -93,6 +118,8 @@ export function discardSessionData(client: QueryClient): void {
  *   adapters to say, with a `networkUnavailable` error, and not for the library to guess;
  * - a failure that ends the session empties the whole cache from here, whichever query or
  *   mutation it came from, so that nothing of the previous session stays in memory;
+ * - a query that fails because the item is refused or gone (`forbidden`, `notFound`) loses its
+ *   data, while any other failure keeps the data of the last success next to its error;
  * - mutations are never retried (see `useResultMutation`): they act (sign in, vote, acknowledge),
  *   and doing it again is for the user to decide. Nothing reads the result of a mutation once its
  *   screen is gone, and it may hold the choice of a vote, so it is dropped from memory as soon as
@@ -103,7 +130,7 @@ export function createQueryClient(options: QueryClientOptions = {}): QueryClient
     if (!isQueryFailure(error)) return;
     const code = errorCodeOf(error);
     if (!isSessionEndingCode(code)) return;
-    options.onSessionEnded?.(code);
+    options.onSessionEnded?.(code, error.startedUnder);
     // Once the failing query has finished with its own error: it schedules its collection
     // after this handler, which would put back a timer on a query that is no longer there.
     void Promise.resolve().then(() => {
@@ -111,7 +138,12 @@ export function createQueryClient(options: QueryClientOptions = {}): QueryClient
     });
   };
   const client: QueryClient = new QueryClient({
-    queryCache: new QueryCache({ onError: endSession }),
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        forgetRefusedItem(error, query);
+        endSession(error);
+      },
+    }),
     mutationCache: new MutationCache({ onError: endSession }),
     defaultOptions: {
       mutations: {

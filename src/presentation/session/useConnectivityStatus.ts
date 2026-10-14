@@ -8,7 +8,8 @@ import { useUiStore } from '../state/uiStore';
 /**
  * Follows the connection of the device through the `ObserveConnectivity` use case, from the start
  * of the app (it needs no session) and until the app is gone: the status goes to the interface
- * store, where the offline banner of every screen reads it, and `onOnline` is called each time the
+ * store, where the offline line of the banner reads it (on the screens of the open app, and on the
+ * sign-in and lock screens), and `onOnline` is called each time the
  * connection comes back, which is when the votes that wait are sent. The device saying it is
  * online is a hint, not a promise: the synchronisation is what finds out.
  */

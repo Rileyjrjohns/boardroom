@@ -35,18 +35,32 @@ export interface CodedError {
  * doing it again is for the user to decide), and a failure that ends the session ends it from the
  * mutation cache exactly as from the query cache (see `createQueryClient`). `failureOf` reads the
  * typed error back, and any rejection that is not a `QueryFailure` is `unexpected`.
+ *
+ * A failure can say which access it started under (`startedUnder`, the epoch of the store when the
+ * action began): one that ends the session is applied only if that is still the current one, so
+ * that the refusal of an action started by a user who has left does not end the session of the
+ * user who came after.
  */
 export class QueryFailure<E extends CodedError> extends Error {
-  constructor(readonly error: E) {
+  constructor(
+    readonly error: E,
+    readonly startedUnder?: number,
+  ) {
     super(error.code);
     // Keeps `instanceof` working when the class is compiled down to a function.
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
-/** The data of a success. A failure is thrown as a `QueryFailure`, for the query to catch. */
-export function unwrapResult<T, E extends CodedError>(result: Result<T, E>): T {
-  if (isErr(result)) throw new QueryFailure(result.error);
+/**
+ * The data of a success. A failure is thrown as a `QueryFailure`, for the query to catch, with the
+ * epoch of the access it started under when the caller knows it.
+ */
+export function unwrapResult<T, E extends CodedError>(
+  result: Result<T, E>,
+  startedUnder?: number,
+): T {
+  if (isErr(result)) throw new QueryFailure(result.error, startedUnder);
   return result.value;
 }
 

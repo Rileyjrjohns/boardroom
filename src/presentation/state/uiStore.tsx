@@ -50,19 +50,28 @@ export interface SyncSummary {
  *   the first piece of interface state, and the store is the pattern the stack mandates for it;
  * - `access`: where the user stands (see `ACCESS`). It is not derivable: no use case reports the
  *   lock, and the navigator, the lifecycle of the app and the failures that end a session all read
- *   or write it. A failure writes it from the query cache, outside any component;
+ *   or write it. A failure writes it from the query cache, outside any component. Its transitions
+ *   are guarded: each one starts from the state it makes sense from (a lock from an open app, an
+ *   unlock from a locked one, a sign-in from a signed-out one), and does nothing from any other;
+ * - `accessEpoch`: a number that goes up every time `access` changes. Whatever starts under one
+ *   access and answers later (a synchronisation, a check of the session, a request) reads the
+ *   epoch when it starts and hands it back with its result, and the result is applied only if it is
+ *   still the current one: the answer of a run for the user who left is not the business of the
+ *   user who came after, and must neither be shown to them nor sign them out;
  * - `sessionEndedBy`: why the user was sent back to the sign-in or the lock screen, so that the
  *   screen can explain it. The cache that saw the failure has just been emptied and the screen that
  *   showed it has just been left, so neither can remember it;
  * - `connectivity`: what the device says about its connection. It is an event, not a request: the
- *   offline banner of every screen and the trigger of the synchronisation both follow it, and
- *   there is no query to cache it in;
+ *   offline line of the banner (on the screens of the open app, and on the sign-in and lock
+ *   screens) and the trigger of the synchronisation both follow it, and there is no query to
+ *   cache it in;
  * - `privacyCover`: whether the content must be hidden, because the app is inactive or in the
  *   background (the app switcher takes its snapshot then), or because the lock has not yet been
  *   evaluated on the way back. Written by the events of the system, read by the root and by the
  *   dialogs, which are not inside the root's view;
- * - `syncSummary`: what the last synchronisation sent or rejected, until the user dismisses it.
- *   A result that has to outlive the screen that happened to be showing when it came;
+ * - `syncSummary`: what the synchronisations sent or rejected, added up until the user dismisses
+ *   it, so that a later run does not wipe what an earlier one told. A result that has to outlive
+ *   the screen that happened to be showing when it came;
  * - `localDataResetNotice`: whether the user is still to be told that local data was reset (votes
  *   waiting on this device may have been lost). It is known when the app starts, shown on the
  *   screens of the open app, so after the next sign-in or unlock, and it stays until the user has
@@ -77,23 +86,30 @@ export interface UiState {
   selectMeetingsPeriod(period: MeetingPeriod): void;
 
   readonly access: Access;
+  /** Goes up every time `access` changes: see above. */
+  readonly accessEpoch: number;
   /** `RestoreSession` answered: somebody is signed in (locked), or nobody is. Only from `Starting`. */
   sessionRestored(status: RestoredSession['status']): void;
-  /** A sign-in succeeded: the app is open (the credentials just typed prove presence). */
+  /** A sign-in succeeded: the app is open (the credentials just typed prove presence). Only from `SignedOut`. */
   signedIn(): void;
-  /** The biometric unlock succeeded. */
+  /** The biometric unlock succeeded. Only from `Locked`. */
   unlocked(): void;
-  /** The lock was evaluated on the way back and is required. */
-  locked(): void;
-  /** The user signed out. */
+  /**
+   * The app has to be locked: the lock was evaluated on the way back and is required, or a sign-out
+   * failed after the use case had locked the app. Only from `Unlocked`, and only for the epoch the
+   * check started under: a late check never puts a lock screen back for a session that has ended.
+   */
+  locked(epoch: number): void;
+  /** The user signed out, or chose to forget a session that could not be read. Not from `SignedOut`. */
   signedOut(): void;
   /**
    * A failure said the session is over (see `isSessionEndingCode`). `appLocked` sends the user to
    * the lock screen, every other code to the sign-in screen, with the reason. Only an open app has
-   * a session to end: a failure that arrives after the user left it (a request that was still on
-   * its way when they signed out) is ignored.
+   * a session to end, and only for the epoch the failing request started under: a failure that
+   * arrives after the user left it (a request that was still on its way when they signed out), or
+   * for a user who has been replaced since, is ignored.
    */
-  endSession(code: SessionEndingCode): void;
+  endSession(code: SessionEndingCode, epoch: number): void;
   /** The code of the failure that sent the user to the sign-in or lock screen, if one did. */
   readonly sessionEndedBy: SessionEndingCode | undefined;
 
@@ -104,7 +120,11 @@ export interface UiState {
   setPrivacyCover(covered: boolean): void;
 
   readonly syncSummary: SyncSummary | undefined;
-  showSyncSummary(summary: SyncSummary): void;
+  /**
+   * Adds what a run sent or rejected to the summary being shown, for the epoch the run started
+   * under, while the app is open. A result for another epoch is dropped.
+   */
+  showSyncSummary(summary: SyncSummary, epoch: number): void;
   dismissSyncSummary(): void;
 
   readonly localDataResetNotice: boolean;
@@ -125,65 +145,89 @@ const SESSION_FORGOTTEN = { syncSummary: undefined, sessionEndedBy: undefined } 
 
 /** A new store. Created per app instance and provided through context: no module-level store. */
 export function createUiStore(options: UiStoreOptions = {}): UiStore {
-  return createStore<UiState>()((set, get) => ({
-    meetingsPeriod: MEETING_PERIOD.Upcoming,
-    selectMeetingsPeriod: (period) => {
-      set({ meetingsPeriod: period });
-    },
-
-    access: options.access ?? ACCESS.Starting,
-    sessionRestored: (status) => {
-      if (get().access !== ACCESS.Starting) return;
+  return createStore<UiState>()((set, get) => {
+    /** Changes where the user stands: a new epoch, and what the session left to tell is forgotten. */
+    const moveTo = (access: Access, extra: Partial<UiState> = {}): void => {
       set({
-        access: status === SESSION_RESTORE.None ? ACCESS.SignedOut : ACCESS.Locked,
+        access,
+        accessEpoch: get().accessEpoch + 1,
+        ...SESSION_FORGOTTEN,
+        ...extra,
       });
-    },
-    signedIn: () => {
-      set({ access: ACCESS.Unlocked, ...SESSION_FORGOTTEN });
-    },
-    unlocked: () => {
-      set({ access: ACCESS.Unlocked, ...SESSION_FORGOTTEN });
-    },
-    locked: () => {
-      set({ access: ACCESS.Locked, ...SESSION_FORGOTTEN });
-    },
-    signedOut: () => {
-      set({ access: ACCESS.SignedOut, ...SESSION_FORGOTTEN });
-    },
-    endSession: (code) => {
-      if (get().access !== ACCESS.Unlocked) return;
-      set({
-        access: code === AUTHENTICATION_ERROR_CODE.AppLocked ? ACCESS.Locked : ACCESS.SignedOut,
-        syncSummary: undefined,
-        sessionEndedBy: code,
-      });
-    },
-    sessionEndedBy: undefined,
+    };
+    /** Whether the app is open and the epoch is the one a result started under. */
+    const isCurrentOpenApp = (epoch: number): boolean =>
+      get().access === ACCESS.Unlocked && get().accessEpoch === epoch;
 
-    connectivity: CONNECTIVITY_STATUS.Online,
-    setConnectivity: (status) => {
-      set({ connectivity: status });
-    },
+    return {
+      meetingsPeriod: MEETING_PERIOD.Upcoming,
+      selectMeetingsPeriod: (period) => {
+        set({ meetingsPeriod: period });
+      },
 
-    privacyCover: false,
-    setPrivacyCover: (covered) => {
-      set({ privacyCover: covered });
-    },
+      access: options.access ?? ACCESS.Starting,
+      accessEpoch: 0,
+      sessionRestored: (status) => {
+        if (get().access !== ACCESS.Starting) return;
+        moveTo(status === SESSION_RESTORE.None ? ACCESS.SignedOut : ACCESS.Locked);
+      },
+      signedIn: () => {
+        if (get().access !== ACCESS.SignedOut) return;
+        moveTo(ACCESS.Unlocked);
+      },
+      unlocked: () => {
+        if (get().access !== ACCESS.Locked) return;
+        moveTo(ACCESS.Unlocked);
+      },
+      locked: (epoch) => {
+        if (!isCurrentOpenApp(epoch)) return;
+        moveTo(ACCESS.Locked);
+      },
+      signedOut: () => {
+        if (get().access === ACCESS.SignedOut) return;
+        moveTo(ACCESS.SignedOut);
+      },
+      endSession: (code, epoch) => {
+        if (!isCurrentOpenApp(epoch)) return;
+        moveTo(code === AUTHENTICATION_ERROR_CODE.AppLocked ? ACCESS.Locked : ACCESS.SignedOut, {
+          sessionEndedBy: code,
+        });
+      },
+      sessionEndedBy: undefined,
 
-    syncSummary: undefined,
-    showSyncSummary: (summary) => {
-      // A result that comes after the user left the open app is not theirs to read any more.
-      if (get().access === ACCESS.Unlocked) set({ syncSummary: summary });
-    },
-    dismissSyncSummary: () => {
-      set({ syncSummary: undefined });
-    },
+      connectivity: CONNECTIVITY_STATUS.Online,
+      setConnectivity: (status) => {
+        set({ connectivity: status });
+      },
 
-    localDataResetNotice: options.localDataReset ?? false,
-    dismissLocalDataReset: () => {
-      set({ localDataResetNotice: false });
-    },
-  }));
+      privacyCover: false,
+      setPrivacyCover: (covered) => {
+        set({ privacyCover: covered });
+      },
+
+      syncSummary: undefined,
+      showSyncSummary: (summary, epoch) => {
+        // A result that comes after the user left the open app, or for the user before them, is not
+        // theirs to read.
+        if (!isCurrentOpenApp(epoch)) return;
+        const shown = get().syncSummary;
+        set({
+          syncSummary: {
+            synced: (shown?.synced ?? 0) + summary.synced,
+            rejected: (shown?.rejected ?? 0) + summary.rejected,
+          },
+        });
+      },
+      dismissSyncSummary: () => {
+        set({ syncSummary: undefined });
+      },
+
+      localDataResetNotice: options.localDataReset ?? false,
+      dismissLocalDataReset: () => {
+        set({ localDataResetNotice: false });
+      },
+    };
+  });
 }
 
 const UiStoreContext = createContext<UiStore | undefined>(undefined);

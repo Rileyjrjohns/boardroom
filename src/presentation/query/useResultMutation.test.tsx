@@ -6,6 +6,7 @@ import type { UnexpectedError } from '@domain/errors/RepositoryError';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
+import { epochOf } from '../testing/accessEpoch';
 import { renderScreen } from '../testing/renderScreen';
 
 import { QueryFailure } from './QueryFailure';
@@ -69,13 +70,13 @@ function setup(
 describe('useResultMutation', () => {
   it('runs the use case with the input, and has no failure when it succeeds', async () => {
     const onSuccess = jest.fn();
-    const { calls, run } = setup(() => Promise.resolve(ok('done')), { onSuccess });
+    const { calls, run, uiStore } = setup(() => Promise.resolve(ok('done')), { onSuccess });
 
     run(7);
     await settle();
 
     expect(calls).toEqual([7]);
-    expect(onSuccess).toHaveBeenCalledWith('done', 7);
+    expect(onSuccess).toHaveBeenCalledWith('done', 7, epochOf(uiStore));
     expect(screen.getByText('idle|none')).toBeTruthy();
   });
 
@@ -103,13 +104,13 @@ describe('useResultMutation', () => {
   it('turns the error of the use case into a typed failure, and tells onFailure', async () => {
     const fault: Fault = { code: 'tooBad', detail: 'the detail' };
     const onFailure = jest.fn();
-    const { run } = setup(() => Promise.resolve(err(fault)), { onFailure });
+    const { run, uiStore } = setup(() => Promise.resolve(err(fault)), { onFailure });
 
     run(3);
     await settle();
 
     expect(screen.getByText('idle|tooBad')).toBeTruthy();
-    expect(onFailure).toHaveBeenCalledWith(fault, 3);
+    expect(onFailure).toHaveBeenCalledWith(fault, 3, epochOf(uiStore));
   });
 
   it('never tries again, whatever the error: the use case is asked once', async () => {
