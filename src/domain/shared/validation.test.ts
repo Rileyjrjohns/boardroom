@@ -1,7 +1,13 @@
 import { VALIDATION_FIELD, VALIDATION_RULE, validationError } from '../errors/ValidationError';
 
 import { err, ok } from './Result';
-import { hasDuplicates, optionalText, requireIntegerInRange, requireText } from './validation';
+import {
+  hasDuplicates,
+  isWellFormedText,
+  optionalText,
+  requireIntegerInRange,
+  requireText,
+} from './validation';
 
 const FIELD = VALIDATION_FIELD.Title;
 
@@ -69,5 +75,28 @@ describe('hasDuplicates', () => {
   it('accepts distinct keys and an empty list', () => {
     expect(hasDuplicates(['a', 'b'])).toBe(false);
     expect(hasDuplicates([])).toBe(false);
+  });
+});
+
+describe('isWellFormedText', () => {
+  it.each(['', 'abc', 'caf\u00e9', 'cafe\u0301', '\u{1F600}', 'a\u{1F600}b', '\ud83d\ude00'])(
+    'accepts %j',
+    (text) => {
+      expect(isWellFormedText(text)).toBe(true);
+    },
+  );
+
+  it.each([
+    '\ud800',
+    '\udbff',
+    '\udc00',
+    '\udfff',
+    'a\ud800',
+    '\ud800a',
+    '\udc00\ud800',
+    '\ud800\ud800\udc00',
+    '\ud83d\ude00\ud83d',
+  ])('rejects %j', (text) => {
+    expect(isWellFormedText(text)).toBe(false);
   });
 });

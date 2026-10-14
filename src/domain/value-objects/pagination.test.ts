@@ -11,6 +11,16 @@ describe('parsePageCursor', () => {
     expect(parsePageCursor(' eyJvZmZzZXQiOjIwfQ== ')).toEqual(ok('eyJvZmZzZXQiOjIwfQ=='));
   });
 
+  it.each(['\ud800', 'a\udc00b', 'abc\ud83d'])('rejects the ill-formed cursor %j', (raw) => {
+    expect(parsePageCursor(raw)).toEqual(
+      err(validationError(VALIDATION_FIELD.PageCursor, VALIDATION_RULE.InvalidFormat)),
+    );
+  });
+
+  it('keeps a cursor with a character outside the basic plane', () => {
+    expect(parsePageCursor('a\u{1F600}')).toEqual(ok('a\u{1F600}'));
+  });
+
   it('rejects a blank cursor and one that is too long', () => {
     expect(parsePageCursor('')).toEqual(
       err(validationError(VALIDATION_FIELD.PageCursor, VALIDATION_RULE.Required)),

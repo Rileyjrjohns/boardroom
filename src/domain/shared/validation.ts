@@ -41,6 +41,29 @@ export function requireIntegerInRange(
   return ok(value);
 }
 
+const HIGH_SURROGATES = { first: 0xd800, last: 0xdbff } as const;
+const LOW_SURROGATES = { first: 0xdc00, last: 0xdfff } as const;
+
+const isIn = (unit: number, range: { readonly first: number; readonly last: number }): boolean =>
+  unit >= range.first && unit <= range.last;
+
+/**
+ * True when the text is well-formed UTF-16: every surrogate is half of a pair, a high one followed
+ * by a low one. A text that is not cannot be encoded as UTF-8 or percent-encoded, so it cannot be
+ * put in a URL, a header or a file name: `encodeURIComponent` throws on it. (`String#isWellFormed`
+ * does the same where the engine has it.)
+ */
+export function isWellFormedText(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const unit = text.charCodeAt(index);
+    if (isIn(unit, LOW_SURROGATES)) return false;
+    if (!isIn(unit, HIGH_SURROGATES)) continue;
+    index += 1;
+    if (index >= text.length || !isIn(text.charCodeAt(index), LOW_SURROGATES)) return false;
+  }
+  return true;
+}
+
 /** True when two members share a key: used to check that the members of a collection are unique. */
 export function hasDuplicates(keys: readonly (string | number)[]): boolean {
   return new Set(keys).size !== keys.length;

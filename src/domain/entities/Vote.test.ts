@@ -1,4 +1,5 @@
 import { aMeetingId, aResolutionId, aUserId, NOW } from '../testing/builders';
+import type { ResolutionId, UserId } from '../value-objects/ids';
 import { VOTE_CHOICE } from '../value-objects/VoteChoice';
 
 import { createVote, idempotencyKeyOf } from './Vote';
@@ -41,11 +42,13 @@ describe('idempotencyKeyOf', () => {
 
   it('never gives the same key to two different pairs of ids', () => {
     const alphabet = ['a', '.', '1', ':', '%'];
-    const ids = alphabet.flatMap((first) => [
+    const everyId = alphabet.flatMap((first) => [
       first,
       ...alphabet.map((second) => `${first}${second}`),
       ...alphabet.flatMap((second) => alphabet.map((third) => `${first}${second}${third}`)),
     ]);
+    // "." and ".." are not identifiers (they are directories in a path).
+    const ids = everyId.filter((id) => id !== '.' && id !== '..');
     const keys = ids.flatMap((resolution) =>
       ids.map((voter) => idempotencyKeyOf(aResolutionId(resolution), aUserId(voter))),
     );
@@ -53,21 +56,15 @@ describe('idempotencyKeyOf', () => {
     expect(new Set(keys).size).toBe(ids.length * ids.length);
   });
 
-  it('is built from text only: ids with a lone surrogate or any other character give a key', () => {
-    const lone = '\uD800';
+  it('is built from text only: it gives a key for any text, even for ids the parsers refuse', () => {
+    // The parsers refuse a lone surrogate, but the key is a pure function of two strings: whatever
+    // reaches it is turned into a key, and never throws.
+    const lone = '\uD800' as ResolutionId;
+    const loneVoter = '\uD800' as UserId;
 
-    expect(() => idempotencyKeyOf(aResolutionId(lone), aUserId(lone))).not.toThrow();
-    expect(() =>
-      createVote({
-        resolutionId: aResolutionId(`${lone}x`),
-        meetingId: aMeetingId(),
-        voterId: aUserId(`y${lone}`),
-        choice: VOTE_CHOICE.For,
-        castAt: NOW,
-      }),
-    ).not.toThrow();
-    expect(idempotencyKeyOf(aResolutionId(lone), aUserId('u'))).not.toBe(
-      idempotencyKeyOf(aResolutionId('\uD801'), aUserId('u')),
+    expect(() => idempotencyKeyOf(lone, loneVoter)).not.toThrow();
+    expect(idempotencyKeyOf(lone, aUserId('u'))).not.toBe(
+      idempotencyKeyOf('\uD801' as ResolutionId, aUserId('u')),
     );
   });
 });

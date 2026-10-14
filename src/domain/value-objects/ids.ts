@@ -3,17 +3,26 @@ import type { ValidationError, ValidationField } from '../errors/ValidationError
 import type { Brand } from '../shared/Brand';
 import { err, map, ok } from '../shared/Result';
 import type { Result } from '../shared/Result';
+import { isWellFormedText } from '../shared/validation';
 
 const MAX_IDENTIFIER_LENGTH = 128;
 
+/** What a path reads as a directory, so an id cannot be either: `/meetings/..` is `/`. */
+const DIRECTORY_NAMES: readonly string[] = ['.', '..'];
+
 /**
  * Identifiers are opaque: they come from the remote source and are never interpreted, so they are
- * kept as received. They must only be usable as a key: not blank, not absurdly long.
+ * kept as received. They must only be usable as a key and as a segment of a path: not blank, not
+ * absurdly long, well-formed UTF-16 (a lone surrogate cannot be encoded), and neither of the
+ * directory names `.` and `..`, which a URL would resolve instead of passing on.
  */
 function parseIdentifier(field: ValidationField, raw: string): Result<string, ValidationError> {
   if (raw.trim().length === 0) return err(validationError(field, VALIDATION_RULE.Required));
   if (raw.length > MAX_IDENTIFIER_LENGTH) {
     return err(validationError(field, VALIDATION_RULE.TooLong));
+  }
+  if (!isWellFormedText(raw) || DIRECTORY_NAMES.includes(raw)) {
+    return err(validationError(field, VALIDATION_RULE.InvalidFormat));
   }
   return ok(raw);
 }

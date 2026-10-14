@@ -27,6 +27,31 @@ describe.each(PARSERS)('the %s', (_name, parse, field) => {
     expect(parse(raw)).toEqual(err(validationError(field, VALIDATION_RULE.Required)));
   });
 
+  it.each([
+    ['a lone high surrogate', '\ud800'],
+    ['a lone low surrogate', '\udc00'],
+    ['a high surrogate at the end', 'abc\ud83d'],
+    ['a low surrogate before its high one', '\ude00\ud83d'],
+    ['a high surrogate followed by a letter', '\ud83dx'],
+  ])('rejects %s: the text cannot be encoded', (_name, raw) => {
+    expect(parse(raw)).toEqual(err(validationError(field, VALIDATION_RULE.InvalidFormat)));
+  });
+
+  it('accepts a character outside the basic plane, written as a pair of surrogates', () => {
+    expect(parse('a\u{1F600}b')).toEqual(ok('a\u{1F600}b'));
+  });
+
+  it.each(['.', '..'])('rejects %j, which a path would read as a directory', (raw) => {
+    expect(parse(raw)).toEqual(err(validationError(field, VALIDATION_RULE.InvalidFormat)));
+  });
+
+  it.each(['...', '.a', 'a.', 'a..b', ' . '])(
+    'accepts %j, which is not a directory name',
+    (raw) => {
+      expect(parse(raw)).toEqual(ok(raw));
+    },
+  );
+
   it('accepts 128 characters and rejects 129', () => {
     expect(parse('a'.repeat(128))).toEqual(ok('a'.repeat(128)));
     expect(parse('a'.repeat(129))).toEqual(err(validationError(field, VALIDATION_RULE.TooLong)));
