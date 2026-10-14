@@ -1,0 +1,19 @@
+# Signs in with the first demo account of the mock configuration (Alice Martin, a voting member of
+# most meetings) and waits for the meetings list. Starts on the sign-in screen, which is where the
+# app opens when nobody is signed in. Only ids are used, so it runs in any language.
+appId: com.boardroom.demo
+---
+# The first launch of a development client downloads and bundles the JavaScript: it can be long.
+- extendedWaitUntil:
+    visible:
+      id: sign-in-screen
+    timeout: 180000
+# The demo account button fills in the email and the password.
+- tapOn:
+    id: demo-account-alice.martin@boardroom.example
+- tapOn:
+    id: sign-in-submit
+- extendedWaitUntil:
+    visible:
+      id: meetings-list
+    timeout: 30000

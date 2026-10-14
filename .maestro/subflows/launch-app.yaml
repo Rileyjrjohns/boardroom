@@ -1,0 +1,9 @@
+# Opens the app from a release or a preview build, which has no development client: no launcher, no
+# Metro, so the app is simply launched. Such a build must be made with the mock adapters
+# (EXPO_PUBLIC_BOARDROOM_ADAPTERS=mock), because a build that is not a development one never guesses
+# them (see "Running against the simulated server" in the README).
+appId: com.boardroom.demo
+---
+- launchApp:
+    stopApp: true
+    clearState: true

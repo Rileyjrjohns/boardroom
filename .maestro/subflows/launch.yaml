@@ -1,0 +1,15 @@
+# Opens the app, whichever build is installed: a development client when METRO_URL is given
+# (maestro test -e METRO_URL=http://localhost:8081 .maestro), a release or preview build otherwise.
+#
+# No default is declared in an `env:` header on purpose: in Maestro a value declared in a header
+# wins over the one given with `-e`, so a default there would make the option unusable.
+appId: com.boardroom.demo
+---
+- runFlow:
+    when:
+      true: ${typeof METRO_URL !== 'undefined' && METRO_URL !== ''}
+    file: launch-dev-client.yaml
+- runFlow:
+    when:
+      true: ${typeof METRO_URL === 'undefined' || METRO_URL === ''}
+    file: launch-app.yaml

@@ -1,0 +1,62 @@
+# Sign in with the demo account, open a meeting that has a resolution to vote on, vote, confirm, and
+# see the outcome. Online, so the vote is recorded at once.
+#
+# The simulated server is deterministic: meeting-002 is an upcoming meeting where Alice Martin is a
+# voting member, with one open resolution that she has not voted on (meeting-002-resolution-subject).
+appId: com.boardroom.demo
+---
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible:
+      id: meeting-row-meeting-002
+    timeout: 30000
+- tapOn:
+    id: meeting-row-meeting-002
+- extendedWaitUntil:
+    visible:
+      id: meeting-detail
+    timeout: 30000
+# The agenda is read from the screen, and the choices appear once the eligibility is known.
+- scrollUntilVisible:
+    element:
+      id: vote-choice-meeting-002-resolution-subject-for
+    timeout: 30000
+- tapOn:
+    id: vote-choice-meeting-002-resolution-subject-for
+# The confirmation: it states the choice and that the vote is final.
+- extendedWaitUntil:
+    visible:
+      id: vote-dialog
+    timeout: 10000
+- assertVisible:
+    id: vote-dialog-choice
+- assertVisible:
+    id: vote-dialog-final
+# Online: no mention of a vote that is saved to be sent later.
+- assertNotVisible:
+    id: vote-dialog-offline
+- tapOn:
+    id: vote-confirm
+# The vote is recorded: the confirmation closes, the outcome is told and the three choices are gone.
+- extendedWaitUntil:
+    notVisible:
+      id: vote-dialog
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: vote-outcome-meeting-002-resolution-subject
+    timeout: 30000
+- assertNotVisible:
+    id: vote-choice-meeting-002-resolution-subject-for
+- assertNotVisible:
+    id: vote-choice-meeting-002-resolution-subject-against
+- assertNotVisible:
+    id: vote-choice-meeting-002-resolution-subject-abstain
+# The server has the vote: the resolution says the user has already voted, and nothing is offline.
+- extendedWaitUntil:
+    visible:
+      id: vote-notice-meeting-002-resolution-subject
+    timeout: 30000
+- assertNotVisible:
+    id: offline-banner

@@ -1,0 +1,16 @@
+# Opens the app from a development client build, with no development menu in the way.
+#
+# The development client does not start the app by itself: it shows its launcher, and the first
+# launch of a device also shows the onboarding sheet of the developer menu. A deep link skips both:
+# `exp+boardroom://expo-development-client/?url=<Metro URL, URL-encoded>&disableOnboarding=1` loads
+# the bundle from Metro and keeps the sheet away.
+#
+# Needs the environment variable METRO_URL, the address of Metro as the device reaches it:
+#   http://localhost:8081  an Android emulator, after `adb reverse tcp:8081 tcp:8081`, or an iOS simulator
+#   http://10.0.2.2:8081   an Android emulator, without the reverse
+appId: com.boardroom.demo
+---
+# Kill the app first: the mock server lives in the memory of the JavaScript runtime, so a new
+# process is a new server, with the same data and no vote cast.
+- stopApp
+- openLink: exp+boardroom://expo-development-client/?url=${encodeURIComponent(METRO_URL)}&disableOnboarding=1

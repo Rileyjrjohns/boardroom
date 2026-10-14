@@ -1,0 +1,91 @@
+# Go offline with the switch of the demo, vote on a meeting already seen, see the vote saved on the
+# device and waiting to be sent, come back online, and see the synchronisation: the summary of what
+# was sent, and the vote on the resolution as recorded.
+appId: com.boardroom.demo
+---
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible:
+      id: meeting-row-meeting-002
+    timeout: 30000
+- tapOn:
+    id: meeting-row-meeting-002
+- extendedWaitUntil:
+    visible:
+      id: meeting-detail
+    timeout: 30000
+# The meeting is on the screen, hence saved on the device: it can still be read offline.
+- scrollUntilVisible:
+    element:
+      id: vote-choice-meeting-002-resolution-subject-against
+    timeout: 30000
+# The switch of the demo cuts the simulated network.
+- scrollUntilVisible:
+    element:
+      id: demo-offline-switch
+    direction: UP
+    timeout: 30000
+- tapOn:
+    id: demo-offline-switch
+- extendedWaitUntil:
+    visible:
+      id: offline-banner
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: vote-choice-meeting-002-resolution-subject-against
+    timeout: 30000
+- tapOn:
+    id: vote-choice-meeting-002-resolution-subject-against
+- extendedWaitUntil:
+    visible:
+      id: vote-dialog
+    timeout: 10000
+# Offline, the confirmation says the vote will be saved and sent later.
+- assertVisible:
+    id: vote-dialog-offline
+- tapOn:
+    id: vote-confirm
+- extendedWaitUntil:
+    notVisible:
+      id: vote-dialog
+    timeout: 30000
+# "Waiting to be sent": the outcome says the vote is saved on the device, the choices are gone, and
+# the server has not recorded anything yet, so the resolution does not say "already voted".
+- extendedWaitUntil:
+    visible:
+      id: vote-outcome-meeting-002-resolution-subject
+    timeout: 30000
+- assertNotVisible:
+    id: vote-choice-meeting-002-resolution-subject-against
+- assertNotVisible:
+    id: vote-notice-meeting-002-resolution-subject
+# The connection comes back: the vote is sent by itself.
+- scrollUntilVisible:
+    element:
+      id: demo-offline-switch
+    direction: UP
+    timeout: 30000
+- tapOn:
+    id: demo-offline-switch
+- extendedWaitUntil:
+    notVisible:
+      id: offline-banner
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: sync-summary
+    timeout: 60000
+# Sent: "saved on this device" is no longer true, and the server has the vote: the resolution now
+# says the user has already voted.
+- extendedWaitUntil:
+    notVisible:
+      id: vote-outcome-meeting-002-resolution-subject
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: vote-notice-meeting-002-resolution-subject
+    timeout: 30000
+- assertNotVisible:
+    id: vote-choice-meeting-002-resolution-subject-against

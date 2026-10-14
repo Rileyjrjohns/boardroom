@@ -1,0 +1,5 @@
+# Workspace configuration of the end-to-end flows. Only the flows at the top of this folder are
+# run by `maestro test .maestro`; the files under subflows/ are building blocks that a flow calls
+# with `runFlow`, and mean nothing on their own.
+flows:
+  - '*.yaml'

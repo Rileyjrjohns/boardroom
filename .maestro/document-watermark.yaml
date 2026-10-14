@@ -1,0 +1,69 @@
+# Open a confidential document: the "Protected screen" badge, the viewer and the watermark are there.
+#
+# The watermark is hidden from screen readers on both platforms (`accessibilityElementsHidden` and
+# `importantForAccessibility="no-hide-descendants"`), yet the accessibility snapshot that Maestro
+# takes on Android still lists it, with its text, which is how it is asserted below: the ids, and the
+# name and the email of the reader, which are not translated, so the flow stays language independent.
+# On iOS the same snapshot comes from XCTest, which honours `accessibilityElementsHidden` and leaves
+# the watermark out; that was not run (no iOS build here), so the assertions are Android-only. What
+# the tiles say, that they are drawn above the PDF and that they never take a touch are also
+# checked in Jest, on the real composition root (`src/presentation/navigation/rootLayout.documents.test.tsx`
+# and `src/presentation/components/DocumentWatermark.test.tsx`).
+#
+# The window of a protected screen is flagged secure on Android, so `adb screencap` returns nothing
+# here: Maestro screenshots of this screen are empty, which is the protection working.
+#
+# meeting-001 is the first upcoming meeting; its second document (meeting-001-document-2) is the
+# report of the meeting, and is confidential.
+appId: com.boardroom.demo
+---
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- extendedWaitUntil:
+    visible:
+      id: meeting-row-meeting-001
+    timeout: 30000
+- tapOn:
+    id: meeting-row-meeting-001
+- extendedWaitUntil:
+    visible:
+      id: meeting-detail
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: document-meeting-001-document-2
+    timeout: 30000
+- tapOn:
+    id: document-meeting-001-document-2
+- extendedWaitUntil:
+    visible:
+      id: document-screen
+    timeout: 60000
+- assertVisible:
+    id: document-title
+# A confidential document is a protected screen, and says so.
+- assertVisible:
+    id: document-protected-badge
+# The file is read and drawn by the PDF view (the generated PDF is downloaded from the simulated
+# server on each opening).
+- extendedWaitUntil:
+    visible:
+      id: document-pdf
+    timeout: 60000
+- assertNotVisible:
+    id: document-error
+- assertNotVisible:
+    id: document-pdf-error
+# The watermark is drawn over the PDF with the name and the email of the signed-in user.
+- runFlow:
+    when:
+      platform: Android
+    commands:
+      - assertVisible:
+          id: document-watermark
+      - assertVisible:
+          id: document-watermark-tile
+          index: 0
+      - assertVisible:
+          text: '.*Alice Martin.*alice.martin@boardroom.example.*'
+          index: 0
