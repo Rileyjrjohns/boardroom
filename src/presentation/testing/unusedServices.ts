@@ -21,6 +21,7 @@ const UNUSED_USE_CASES: UseCases = {
   syncPendingVotes: unused,
   listPendingVotes: unused,
   acknowledgeRejectedVote: unused,
+  discardUnreadableVotes: unused,
 };
 
 /** Services whose use cases all reject, with the page size a test asks for. */

@@ -14,6 +14,7 @@ import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 import { AcknowledgeRejectedVote } from '@application/use-cases/votes/AcknowledgeRejectedVote';
 import { CastVote } from '@application/use-cases/votes/CastVote';
+import { DiscardUnreadableVotes } from '@application/use-cases/votes/DiscardUnreadableVotes';
 import { ListPendingVotes } from '@application/use-cases/votes/ListPendingVotes';
 import { SyncPendingVotes } from '@application/use-cases/votes/SyncPendingVotes';
 import { aDuration } from '@domain/testing/builders';
@@ -25,7 +26,7 @@ import type { SupportedLanguage } from '../i18n/constants';
 import { createI18n } from '../i18n/createI18n';
 import { I18nProvider } from '../i18n/I18nProvider';
 import { AppProviders, createAppState } from '../services/AppProviders';
-import type { AppServices, DemoAccount } from '../services/AppServices';
+import type { AppNotices, AppServices, DemoAccount } from '../services/AppServices';
 import { ACCESS } from '../state/uiStore';
 import type { Access } from '../state/uiStore';
 
@@ -64,6 +65,7 @@ function createTestServices(
   pageSize: number,
   gracePeriod: Duration,
   demo: FakeDemoNetwork | undefined,
+  notices: AppNotices | undefined,
 ): AppServices {
   return {
     useCases: {
@@ -80,12 +82,14 @@ function createTestServices(
       syncPendingVotes: new SyncPendingVotes(fakes),
       listPendingVotes: new ListPendingVotes(fakes),
       acknowledgeRejectedVote: new AcknowledgeRejectedVote(fakes),
+      discardUnreadableVotes: new DiscardUnreadableVotes(fakes),
     },
     settings: { meetingsPageSize: pageSize },
     clock: fakes.clock,
     ...(demo === undefined
       ? {}
       : { demoControls: { network: demo, accounts: TEST_DEMO_ACCOUNTS } }),
+    ...(notices === undefined ? {} : { notices }),
   };
 }
 
@@ -103,6 +107,8 @@ export interface RenderScreenOptions {
   readonly gracePeriodMillis?: number;
   /** Gives the services the demo controls of the mock configuration, over the fakes. */
   readonly demo?: boolean;
+  /** What the user is owed an explanation of at the start. None by default. */
+  readonly notices?: AppNotices;
 }
 
 /**
@@ -120,8 +126,13 @@ export function createHarness(options: RenderScreenOptions) {
     options.pageSize ?? TEST_PAGE_SIZE,
     aDuration(options.gracePeriodMillis ?? TEST_GRACE_PERIOD_MILLIS),
     demoNetwork,
+    options.notices,
   );
-  const state = createAppState({ retryDelay: () => 0, access: options.access ?? ACCESS.Unlocked });
+  const state = createAppState({
+    retryDelay: () => 0,
+    access: options.access ?? ACCESS.Unlocked,
+    localDataReset: options.notices?.localDataReset ?? false,
+  });
   trackClient(state.queryClient);
 
   function Providers({ children }: { readonly children: ReactNode }) {

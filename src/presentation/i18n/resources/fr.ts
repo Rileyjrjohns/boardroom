@@ -222,6 +222,23 @@ export const fr: TranslationResource = {
     castAt: 'Exprimé le {{date}}',
     rejectedAt: 'Refusé le {{date}}',
     openMeeting: 'Ouvrir la réunion',
+    unreadable_one:
+      '{{formattedCount}} vote enregistré sur cet appareil est devenu illisible. Il ne sera pas envoyé. Vérifiez dans la réunion que votre vote a bien été enregistré, puis vous pourrez le supprimer.',
+    unreadable_many:
+      '{{formattedCount}} de votes enregistrés sur cet appareil sont devenus illisibles. Ils ne seront pas envoyés. Vérifiez dans les réunions que vos votes ont bien été enregistrés, puis vous pourrez les supprimer.',
+    unreadable_other:
+      '{{formattedCount}} votes enregistrés sur cet appareil sont devenus illisibles. Ils ne seront pas envoyés. Vérifiez dans les réunions que vos votes ont bien été enregistrés, puis vous pourrez les supprimer.',
+    discard: 'Supprimer ce qui est illisible',
+    discardHint: 'Vous demande de confirmer.',
+    discardTitle: 'Supprimer ce qui est illisible ?',
+    discardMessage_one:
+      '{{formattedCount}} vote enregistré va être supprimé définitivement de cet appareil. Cette action est irréversible.',
+    discardMessage_many:
+      '{{formattedCount}} de votes enregistrés vont être supprimés définitivement de cet appareil. Cette action est irréversible.',
+    discardMessage_other:
+      '{{formattedCount}} votes enregistrés vont être supprimés définitivement de cet appareil. Cette action est irréversible.',
+    discarding: 'Suppression en cours',
+    discardFailed: 'Ils n’ont pas pu être supprimés. Réessayez.',
   },
   banner: {
     offline:
@@ -233,6 +250,8 @@ export const fr: TranslationResource = {
     rejected_many: '{{formattedCount}} de votes ont été refusés. Consultez vos votes en attente.',
     rejected_other: '{{formattedCount}} votes ont été refusés. Consultez vos votes en attente.',
     dismiss: 'Masquer',
+    localDataReset:
+      'Des données enregistrées sur cet appareil étaient illisibles et ont été réinitialisées. Des votes en attente d’envoi depuis cet appareil ont peut-être été perdus : vérifiez que vos votes ont bien été enregistrés.',
   },
   demo: {
     badge: 'Démo',

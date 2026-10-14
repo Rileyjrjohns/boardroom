@@ -291,7 +291,7 @@ describe('the votes that wait', () => {
 });
 
 describe('a session that a failure ended', () => {
-  it.each(['sessionExpired', 'unauthorized', 'notAuthenticated', 'sessionChanged'] as const)(
+  it.each(['sessionExpired', 'notAuthenticated', 'sessionChanged'] as const)(
     'is also forgotten on the device when it is %s, so that a restart does not find it',
     async (code) => {
       const { fakes, uiStore } = setup({ access: ACCESS.Unlocked });
@@ -306,6 +306,19 @@ describe('a session that a failure ended', () => {
       expect(fakes.auth.session).toBeUndefined();
     },
   );
+
+  it('is not signed out a second time when the server refused it: the application ended it already', async () => {
+    const { fakes, uiStore } = setup({ access: ACCESS.Unlocked });
+    await settle();
+
+    act(() => {
+      uiStore.getState().endSession('unauthorized');
+    });
+    await settle();
+
+    expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(fakes.auth.signOutCalls).toBe(0);
+  });
 
   it('is not forgotten when it is only the lock: the user unlocks it', async () => {
     const { fakes, uiStore } = setup({ access: ACCESS.Unlocked });

@@ -44,7 +44,7 @@ export interface ResolutionVoteInput {
   readonly meeting: Meeting;
   readonly resolution: Resolution;
   readonly voterId: UserId;
-  readonly outbox: OutboxContent;
+  readonly outbox: Pick<OutboxContent, 'pending' | 'rejected'>;
   /** The instant the meeting was loaded at: the screen reads no clock. */
   readonly now: Instant;
 }

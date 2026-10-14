@@ -20,6 +20,8 @@ export interface AppState {
 export interface AppStateOptions extends Pick<QueryClientOptions, 'retryDelay'> {
   /** Where the user stands at the start. A test that renders a screen of the open app skips ahead. */
   readonly access?: Access;
+  /** Whether the user is to be told that local data was reset. */
+  readonly localDataReset?: boolean;
 }
 
 /**
@@ -38,8 +40,11 @@ export interface AppStateOptions extends Pick<QueryClientOptions, 'retryDelay'> 
  * give the delay of the retries and where the user stands.
  */
 export function createAppState(options: AppStateOptions = {}): AppState {
-  const { access, ...clientOptions } = options;
-  const uiStore = createUiStore(access === undefined ? {} : { access });
+  const { access, localDataReset, ...clientOptions } = options;
+  const uiStore = createUiStore({
+    ...(access === undefined ? {} : { access }),
+    ...(localDataReset === undefined ? {} : { localDataReset }),
+  });
   const queryClient = createQueryClient({
     ...clientOptions,
     onSessionEnded: (code) => {
@@ -70,7 +75,9 @@ interface AppProvidersProps {
  * navigator (`AppNavigator`) and the session controller (`SessionController`), inside it.
  */
 export function AppProviders({ services, state, children }: AppProvidersProps) {
-  const [{ queryClient, uiStore }] = useState(() => state ?? createAppState());
+  const [{ queryClient, uiStore }] = useState(
+    () => state ?? createAppState({ localDataReset: services.notices?.localDataReset ?? false }),
+  );
 
   return (
     <AppServicesProvider services={services}>

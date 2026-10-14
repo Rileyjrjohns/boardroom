@@ -14,6 +14,7 @@ import { Message } from '../components/Message';
 import { OutboxVoteRow } from '../components/OutboxVoteRow';
 import { Section } from '../components/Section';
 import { StatusBanner } from '../components/StatusBanner';
+import { UnreadableVotesNotice } from '../components/UnreadableVotesNotice';
 import { usePendingVotes } from '../hooks/usePendingVotes';
 import { errorCodeOf } from '../query/errorCode';
 import { isRetryableCode } from '../query/retryPolicy';
@@ -72,7 +73,7 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
   }
   if (data === undefined) return null;
 
-  const { pending, rejected } = data;
+  const { pending, rejected, unreadable } = data;
   return (
     <ScrollView
       style={styles.screen}
@@ -86,6 +87,7 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
         <InlineError code={errorCode} onRetry={retry} testID={TEST_IDS.refreshError} />
       ) : null}
       <Text style={styles.explanation}>{t('pendingVotes.explanation')}</Text>
+      {unreadable === 0 ? null : <UnreadableVotesNotice count={unreadable} />}
       {pending.length === 0 && rejected.length === 0 ? (
         <Message centered message={t('pendingVotes.empty')} testID={TEST_IDS.pendingVotesEmpty} />
       ) : null}

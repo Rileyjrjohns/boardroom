@@ -220,6 +220,23 @@ export const en = {
     castAt: 'Cast on {{date}}',
     rejectedAt: 'Rejected on {{date}}',
     openMeeting: 'Open the meeting',
+    unreadable_one:
+      '{{formattedCount}} saved vote on this device can no longer be read. It will not be sent. Check on the meeting whether your vote was recorded, then you can delete it.',
+    unreadable_many:
+      '{{formattedCount}} saved votes on this device can no longer be read. They will not be sent. Check on the meetings whether your votes were recorded, then you can delete them.',
+    unreadable_other:
+      '{{formattedCount}} saved votes on this device can no longer be read. They will not be sent. Check on the meetings whether your votes were recorded, then you can delete them.',
+    discard: 'Delete what cannot be read',
+    discardHint: 'Asks you to confirm.',
+    discardTitle: 'Delete what cannot be read?',
+    discardMessage_one:
+      '{{formattedCount}} saved vote will be deleted from this device for good. This cannot be undone.',
+    discardMessage_many:
+      '{{formattedCount}} saved votes will be deleted from this device for good. This cannot be undone.',
+    discardMessage_other:
+      '{{formattedCount}} saved votes will be deleted from this device for good. This cannot be undone.',
+    discarding: 'Deleting',
+    discardFailed: 'They could not be deleted. Try again.',
   },
   banner: {
     offline:
@@ -231,6 +248,8 @@ export const en = {
     rejected_many: '{{formattedCount}} votes were rejected. See your pending votes.',
     rejected_other: '{{formattedCount}} votes were rejected. See your pending votes.',
     dismiss: 'Dismiss',
+    localDataReset:
+      'Some data saved on this device could not be read and was reset. Votes that were waiting to be sent from this device may have been lost: please check that your votes were recorded.',
   },
   demo: {
     badge: 'Demo',

@@ -173,22 +173,25 @@ describe('StartupGate', () => {
 
   describe('the text of the biometric prompt it hands to the start', () => {
     it.each([
-      ['en', BIOMETRIC_REASON.UnlockApp, 'Unlock Boardroom'],
-      ['en', BIOMETRIC_REASON.ConfirmVote, 'Confirm your vote'],
-      ['fr', BIOMETRIC_REASON.UnlockApp, 'Déverrouiller Boardroom'],
-      ['fr', BIOMETRIC_REASON.ConfirmVote, 'Confirmer votre vote'],
-    ] as const)('is the translation of the reason, in %s: %s', (language, reason, text) => {
-      const { start, promptTexts } = deferredStart();
-      render(
-        <I18nProvider language={language}>
-          <StartupGate start={start}>
-            <PageSize />
-          </StartupGate>
-        </I18nProvider>,
-      );
+      ['en', BIOMETRIC_REASON.UnlockApp, 'Unlock Boardroom', 'Cancel'],
+      ['en', BIOMETRIC_REASON.ConfirmVote, 'Confirm your vote', 'Cancel'],
+      ['fr', BIOMETRIC_REASON.UnlockApp, 'Déverrouiller Boardroom', 'Annuler'],
+      ['fr', BIOMETRIC_REASON.ConfirmVote, 'Confirmer votre vote', 'Annuler'],
+    ] as const)(
+      'is the translation of the reason and of the cancel button, in %s: %s',
+      (language, reason, text, cancelLabel) => {
+        const { start, promptTexts } = deferredStart();
+        render(
+          <I18nProvider language={language}>
+            <StartupGate start={start}>
+              <PageSize />
+            </StartupGate>
+          </I18nProvider>,
+        );
 
-      expect(promptTexts[0]?.(reason)).toBe(text);
-    });
+        expect(promptTexts[0]?.(reason)).toEqual({ message: text, cancelLabel });
+      },
+    );
 
     it('follows the language of the moment it is called, not the one the app started in', () => {
       const { start, promptTexts } = deferredStart();
@@ -201,11 +204,17 @@ describe('StartupGate', () => {
       );
       const { rerender } = render(tree('en'));
       const promptText = promptTexts[0];
-      expect(promptText?.(BIOMETRIC_REASON.ConfirmVote)).toBe('Confirm your vote');
+      expect(promptText?.(BIOMETRIC_REASON.ConfirmVote)).toEqual({
+        message: 'Confirm your vote',
+        cancelLabel: 'Cancel',
+      });
 
       rerender(tree('fr'));
 
-      expect(promptText?.(BIOMETRIC_REASON.ConfirmVote)).toBe('Confirmer votre vote');
+      expect(promptText?.(BIOMETRIC_REASON.ConfirmVote)).toEqual({
+        message: 'Confirmer votre vote',
+        cancelLabel: 'Annuler',
+      });
     });
   });
 });

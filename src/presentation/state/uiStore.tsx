@@ -62,7 +62,12 @@ export interface SyncSummary {
  *   evaluated on the way back. Written by the events of the system, read by the root and by the
  *   dialogs, which are not inside the root's view;
  * - `syncSummary`: what the last synchronisation sent or rejected, until the user dismisses it.
- *   A result that has to outlive the screen that happened to be showing when it came.
+ *   A result that has to outlive the screen that happened to be showing when it came;
+ * - `localDataResetNotice`: whether the user is still to be told that local data was reset (votes
+ *   waiting on this device may have been lost). It is known when the app starts, shown on the
+ *   screens of the open app, so after the next sign-in or unlock, and it stays until the user has
+ *   read it. It is not forgotten when they leave the open app: it is owed to them, not to a
+ *   session.
  *
  * Everything that belongs to a session (`syncSummary`, `sessionEndedBy`) is forgotten when the
  * user leaves `Unlocked`, and the interface store never holds a name, an email or a vote.
@@ -101,6 +106,9 @@ export interface UiState {
   readonly syncSummary: SyncSummary | undefined;
   showSyncSummary(summary: SyncSummary): void;
   dismissSyncSummary(): void;
+
+  readonly localDataResetNotice: boolean;
+  dismissLocalDataReset(): void;
 }
 
 export type UiStore = StoreApi<UiState>;
@@ -108,6 +116,8 @@ export type UiStore = StoreApi<UiState>;
 export interface UiStoreOptions {
   /** Where the user stands at the start. `Starting` for the app; a screen under test may skip it. */
   readonly access?: Access;
+  /** Whether the user is to be told that local data was reset. */
+  readonly localDataReset?: boolean;
 }
 
 /** What leaving the open app forgets. */
@@ -167,6 +177,11 @@ export function createUiStore(options: UiStoreOptions = {}): UiStore {
     },
     dismissSyncSummary: () => {
       set({ syncSummary: undefined });
+    },
+
+    localDataResetNotice: options.localDataReset ?? false,
+    dismissLocalDataReset: () => {
+      set({ localDataResetNotice: false });
     },
   }));
 }

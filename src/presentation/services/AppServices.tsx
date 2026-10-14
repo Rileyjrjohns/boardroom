@@ -13,6 +13,7 @@ import type { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
 import type { ListMeetings } from '@application/use-cases/meetings/ListMeetings';
 import type { AcknowledgeRejectedVote } from '@application/use-cases/votes/AcknowledgeRejectedVote';
 import type { CastVote } from '@application/use-cases/votes/CastVote';
+import type { DiscardUnreadableVotes } from '@application/use-cases/votes/DiscardUnreadableVotes';
 import type { ListPendingVotes } from '@application/use-cases/votes/ListPendingVotes';
 import type { SyncPendingVotes } from '@application/use-cases/votes/SyncPendingVotes';
 
@@ -37,6 +38,7 @@ export interface UseCases {
   readonly syncPendingVotes: Pick<SyncPendingVotes, 'execute'>;
   readonly listPendingVotes: Pick<ListPendingVotes, 'execute'>;
   readonly acknowledgeRejectedVote: Pick<AcknowledgeRejectedVote, 'execute'>;
+  readonly discardUnreadableVotes: Pick<DiscardUnreadableVotes, 'execute'>;
 }
 
 /** An account of the simulated server, as the sign-in screen of the demo offers it. */
@@ -65,6 +67,20 @@ export interface DemoControls {
   readonly accounts: readonly DemoAccount[];
 }
 
+/**
+ * What happened to the data of the device while the app was not running, that the user is owed an
+ * explanation of. The composition root reads it while it starts.
+ */
+export interface AppNotices {
+  /**
+   * Local data was reset: it could not be read, and the app started on an empty one. Votes that
+   * were waiting to be sent from this device may have been lost. Told once the app is open.
+   */
+  readonly localDataReset: boolean;
+  /** The user has been told: it is forgotten, and they will not be told again. Never rejects. */
+  acknowledgeLocalDataReset(): Promise<void>;
+}
+
 /** Values of the configuration that the screens depend on. */
 export interface AppSettings {
   /** How many meetings a page of the list holds. */
@@ -83,6 +99,8 @@ export interface AppServices {
   readonly clock: Pick<Clock, 'now'>;
   /** Only the mock configuration has demo controls. */
   readonly demoControls?: DemoControls;
+  /** What the user is owed an explanation of. Without it, nothing is. */
+  readonly notices?: AppNotices;
 }
 
 const AppServicesContext = createContext<AppServices | undefined>(undefined);

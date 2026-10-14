@@ -6,7 +6,8 @@ import type { Instant } from '@domain/value-objects/Instant';
 
 import { useFormatters } from '../format/FormattersProvider';
 import { translateCount } from '../i18n/translateCount';
-import { useUiStore } from '../state/uiStore';
+import { useAppServices } from '../services/AppServices';
+import { useUiStore, useUiStoreApi } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, spacing } from '../theme/tokens';
 
@@ -24,7 +25,8 @@ interface StatusBannerProps {
 /**
  * The one banner area of a screen, at its top, for what the user should know about the state of
  * the data: that the device is offline, that what is shown is a saved copy and since when, and
- * what the last synchronisation of the votes did. It is a single block on a single background,
+ * what the last synchronisation of the votes did, and that local data was reset, which the user
+ * is told once the app is open and until they have read it. It is a single block on a single background,
  * with a line per fact, and nothing at all when there is nothing to say.
  *
  * The two facts about the connection are told apart on purpose, and can be true together or
@@ -38,8 +40,16 @@ export function StatusBanner({ staleSince }: StatusBannerProps) {
   const offline = useUiStore((state) => state.connectivity === CONNECTIVITY_STATUS.Offline);
   const summary = useUiStore((state) => state.syncSummary);
   const dismissSummary = useUiStore((state) => state.dismissSyncSummary);
+  const reset = useUiStore((state) => state.localDataResetNotice);
+  const store = useUiStoreApi();
+  const { notices } = useAppServices();
 
-  if (!offline && staleSince === undefined && summary === undefined) return null;
+  if (!offline && staleSince === undefined && summary === undefined && !reset) return null;
+
+  const acknowledgeReset = (): void => {
+    store.getState().dismissLocalDataReset();
+    void notices?.acknowledgeLocalDataReset();
+  };
 
   return (
     <View style={styles.banner} testID={TEST_IDS.statusBanner}>
@@ -58,6 +68,21 @@ export function StatusBanner({ staleSince }: StatusBannerProps) {
           />
         </View>
       )}
+      {reset ? (
+        <View style={styles.summary}>
+          <LiveText
+            message={t('banner.localDataReset')}
+            style={styles.text}
+            testID={TEST_IDS.localDataResetNotice}
+          />
+          <Button
+            title={t('banner.dismiss')}
+            variant="secondary"
+            onPress={acknowledgeReset}
+            testID={TEST_IDS.localDataResetDismiss}
+          />
+        </View>
+      ) : null}
       {summary === undefined ? null : (
         <View style={styles.summary} testID={TEST_IDS.syncSummary}>
           {summary.synced === 0 ? null : (

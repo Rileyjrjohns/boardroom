@@ -180,4 +180,76 @@ describe('StatusBanner', () => {
       expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
     });
   });
+
+  describe('the notice that local data was reset', () => {
+    function aNotice(localDataReset: boolean) {
+      const acknowledge = jest.fn(() => Promise.resolve());
+      return { acknowledge, notices: { localDataReset, acknowledgeLocalDataReset: acknowledge } };
+    }
+
+    it('says votes that were waiting on this device may have been lost, in the language of the user', () => {
+      const { notices } = aNotice(true);
+      const { t } = renderScreen(<StatusBanner />, { notices });
+
+      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toHaveTextContent(
+        t('banner.localDataReset'),
+      );
+      expect(t('banner.localDataReset')).toMatch(/votes/i);
+    });
+
+    it('says it in French too', () => {
+      const { notices } = aNotice(true);
+      const { t } = renderScreen(<StatusBanner />, { notices, language: SUPPORTED_LANGUAGES[1] });
+
+      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toHaveTextContent(
+        t('banner.localDataReset'),
+      );
+      expect(t('banner.localDataReset')).toMatch(/votes/i);
+    });
+
+    it('is not there when nothing was reset', () => {
+      const { notices } = aNotice(false);
+      renderScreen(<StatusBanner />, { notices });
+
+      expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+    });
+
+    it('stays until the user has read it, then goes and is forgotten for good', async () => {
+      const { notices, acknowledge } = aNotice(true);
+      const { uiStore } = renderScreen(<StatusBanner />, { notices });
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.localDataResetDismiss));
+      });
+
+      expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+      expect(acknowledge).toHaveBeenCalledTimes(1);
+      expect(uiStore.getState().localDataResetNotice).toBe(false);
+    });
+
+    it('is told with the other facts in the one banner, and dismissed on its own', async () => {
+      const { notices } = aNotice(true);
+      const { uiStore } = renderScreen(<StatusBanner />, { notices });
+      goOffline(uiStore);
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.localDataResetDismiss));
+      });
+
+      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
+      expect(screen.queryByTestId(TEST_IDS.localDataResetNotice)).toBeNull();
+    });
+
+    it('is not forgotten when the user leaves the open app, which does not make them read it', () => {
+      const { notices } = aNotice(true);
+      const { uiStore } = renderScreen(<StatusBanner />, { notices });
+
+      act(() => {
+        uiStore.getState().signedOut();
+        uiStore.getState().signedIn();
+      });
+
+      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toBeTruthy();
+    });
+  });
 });

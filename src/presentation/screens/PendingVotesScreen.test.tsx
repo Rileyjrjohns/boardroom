@@ -237,6 +237,138 @@ describe('PendingVotesScreen', () => {
     });
   });
 
+  describe('the saved votes that can no longer be read', () => {
+    const USER = aUserId();
+
+    it('says nothing when there are none', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seed(FIRST);
+      renderPending({ fakes });
+      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+
+      expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+    });
+
+    it.each([
+      [1, 'en', '1 saved vote on this device can no longer be read. It will not be sent.'],
+      [3, 'en', '3 saved votes on this device can no longer be read. They will not be sent.'],
+      [1, 'fr', '1 vote enregistré sur cet appareil est devenu illisible. Il ne sera pas envoyé.'],
+      [
+        2,
+        'fr',
+        '2 votes enregistrés sur cet appareil sont devenus illisibles. Ils ne seront pas envoyés.',
+      ],
+    ] as const)(
+      'says how many there are, and that they are not sent: %i in %s',
+      async (count, language, text) => {
+        const fakes = createFakes();
+        for (let index = 0; index < count; index += 1)
+          fakes.outbox.seedUnreadable(USER, `k${index}`);
+        renderPending({ fakes, language });
+
+        const notice = await screen.findByTestId(TEST_IDS.unreadableVotes);
+
+        expect(notice).toHaveTextContent(text, { exact: false });
+      },
+    );
+
+    it('is shown next to the votes that can be read, which are listed as usual', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seed(FIRST);
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      renderPending({ fakes });
+
+      expect(await screen.findByTestId(pendingVoteTestId(R1))).toBeTruthy();
+      expect(screen.getByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+    });
+
+    it('does not delete them by itself: the screen can be left and opened again, they are still there', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      const first = renderPending({ fakes });
+      await screen.findByTestId(TEST_IDS.unreadableVotes);
+      first.unmount();
+
+      renderPending({ fakes });
+
+      expect(await screen.findByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+      expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
+    });
+
+    it('asks for a confirmation that repeats how many, before anything is deleted', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      fakes.outbox.seedUnreadable(USER, 'k2');
+      const { t } = renderPending({ fakes });
+
+      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+
+      expect(screen.getByRole('header', { name: t('pendingVotes.discardTitle') })).toBeTruthy();
+      expect(
+        screen.getByText(/2 saved votes will be deleted from this device for good/),
+      ).toBeTruthy();
+      expect(fakes.outbox.unreadableSnapshot()).toHaveLength(2);
+    });
+
+    it('deletes nothing when the user cancels', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      renderPending({ fakes });
+      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+
+      fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesCancel));
+
+      expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
+      expect(screen.getByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+    });
+
+    it('deletes them once the user confirms, and the notice goes', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seed(FIRST);
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      renderPending({ fakes });
+      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+      });
+      await settle();
+
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+      });
+      expect(fakes.outbox.unreadableSnapshot()).toEqual([]);
+      expect(fakes.outbox.snapshot()).toEqual([FIRST]);
+    });
+
+    it('says why when they could not be deleted, keeps them, and lets the user try again', async () => {
+      const fakes = createFakes();
+      fakes.outbox.seedUnreadable(USER, 'k1');
+      fakes.outbox.discardFailure = storageWriteFailed();
+      const { t } = renderPending({ fakes });
+      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+      });
+      await settle();
+
+      expect(await screen.findByTestId(TEST_IDS.unreadableVotesError)).toHaveTextContent(
+        t('pendingVotes.discardFailed'),
+      );
+      expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
+
+      fakes.outbox.discardFailure = undefined;
+      await act(async () => {
+        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+      });
+      await settle();
+      await waitFor(() => {
+        expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+      });
+    });
+  });
+
   describe('when the outbox cannot be read', () => {
     it('says why, with a way to try again, and shows the votes when it works', async () => {
       const fakes = createFakes();

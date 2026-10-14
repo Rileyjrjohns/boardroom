@@ -27,6 +27,7 @@ import type { GetMeetingError } from '@application/use-cases/meetings/GetMeeting
 import type { ListMeetingsError } from '@application/use-cases/meetings/ListMeetings';
 import type { AcknowledgeRejectedVoteError } from '@application/use-cases/votes/AcknowledgeRejectedVote';
 import type { CastVoteError } from '@application/use-cases/votes/CastVote';
+import type { DiscardUnreadableVotesError } from '@application/use-cases/votes/DiscardUnreadableVotes';
 
 /** A key the typed `t` accepts: the keys of the English resource. */
 export type TranslationKey = ParseKeys;
@@ -214,6 +215,16 @@ export const CAST_VOTE_ERROR_KEYS = {
   [VOTE_DELIVERY_ERROR_CODE.InProgress]: 'voting.failure.voteInProgress',
   [VOTE_DELIVERY_ERROR_CODE.PreviouslyRejected]: 'voting.failure.votePreviouslyRejected',
 } as const satisfies Record<CastVoteError['code'], TranslationKey>;
+
+/** Every way discarding the unreadable entries of the outbox can fail. */
+export const DISCARD_ERROR_KEYS = {
+  [AUTHENTICATION_ERROR_CODE.NotAuthenticated]: 'errors.notAuthenticated',
+  [AUTHENTICATION_ERROR_CODE.SessionExpired]: 'errors.sessionExpired',
+  [AUTHENTICATION_ERROR_CODE.AppLocked]: 'errors.appLocked',
+  [STORAGE_ERROR_CODE.ReadFailed]: 'errors.storageReadFailed',
+  [STORAGE_ERROR_CODE.WriteFailed]: 'pendingVotes.discardFailed',
+  [REPOSITORY_ERROR_CODE.Unexpected]: 'errors.unexpected',
+} as const satisfies Record<OrUnexpected<DiscardUnreadableVotesError['code']>, TranslationKey>;
 
 /** Every way acknowledging a rejected vote can fail. */
 export const ACKNOWLEDGE_ERROR_KEYS = {

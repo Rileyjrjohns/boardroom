@@ -14,8 +14,14 @@ import { TEST_IDS } from '../testIds';
 import { AppProviders } from './AppProviders';
 import type { AppServices } from './AppServices';
 
+/** What the system prompt says: its message and the label of its cancel button. */
+export interface BiometricPrompt {
+  readonly message: string;
+  readonly cancelLabel: string;
+}
+
 /** The text of the system prompt for a reason, in the language of the user at the time it is asked. */
-export type BiometricPromptText = (reason: BiometricReason) => string;
+export type BiometricPromptText = (reason: BiometricReason) => BiometricPrompt;
 
 /** What the code of a start that rejects instead of answering is: a bug, but a screen all the same. */
 export const STARTUP_ABORTED = 'startupAborted';
@@ -47,7 +53,10 @@ export function StartupGate({ start, children }: StartupGateProps) {
   const [started, setStarted] = useState<Awaited<ReturnType<StartApp>>>();
 
   useEffect(() => {
-    starting.current ??= start((reason) => i18n.t(BIOMETRIC_PROMPT_KEYS[reason]));
+    starting.current ??= start((reason) => ({
+      message: i18n.t(BIOMETRIC_PROMPT_KEYS[reason]),
+      cancelLabel: i18n.t('common.cancel'),
+    }));
     let current = true;
     starting.current
       .catch(() => err({ code: STARTUP_ABORTED }))

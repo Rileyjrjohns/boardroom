@@ -79,20 +79,31 @@ export function SessionController({ children }: SessionControllerProps) {
 }
 
 /**
- * Forgets on the device a session that a failure ended: the server refused it (`unauthorized`), it
- * expired, nobody was signed in, another user was. The app was sent to the sign-in screen, and a
- * restart must not restore what the server no longer accepts. `SignOut` does it, and it succeeds
- * when nobody is signed in. A lock is not the end of a session: the user unlocks it.
+ * Forgets on the device a session that a failure ended: it expired, nobody was signed in, another
+ * user was. The app was sent to the sign-in screen, and a restart must not restore what is no
+ * longer valid. `SignOut` does it, and it succeeds when nobody is signed in.
+ *
+ * Two codes are left out. A lock is not the end of a session: the user unlocks it. And
+ * `unauthorized`, the server refusing the session, was already ended by the application layer
+ * where it met the answer (`endRefusedSession`): signing out again would be a second sign-out for
+ * one failure, and could sign out a user who signed in after the first.
  */
 function useSignOutEndedSession(): void {
   const { useCases } = useAppServices();
   const endedBy = useUiStore((state) => state.sessionEndedBy);
 
   useEffect(() => {
-    if (endedBy === undefined || endedBy === AUTHENTICATION_ERROR_CODE.AppLocked) return;
+    if (endedBy === undefined || !FORGOTTEN_HERE.has(endedBy)) return;
     void useCases.signOut.execute();
   }, [endedBy, useCases]);
 }
+
+/** The failures whose session this component forgets: the application layer ended the others. */
+const FORGOTTEN_HERE: ReadonlySet<string> = new Set<string>([
+  AUTHENTICATION_ERROR_CODE.NotAuthenticated,
+  AUTHENTICATION_ERROR_CODE.SessionExpired,
+  AUTHENTICATION_ERROR_CODE.SessionChanged,
+]);
 
 const styles = StyleSheet.create({
   screen: {
