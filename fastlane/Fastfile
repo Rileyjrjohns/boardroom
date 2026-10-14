@@ -1,0 +1,140 @@
+# The alternative to EAS Build and EAS Submit: the same app, built and uploaded with Fastlane from
+# the machine that runs it. The native projects are not in the repository (Continuous Native
+# Generation), so every lane starts by generating them with `expo prebuild`.
+#
+#   bundle exec fastlane ios beta        sign with match (read-only), build, upload to TestFlight
+#   bundle exec fastlane android internal  build the app bundle, upload to the internal track of Google Play
+#
+# Everything secret is read from the environment, and nothing has a default (see "Fastlane" in the
+# README for the list). A lane that lacks one stops with its name.
+
+require 'json'
+
+default_platform(:ios)
+
+# The root of the project, where package.json is. Fastlane runs from this folder's parent when it is
+# started with `bundle exec fastlane`, but the lanes do not rely on it.
+PROJECT_ROOT = File.expand_path('..', __dir__)
+
+# The environment variables of the build, as eas.json gives them to the preview and production
+# profiles: a release build must be told which adapters it uses (see "Composition root"). The
+# production profile is the one Fastlane builds; eas.json stays the single source of the values.
+def build_environment
+  eas = JSON.parse(File.read(File.join(PROJECT_ROOT, 'eas.json')))
+  eas.fetch('build').fetch('production').fetch('env')
+end
+
+# The name Expo gives the Xcode project and its scheme: the `name` of app.config.ts.
+IOS_PROJECT_NAME = 'Boardroom'.freeze
+
+# Generates the native project of one platform from app.config.ts. `--clean` deletes the previous
+# one first, so that nothing stale is built; the pods are installed for iOS.
+#
+# The build number is passed to app.config.ts, which writes it into the project (EAS numbers its own
+# builds remotely and is never given it).
+#
+#   bundle exec fastlane prebuild platform:ios build_number:42
+desc 'Generate the native project of a platform with `expo prebuild --clean`'
+lane :prebuild do |options|
+  target = options.fetch(:platform)
+  build_number = options.fetch(:build_number, 1)
+
+  build_environment.merge('BOARDROOM_BUILD_NUMBER' => build_number.to_s).each { |name, value| ENV[name] = value }
+  Dir.chdir(PROJECT_ROOT) do
+    sh('npx', 'expo', 'prebuild', '--platform', target.to_s, '--clean')
+  end
+end
+
+# The App Store Connect API key, from three environment variables. No Apple ID and no password: the
+# key can be revoked on its own, and works on a machine nobody is logged in to.
+def app_store_connect_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch('APP_STORE_CONNECT_KEY_ID'),
+    issuer_id: ENV.fetch('APP_STORE_CONNECT_ISSUER_ID'),
+    # The content of the .p8 file, in base64 (`base64 -i AuthKey_XXXX.p8`).
+    key_content: ENV.fetch('APP_STORE_CONNECT_KEY_CONTENT'),
+    is_key_content_base64: true,
+    in_house: false
+  )
+end
+
+platform :ios do
+  desc 'Build the iOS app, sign it with match (read-only) and upload it to TestFlight'
+  lane :beta do
+    # A fresh keychain on the CI, so that the certificate is not left on the machine.
+    setup_ci if ENV['CI']
+
+    api_key = app_store_connect_key
+    app_identifier = CredentialsManager::AppfileConfig.try_fetch_value(:app_identifier)
+
+    # The next build number is the one after the last build TestFlight knows.
+    build_number = latest_testflight_build_number(api_key: api_key, app_identifier: app_identifier) + 1
+    prebuild(platform: 'ios', build_number: build_number)
+
+    # Read-only: the certificate and the profile exist already, in the private repository of match.
+    match(type: 'appstore', readonly: true, api_key: api_key)
+
+    # The project that Expo generates is signed automatically, for development. The release build is
+    # signed by hand, with the profile that match has just installed.
+    profile = lane_context[SharedValues::MATCH_PROVISIONING_PROFILE_MAPPING][app_identifier]
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: File.join(PROJECT_ROOT, 'ios', "#{IOS_PROJECT_NAME}.xcodeproj"),
+      team_id: ENV.fetch('APPLE_TEAM_ID'),
+      code_sign_identity: 'Apple Distribution',
+      profile_name: profile,
+      targets: [IOS_PROJECT_NAME]
+    )
+
+    build_app(
+      workspace: File.join(PROJECT_ROOT, 'ios', "#{IOS_PROJECT_NAME}.xcworkspace"),
+      scheme: IOS_PROJECT_NAME,
+      configuration: 'Release',
+      export_method: 'app-store',
+      export_options: { provisioningProfiles: { app_identifier => profile } },
+      output_directory: File.join(PROJECT_ROOT, 'build', 'ios')
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      # Processing takes several minutes: the lane does not wait for it.
+      skip_waiting_for_build_processing: true
+    )
+  end
+end
+
+platform :android do
+  desc 'Build the Android app bundle and upload it to the internal track of Google Play'
+  lane :internal do
+    package_name = CredentialsManager::AppfileConfig.try_fetch_value(:package_name)
+
+    # The next version code is the one after the highest of the tracks Google Play knows.
+    version_code = google_play_track_version_codes(track: 'internal', package_name: package_name).max.to_i + 1
+    prebuild(platform: 'android', build_number: version_code)
+
+    # The upload key signs the bundle (Google Play re-signs it with the app signing key). It is a
+    # file on the machine, whose path and passwords are in the environment, and is never committed.
+    gradle(
+      project_dir: File.join(PROJECT_ROOT, 'android'),
+      task: 'bundle',
+      build_type: 'Release',
+      properties: {
+        'android.injected.signing.store.file' => ENV.fetch('ANDROID_KEYSTORE_PATH'),
+        'android.injected.signing.store.password' => ENV.fetch('ANDROID_KEYSTORE_PASSWORD'),
+        'android.injected.signing.key.alias' => ENV.fetch('ANDROID_KEY_ALIAS'),
+        'android.injected.signing.key.password' => ENV.fetch('ANDROID_KEY_PASSWORD')
+      }
+    )
+
+    upload_to_play_store(
+      track: 'internal',
+      aab: lane_context[SharedValues::GRADLE_AAB_OUTPUT_PATH],
+      # A draft is not visible to the testers until someone releases it in the Play Console.
+      release_status: 'draft',
+      skip_upload_metadata: true,
+      skip_upload_changelogs: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

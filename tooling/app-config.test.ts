@@ -96,3 +96,141 @@ describe('app.config.ts, the Face ID text in the languages of the app', () => {
     expect(strings[FACE_ID_KEY]).not.toContain('"');
   });
 });
+
+describe('app.config.ts, updates and the release build', () => {
+  const VARIABLES = [
+    'EAS_PROJECT_ID',
+    'SENTRY_ORG',
+    'SENTRY_PROJECT',
+    'SENTRY_AUTH_TOKEN',
+    'SENTRY_URL',
+    'BOARDROOM_BUILD_NUMBER',
+  ] as const;
+  const PROJECT_ID = '00000000-0000-4000-8000-000000000000';
+  const SENTRY_PLUGIN = '@sentry/react-native/expo';
+
+  /** The configuration Expo would read in an environment that has exactly these variables. */
+  function configWith(env: Partial<Record<(typeof VARIABLES)[number], string>>): ExpoConfig {
+    const saved = Object.fromEntries(VARIABLES.map((name) => [name, process.env[name]]));
+    VARIABLES.forEach((name) => delete process.env[name]);
+    Object.assign(process.env, env);
+    try {
+      let loaded: ExpoConfig | undefined;
+      jest.isolateModules(() => {
+        loaded = jest.requireActual<{ default: ExpoConfig }>('../app.config.ts').default;
+      });
+      if (loaded === undefined) throw new Error('The configuration did not load.');
+      return loaded;
+    } finally {
+      VARIABLES.forEach((name) => delete process.env[name]);
+      Object.entries(saved).forEach(([name, value]) => {
+        if (value !== undefined) process.env[name] = value;
+      });
+    }
+  }
+
+  const pluginNames = (value: ExpoConfig): unknown[] =>
+    (value.plugins ?? []).map((entry) => (Array.isArray(entry) ? entry[0] : entry));
+
+  it('ties the runtime version of the updates to the version of the app', () => {
+    expect(configWith({}).runtimeVersion).toEqual({ policy: 'appVersion' });
+  });
+
+  it('turns the updates off, and names no project, when no EAS project id is given', () => {
+    const bare = configWith({});
+
+    expect(bare.updates).toEqual({ enabled: false });
+    expect(bare.extra).toBeUndefined();
+  });
+
+  it('points the updates at the EAS project of the environment, and looks for them at start', () => {
+    const configured = configWith({ EAS_PROJECT_ID: PROJECT_ID });
+
+    expect(configured.updates).toEqual({
+      url: `https://u.expo.dev/${PROJECT_ID}`,
+      checkAutomatically: 'ON_LOAD',
+      fallbackToCacheTimeout: 0,
+    });
+    expect(configured.extra).toEqual({ eas: { projectId: PROJECT_ID } });
+  });
+
+  it('counts a blank project id as missing', () => {
+    expect(configWith({ EAS_PROJECT_ID: '   ' }).updates).toEqual({ enabled: false });
+  });
+
+  it('has no project id, no organisation and no token of its own in the repository', () => {
+    const text = fs.readFileSync(path.resolve(__dirname, '..', 'app.config.ts'), 'utf8');
+
+    expect(text).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+    expect(text).not.toMatch(/sntrys_|sntryu_|https:\/\/[0-9a-f]{16,}@/);
+  });
+
+  describe('the upload of the source maps to Sentry', () => {
+    it('is not declared by default, so that no build needs a token', () => {
+      expect(pluginNames(configWith({}))).not.toContain(SENTRY_PLUGIN);
+    });
+
+    it.each([
+      ['the token', { SENTRY_ORG: 'org', SENTRY_PROJECT: 'project' }],
+      ['the organisation', { SENTRY_PROJECT: 'project', SENTRY_AUTH_TOKEN: 'a' }],
+      ['the project', { SENTRY_ORG: 'org', SENTRY_AUTH_TOKEN: 'a' }],
+      [
+        'everything but a blank token',
+        { SENTRY_ORG: 'org', SENTRY_PROJECT: 'p', SENTRY_AUTH_TOKEN: ' ' },
+      ],
+    ])('is not declared without %s', (_missing, env) => {
+      expect(pluginNames(configWith(env))).not.toContain(SENTRY_PLUGIN);
+    });
+
+    it('is declared with the organisation and the project, and never the token, when all three are there', () => {
+      const uploading = configWith({
+        SENTRY_ORG: 'the-org',
+        SENTRY_PROJECT: 'the-project',
+        SENTRY_AUTH_TOKEN: 'a-token-that-must-not-leak',
+      });
+
+      expect(uploading.plugins).toContainEqual([
+        SENTRY_PLUGIN,
+        { organization: 'the-org', project: 'the-project' },
+      ]);
+      expect(JSON.stringify(uploading)).not.toContain('a-token-that-must-not-leak');
+    });
+
+    it('takes the address of the server when the organisation is not on sentry.io', () => {
+      const uploading = configWith({
+        SENTRY_ORG: 'o',
+        SENTRY_PROJECT: 'p',
+        SENTRY_AUTH_TOKEN: 'a',
+        SENTRY_URL: 'https://de.sentry.io/',
+      });
+
+      expect(uploading.plugins).toContainEqual([
+        SENTRY_PLUGIN,
+        { organization: 'o', project: 'p', url: 'https://de.sentry.io/' },
+      ]);
+    });
+  });
+
+  describe('the build number of the Fastlane lanes', () => {
+    it('is left to the stores tools when none is given (EAS numbers its builds remotely)', () => {
+      const bare = configWith({});
+
+      expect(bare.ios).not.toHaveProperty('buildNumber');
+      expect(bare.android).not.toHaveProperty('versionCode');
+    });
+
+    it('is written to both platforms when it is a positive whole number', () => {
+      const numbered = configWith({ BOARDROOM_BUILD_NUMBER: '42' });
+
+      expect(numbered.ios?.buildNumber).toBe('42');
+      expect(numbered.android?.versionCode).toBe(42);
+    });
+
+    it.each(['0', '-1', '1.5', 'abc'])('is ignored when it is %s', (value) => {
+      const ignored = configWith({ BOARDROOM_BUILD_NUMBER: value });
+
+      expect(ignored.ios).not.toHaveProperty('buildNumber');
+      expect(ignored.android).not.toHaveProperty('versionCode');
+    });
+  });
+});

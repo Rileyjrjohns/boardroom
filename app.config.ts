@@ -14,6 +14,37 @@ const SUPPORTED_LOCALES = ['en', 'fr'];
 const FACE_ID_USAGE_DESCRIPTION =
   'Allow Boardroom to use Face ID to unlock the app and to confirm your vote.';
 
+// Settings of the build, read from the environment of whoever runs it (the shell, the secrets of the
+// CI, the environment variables of EAS). None of them is a secret that ends up in the app, and none
+// has a value in this repository: see "CI/CD" in the README and .env.example. A blank value counts
+// as missing.
+const setting = (name: string): string | undefined => {
+  const value = process.env[name]?.trim();
+  return value === undefined || value === '' ? undefined : value;
+};
+
+// The id of the EAS project: where the app looks for its updates, and what the EAS tools need to
+// find the project. Without it the build has no updates, which is what a local or a CI build wants.
+const EAS_PROJECT_ID = setting('EAS_PROJECT_ID');
+const EAS_UPDATES_URL = 'https://u.expo.dev';
+
+// The source maps are uploaded to Sentry by the native builds, which needs an organisation, a
+// project and a token. The plugin is added only when all three are there: without it the build
+// does not touch Sentry, so a local or CI build never fails for lack of a token. The token itself
+// is read by the build scripts from the environment and never enters this configuration.
+const SENTRY_ORGANIZATION = setting('SENTRY_ORG');
+const SENTRY_PROJECT = setting('SENTRY_PROJECT');
+const SENTRY_SERVER = setting('SENTRY_URL');
+const uploadsSourceMaps =
+  SENTRY_ORGANIZATION !== undefined &&
+  SENTRY_PROJECT !== undefined &&
+  setting('SENTRY_AUTH_TOKEN') !== undefined;
+
+// The number of the store build, for the Fastlane lanes, which number the builds themselves (the
+// next one after the store's). EAS numbers them remotely, and is never given this.
+const BUILD_NUMBER = Number(setting('BOARDROOM_BUILD_NUMBER'));
+const hasBuildNumber = Number.isSafeInteger(BUILD_NUMBER) && BUILD_NUMBER > 0;
+
 // The New Architecture is always enabled from Expo SDK 55 onwards (React Native 0.82 removed
 // the opt-out), so there is intentionally no `newArchEnabled` flag in this config.
 const config: ExpoConfig = {
@@ -29,6 +60,7 @@ const config: ExpoConfig = {
     // Placeholder identifier, to be replaced before any store submission.
     bundleIdentifier: 'com.boardroom.demo',
     supportsTablet: true,
+    ...(hasBuildNumber ? { buildNumber: String(BUILD_NUMBER) } : {}),
     // Set here and not at the top level: on Android the top-level key does nothing unless
     // expo-system-ui is installed, and only logs a warning on every prebuild and start.
     userInterfaceStyle: 'light',
@@ -38,6 +70,7 @@ const config: ExpoConfig = {
     package: 'com.boardroom.demo',
     // Boardroom handles confidential governance material: keep it out of Android backups.
     allowBackup: false,
+    ...(hasBuildNumber ? { versionCode: BUILD_NUMBER } : {}),
     // Permissions that the Expo template adds by default and that the app does not need. The
     // SYSTEM_ALERT_WINDOW permission is kept: the development client overlays rely on it.
     blockedPermissions: [
@@ -83,10 +116,41 @@ const config: ExpoConfig = {
     // template of Expo SDK 57 does not generate it yet. Local plugin, to delete with SDK 58 (see
     // "iOS scene life cycle" in the README).
     './plugins/withSceneLifecycle',
+    // The upload of the source maps and of the debug files to Sentry, so that the crash reports
+    // are readable. Only when the build can upload (see `uploadsSourceMaps`); the reports are sent
+    // either way, and are read as minified code without it.
+    ...(uploadsSourceMaps
+      ? [
+          [
+            '@sentry/react-native/expo',
+            {
+              organization: SENTRY_ORGANIZATION,
+              project: SENTRY_PROJECT,
+              ...(SENTRY_SERVER === undefined ? {} : { url: SENTRY_SERVER }),
+            },
+          ] as [string, Record<string, string | undefined>],
+        ]
+      : []),
     // The local native module ScreenProtection (modules/screen-protection) has no plugin: its
     // Android permissions are in its own manifest, which autolinking merges, and it needs nothing in
     // the iOS project.
   ],
+  // Over-the-air updates (expo-updates), published with EAS Update. The runtime version is the
+  // `version` above: an update only reaches the builds of the same version, so the version is
+  // raised whenever the native code changes (a package, a plugin, a native module). The channel of a
+  // build is set by its profile in eas.json. Off when the project id is not given.
+  runtimeVersion: { policy: 'appVersion' },
+  updates:
+    EAS_PROJECT_ID === undefined
+      ? { enabled: false }
+      : {
+          url: `${EAS_UPDATES_URL}/${EAS_PROJECT_ID}`,
+          // Looks for an update when the app starts, and starts with the one it has: the new one
+          // is used at the next start, so nobody waits for the network on the way in.
+          checkAutomatically: 'ON_LOAD',
+          fallbackToCacheTimeout: 0,
+        },
+  ...(EAS_PROJECT_ID === undefined ? {} : { extra: { eas: { projectId: EAS_PROJECT_ID } } }),
   experiments: {
     typedRoutes: true,
   },

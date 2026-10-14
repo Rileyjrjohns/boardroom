@@ -1,0 +1,12 @@
+# What the lanes know about the app. The identifiers are those of app.config.ts (a test checks that
+# they are the same); everything that identifies a person or an account comes from the environment.
+
+# iOS
+app_identifier('com.boardroom.demo')
+# The Apple developer team, from the environment: it is the team of the account, not of the project.
+team_id(ENV.fetch('APPLE_TEAM_ID', nil))
+
+# Android
+package_name('com.boardroom.demo')
+# The service account key of Google Play, as a path to the file. The file is never committed.
+json_key_file(ENV.fetch('PLAY_JSON_KEY_PATH', nil))

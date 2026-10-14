@@ -1,0 +1,11 @@
+# Fastlane match keeps the certificates and the provisioning profiles of the iOS app in a private
+# repository, encrypted, so that every machine and the CI sign with the same ones. The lanes run it
+# read-only: the certificates are created once, by a person, with `bundle exec fastlane match appstore`.
+#
+# MATCH_GIT_URL is the address of that private repository; MATCH_PASSWORD, which match reads by
+# itself, is the passphrase that encrypts it. Neither is committed.
+git_url(ENV.fetch('MATCH_GIT_URL', nil))
+storage_mode('git')
+type('appstore')
+app_identifier(['com.boardroom.demo'])
+readonly(true)
