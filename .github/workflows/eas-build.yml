@@ -1,0 +1,96 @@
+# Builds the app with EAS Build: the production profile when a version is tagged (and submits it to
+# the stores), the preview or production profile when started by hand. The build runs on the servers
+# of Expo: this workflow only starts it, so it costs a minute of the runner, not the build.
+name: EAS Build
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: The build profile of eas.json
+        type: choice
+        options: [preview, production]
+        default: preview
+      platform:
+        description: The platform to build for
+        type: choice
+        options: [all, android, ios]
+        default: all
+      submit:
+        description: Submit the build to the stores (the production profile only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: eas-build-${{ github.ref }}
+  cancel-in-progress: false
+
+# Reads the code and nothing else; the token of Expo is the only credential, and it is not the one of
+# GitHub.
+permissions:
+  contents: read
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+  HUSKY: '0'
+
+jobs:
+  # A tag is built only if the code it points at passes the same checks as a pull request.
+  verify:
+    name: CI
+    if: ${{ github.event_name == 'push' }}
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    name: Build ${{ inputs.profile || 'production' }}
+    needs: [verify]
+    # Runs when the CI passed (a tag) or was not asked for (by hand), never when it failed.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      PROFILE: ${{ inputs.profile || 'production' }}
+      PLATFORM: ${{ inputs.platform || 'all' }}
+      # A tag is a release: it goes to the stores. By hand, only when asked, and only for production.
+      SUBMIT: ${{ github.event_name == 'push' || inputs.submit }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v9
+        with:
+          eas-version: 24.x
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install the dependencies
+        run: npm ci
+
+      # The version is the runtime version of the updates (app.config.ts): a store build tagged
+      # with another version than the one it carries would receive the wrong updates.
+      - name: Check that the tag is the version of the app
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          version="$(npx expo config --type public --json | jq -r .version)"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} is not the version of the app (v${version}, in app.config.ts)."
+            exit 1
+          fi
+
+      - name: Start the build
+        run: |
+          args=(--platform "${PLATFORM}" --profile "${PROFILE}" --non-interactive --no-wait)
+          if [ "${SUBMIT}" = 'true' ] && [ "${PROFILE}" = 'production' ]; then
+            args+=(--auto-submit)
+          fi
+          eas build "${args[@]}"

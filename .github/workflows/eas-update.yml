@@ -1,0 +1,74 @@
+# Publishes the JavaScript of main to the preview channel with EAS Update, once the CI has passed on
+# that very commit. The preview builds fetch it at their next start. Nothing here builds a binary.
+#
+# `workflow_run` runs the version of this file that is on main, with the secrets of the repository.
+# That is safe only because it is limited to pushes to main (never a pull request, which could carry
+# someone else's code) and checks out the commit the CI has just validated.
+name: EAS Update (preview)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Publishes the current main by hand, without waiting for a push.
+  workflow_dispatch:
+
+# One publication at a time, in the order of the pushes: a later one replaces the earlier update
+# anyway, and cancelling one half way could leave it unpublished.
+concurrency:
+  group: eas-update-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+  HUSKY: '0'
+
+jobs:
+  publish:
+    name: Publish to the preview channel
+    # Gated on the CI: only a successful run of a push to main publishes.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The project the update belongs to, and the token that may publish to it (see "CI/CD" in the
+      # README). Neither has a value in this repository.
+      EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Check out the commit the CI validated
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Set up EAS
+        uses: expo/expo-github-action@v9
+        with:
+          eas-version: 24.x
+          packager: npm
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install the dependencies
+        run: npm ci
+
+      # The bundle is made here, so the variables the app reads (EXPO_PUBLIC_*) are inlined from
+      # this environment, not from the build profile. They are the ones of the preview profile, read
+      # from eas.json so that the update and the builds it goes to cannot disagree: an update made
+      # without them would refuse to start (a release bundle must be told which adapters to use).
+      - name: Use the environment of the preview profile
+        run: jq -r '.build.preview.env | to_entries[] | "\(.key)=\(.value)"' eas.json >> "$GITHUB_ENV"
+
+      - name: Publish the update
+        run: eas update --channel preview --message "main ${HEAD_SHA:0:7}" --non-interactive

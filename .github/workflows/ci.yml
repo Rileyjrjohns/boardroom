@@ -1,0 +1,73 @@
+# The checks every change has to pass: the same as `npm run validate`, split in steps so that the
+# one that fails is the first thing the run page shows. It is also called by the workflow that
+# builds for the stores (a tag is built only if it passes), and it is the gate of EAS Update.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+# A new push to a branch cancels the run of the previous one. The group has the ref in it, so a pull
+# request, main and a tag never cancel each other.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Reads the code and nothing else. No secret is used here, so a pull request from a fork runs the
+# same checks.
+permissions:
+  contents: read
+
+env:
+  # Hooks are for the machines of the developers.
+  HUSKY: '0'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  validate:
+    name: Lint, types, format, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install the dependencies
+        run: npm ci
+
+      # The boundaries between the layers, and the packages each layer may import, are rules of
+      # ESLint. This step runs them alone on the code of the app, so that a broken boundary is named
+      # here and not hidden in the full lint below.
+      - name: Architecture boundaries (ESLint on app/ and src/)
+        run: npm run lint:architecture
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Format check
+        run: npm run format:check
+
+      # The tests of the four Jest projects, and the 90 percent gate on the domain and application
+      # layers: Jest fails the step when a layer falls under it.
+      - name: Tests with the coverage gate
+        run: npm run test:coverage -- --ci
+
+      - name: Upload the coverage report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14

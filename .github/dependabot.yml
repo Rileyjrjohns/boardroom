@@ -1,0 +1,8 @@
+# Keeps the actions of the workflows up to date. They are pinned to a major version, and a new major
+# arrives as a pull request that runs the CI.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

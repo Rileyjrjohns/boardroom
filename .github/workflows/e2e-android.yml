@@ -1,0 +1,97 @@
+# Runs the Maestro flows of .maestro on an Android emulator, against a release build of the app made
+# here with the environment of the preview profile (the simulated server, no network). Manual: it
+# needs a native build and an emulator, which together take about half an hour, and the emulator of a
+# hosted runner is not reliable enough to block a pull request. Run it before a release.
+name: E2E (Android)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+  HUSKY: '0'
+  # The version of the Maestro command line that the flows were written for.
+  MAESTRO_VERSION: 2.11.0
+  # The release build is signed with the debug key of the Expo template, which is enough to install
+  # it on an emulator. Nothing here can be published.
+  APK: android/app/build/outputs/apk/release/app-release.apk
+
+jobs:
+  e2e:
+    name: Maestro flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Install the dependencies
+        run: npm ci
+
+      # Same environment as the preview profile of eas.json, so that this build is the preview build.
+      - name: Use the environment of the preview profile
+        run: jq -r '.build.preview.env | to_entries[] | "\(.key)=\(.value)"' eas.json >> "$GITHUB_ENV"
+
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --clean --no-install
+
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=x86_64
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # The emulator needs hardware acceleration, which the runner gives through KVM.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the flows on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r "$APK"
+            maestro test --format junit --output maestro-report.xml --debug-output maestro-debug .maestro
+
+      - name: Upload the report and the screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: maestro
+          path: |
+            maestro-report.xml
+            maestro-debug/
+          if-no-files-found: ignore
+          retention-days: 14
