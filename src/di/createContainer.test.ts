@@ -41,7 +41,7 @@ const silentRuntime = (overrides: Partial<ContainerRuntime> = {}): ContainerRunt
   clock: new FakeClock(),
   sleep: immediateSleep,
   monitoring: new FakeMonitoring(),
-  biometricPromptText: (reason) => reason,
+  biometricPromptText: (reason) => ({ message: reason, cancelLabel: 'cancel' }),
   ...overrides,
 });
 
@@ -111,6 +111,7 @@ describe('createContainer, mock configuration', () => {
         'acknowledgeRejectedVote',
         'castVote',
         'closeDocument',
+        'discardUnreadableVotes',
         'evaluateAppLock',
         'getCurrentUser',
         'getMeeting',
@@ -318,6 +319,7 @@ describe('createContainer, mock configuration', () => {
     expect(valueOf(await useCases.listPendingVotes.execute())).toEqual({
       pending: [],
       rejected: [],
+      unreadable: 0,
     });
     expect(valueOf(await useCases.syncPendingVotes.execute()).outcome).toBe(SYNC_OUTCOME.Completed);
     expect(

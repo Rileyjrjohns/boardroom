@@ -10,6 +10,7 @@ export const CONTAINER_ERROR_CODE = {
   InvalidRequestTimeout: 'invalidRequestTimeout',
   InvalidBiometricFallback: 'invalidBiometricFallback',
   StorageUnavailable: 'storageUnavailable',
+  PlatformUnavailable: 'platformUnavailable',
   MockDataInvalid: 'mockDataInvalid',
 } as const;
 
@@ -68,6 +69,15 @@ export interface StorageUnavailableError {
   readonly reason: DatabaseFailureReason;
 }
 
+/**
+ * Something the device provides could not be loaded or set up: a native module that is missing from
+ * the build, or that fails when it is used for the first time. Nothing says which: the error is
+ * caught where it is thrown, and what it says (a message, a path) is not kept.
+ */
+export interface PlatformUnavailableError {
+  readonly code: typeof CONTAINER_ERROR_CODE.PlatformUnavailable;
+}
+
 /** The seed of the simulated server, or the session built from it, broke an invariant. */
 export interface MockDataInvalidError {
   readonly code: typeof CONTAINER_ERROR_CODE.MockDataInvalid;
@@ -83,6 +93,7 @@ export type ContainerError =
   | InvalidRequestTimeoutError
   | InvalidBiometricFallbackError
   | StorageUnavailableError
+  | PlatformUnavailableError
   | MockDataInvalidError;
 
 export function invalidAdaptersSetting(received: string): InvalidAdaptersSettingError {
@@ -115,6 +126,10 @@ export function invalidBiometricFallback(): InvalidBiometricFallbackError {
 
 export function storageUnavailable(reason: DatabaseFailureReason): StorageUnavailableError {
   return { code: CONTAINER_ERROR_CODE.StorageUnavailable, reason };
+}
+
+export function platformUnavailable(): PlatformUnavailableError {
+  return { code: CONTAINER_ERROR_CODE.PlatformUnavailable };
 }
 
 export function mockDataInvalid(detail: string): MockDataInvalidError {

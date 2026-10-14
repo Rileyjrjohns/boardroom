@@ -1,6 +1,7 @@
 import type { BiometricReason } from '@application/ports/BiometricGate';
 import type { Clock } from '@application/ports/Clock';
 import type { Monitoring } from '@application/ports/Monitoring';
+import type { PromptText } from '@infrastructure/biometrics/DeviceBiometricGate';
 import type { Sleep } from '@infrastructure/clock/sleep';
 import type { DevicePlatform } from '@infrastructure/device/DevicePlatform';
 
@@ -17,10 +18,11 @@ export interface ContainerRuntime {
   readonly sleep?: Sleep;
   /**
    * The text of the system prompt that asks for a biometric proof, for a reason, in the language of
-   * the user. Infrastructure cannot import the translations, so the root layout hands over a
-   * function that reads them, and that reads the current language each time it is called.
+   * the user: what it says, and the label of its cancel button. Infrastructure cannot import the
+   * translations, so the root layout hands over a function that reads them, and that reads the
+   * current language each time it is called.
    */
-  readonly biometricPromptText: (reason: BiometricReason) => string;
+  readonly biometricPromptText: (reason: BiometricReason) => PromptText;
   /** The real device: the engine of the database, the secure storage, the biometrics, the network. */
   readonly platform?: DevicePlatform;
 }

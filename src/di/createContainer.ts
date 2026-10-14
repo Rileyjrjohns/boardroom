@@ -18,11 +18,14 @@ import type {
   RawSettings,
 } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
+import { platformUnavailable } from './errors';
 import type { ContainerError } from './errors';
 import { createHttpPorts } from './httpPorts';
 import { createMockPorts } from './mockPorts';
 import type { DemoAccountHint, MockControls } from './mockPorts';
 import type { UseCaseSettings } from './Ports';
+import { NO_STARTUP_NOTICES } from './startupNotices';
+import type { StartupNotices } from './startupNotices';
 import { wireUseCases } from './wireUseCases';
 import type { UseCases } from './wireUseCases';
 
@@ -52,6 +55,7 @@ export interface MockContainer {
   readonly clock: Clock;
   readonly controls: MockControls;
   readonly demoControls: DemoControls;
+  readonly notices: StartupNotices;
 }
 
 /** The app wired against the API, SQLite, the secure storage and the device. */
@@ -61,6 +65,8 @@ export interface HttpContainer {
   readonly settings: ContainerSettings;
   /** The clock the use cases read, for the screen that has to record an instant (the background). */
   readonly clock: Clock;
+  /** What the user is owed an explanation of at the start. */
+  readonly notices: StartupNotices;
 }
 
 /**
@@ -97,6 +103,7 @@ function createMockContainer(
     clock: wiring.value.ports.clock,
     controls: wiring.value.controls,
     demoControls: { network: wiring.value.controls.network, accounts: wiring.value.demoAccounts },
+    notices: NO_STARTUP_NOTICES,
   });
 }
 
@@ -104,15 +111,16 @@ async function createHttpContainer(
   config: HttpConfiguration,
   runtime: ContainerRuntime,
 ): Promise<Result<HttpContainer, ContainerError>> {
-  const ports = await createHttpPorts(config, runtime);
-  if (!ports.ok) return ports;
+  const wiring = await createHttpPorts(config, runtime);
+  if (!wiring.ok) return wiring;
 
   return ok({
     kind: ADAPTERS.Http,
     // A real start is a cold start: whoever the stored session belongs to unlocks the app first.
-    useCases: wireUseCases(ports.value, settingsOfUseCases(true)),
+    useCases: wireUseCases(wiring.value.ports, settingsOfUseCases(true)),
     settings: SETTINGS,
-    clock: ports.value.clock,
+    clock: wiring.value.ports.clock,
+    notices: wiring.value.notices,
   });
 }
 
@@ -123,8 +131,9 @@ async function createHttpContainer(
  * instance. There is no container library and no lookup by name.
  *
  * It is asynchronous because the real configuration has to open its database, which reads the key
- * from the keychain, opens a file and migrates its schema. It answers with a `Result`: a database
- * that cannot be opened is an error to show, not an exception, and the app does not start on
+ * from the keychain, opens a file and migrates its schema. It answers with a `Result`, and never
+ * rejects: a database that cannot be opened is an error to show, not an exception, and so is a
+ * native module of the device that fails (`platformUnavailable`). The app does not start on
  * another configuration instead.
  */
 export function createContainer(
@@ -143,11 +152,17 @@ export async function createContainer(
   config: Configuration,
   runtime: ContainerRuntime,
 ): Promise<Result<Container, ContainerError>> {
-  switch (config.kind) {
-    case ADAPTERS.Mock:
-      return createMockContainer(config, runtime);
-    case ADAPTERS.Http:
-      return createHttpContainer(config, runtime);
+  try {
+    switch (config.kind) {
+      case ADAPTERS.Mock:
+        return createMockContainer(config, runtime);
+      case ADAPTERS.Http:
+        return await createHttpContainer(config, runtime);
+    }
+  } catch {
+    // The ports of the device and of the network promise not to throw, but the modules under them
+    // are native code that can fail to load or to start. What was thrown says nothing safe to keep.
+    return err(platformUnavailable());
   }
 }
 

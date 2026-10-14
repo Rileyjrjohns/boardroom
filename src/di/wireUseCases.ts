@@ -2,6 +2,7 @@ import { AcknowledgeRejectedVote } from '@application/use-cases/votes/Acknowledg
 import { CastVote } from '@application/use-cases/votes/CastVote';
 import { CloseDocument } from '@application/use-cases/documents/CloseDocument';
 import { ObserveConnectivity } from '@application/use-cases/connectivity/ObserveConnectivity';
+import { DiscardUnreadableVotes } from '@application/use-cases/votes/DiscardUnreadableVotes';
 import { EvaluateAppLock } from '@application/use-cases/auth/EvaluateAppLock';
 import { GetCurrentUser } from '@application/use-cases/auth/GetCurrentUser';
 import { GetMeeting } from '@application/use-cases/meetings/GetMeeting';
@@ -37,6 +38,7 @@ export interface UseCases {
   readonly syncPendingVotes: SyncPendingVotes;
   readonly listPendingVotes: ListPendingVotes;
   readonly acknowledgeRejectedVote: AcknowledgeRejectedVote;
+  readonly discardUnreadableVotes: DiscardUnreadableVotes;
 }
 
 /**
@@ -103,5 +105,6 @@ export function wireUseCases(ports: Ports, settings: UseCaseSettings): UseCases 
     syncPendingVotes: new SyncPendingVotes({ ...guard, outbox, votes, maxAttempts }),
     listPendingVotes: new ListPendingVotes({ ...guard, outbox }),
     acknowledgeRejectedVote: new AcknowledgeRejectedVote({ ...guard, outbox }),
+    discardUnreadableVotes: new DiscardUnreadableVotes({ ...guard, outbox }),
   };
 }

@@ -1,6 +1,7 @@
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { ConnectivityStatus } from '@application/ports/Connectivity';
 import { FRESHNESS } from '@application/shared/Loaded';
+import { MONITORING_EVENT } from '@application/ports/Monitoring';
 import { FakeMonitoring } from '@application/testing/FakeMonitoring';
 import { SESSION_RESTORE } from '@application/use-cases/auth/RestoreSession';
 import { CAST_VOTE_STATUS } from '@application/use-cases/votes/CastVote';
@@ -15,7 +16,6 @@ import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import { createPageRequest } from '@domain/value-objects/PageRequest';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 import type { DevicePlatform } from '@infrastructure/device/DevicePlatform';
-import { OPEN_FAILURE } from '@infrastructure/persistence/DatabaseOpener';
 import { DATABASE_FAILURE } from '@infrastructure/persistence/protectedDatabase';
 import { SECURE_STORAGE_KEY } from '@infrastructure/secure-storage/SecureStorage';
 import { FakeNetworkState } from '@infrastructure/testing/FakeNetworkState';
@@ -34,6 +34,8 @@ import { SimulatedCipherOpener } from '@infrastructure/testing/SimulatedCipherOp
 import { databaseDirectory } from '@infrastructure/testing/testDatabase';
 import { TEST_PASSWORD } from '@infrastructure/testing/testServer';
 
+import { DATABASE_NAME } from './config';
+import type { RawSettings } from './configuration';
 import { ADAPTERS } from './adapters';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { startContainer } from './createContainer';
@@ -45,6 +47,14 @@ import { CONTAINER_ERROR_CODE } from './errors';
 // of the device scripted, and the simulated server behind MSW. Nothing is replaced under the use
 // cases but the device and the network.
 
+const CANCEL_LABEL = 'Annuler';
+/** Longer than the shortest timeout the configuration accepts. */
+const SLOWER_THAN_THE_TIMEOUT_MILLIS = 1400;
+const promptText: ContainerRuntime['biometricPromptText'] = (reason) => ({
+  message: reason,
+  cancelLabel: CANCEL_LABEL,
+});
+
 const installed = installMockApi();
 const directory = databaseDirectory();
 const { Online, Offline } = CONNECTIVITY_STATUS;
@@ -52,14 +62,15 @@ const { Online, Offline } = CONNECTIVITY_STATUS;
 /** A device that outlives the app: the keychain, the files and the network state stay when it restarts. */
 function aDevice() {
   const storage = new MemorySecureStorage();
-  const opener = new SimulatedCipherOpener(
-    new NodeSqliteOpener(freshDirectory(directory), nodeFileSystem()),
-  );
+  const files = new NodeSqliteOpener(freshDirectory(directory), nodeFileSystem());
+  const opener = new SimulatedCipherOpener(files);
   const networkState = new FakeNetworkState();
   const biometrics = {
     hardware: true,
     enrolled: true,
     prompts: [] as string[],
+    /** What the platform was asked, whole. */
+    asked: [] as Parameters<DevicePlatform['localAuthentication']['authenticate']>[0][],
     outcome: { success: true } as
       { success: true } | { success: false; error: 'user_cancel' | 'lockout' },
   };
@@ -69,14 +80,15 @@ function aDevice() {
     localAuthentication: {
       hasHardware: () => Promise.resolve(biometrics.hardware),
       isEnrolled: () => Promise.resolve(biometrics.enrolled),
-      authenticate: ({ promptMessage }) => {
-        biometrics.prompts.push(promptMessage);
+      authenticate: (options) => {
+        biometrics.prompts.push(options.promptMessage);
+        biometrics.asked.push(options);
         return Promise.resolve(biometrics.outcome);
       },
     },
     networkState,
   };
-  return { storage, opener, networkState, biometrics, platform };
+  return { storage, opener, files, networkState, biometrics, platform };
 }
 
 type Device = ReturnType<typeof aDevice>;
@@ -89,15 +101,22 @@ function aWorld() {
   const [alice] = server.accounts;
   if (alice === undefined) throw new Error('The test server has no account.');
 
-  async function start(on: Device = device, overrides: Partial<ContainerRuntime> = {}) {
+  async function start(
+    on: Device = device,
+    overrides: Partial<ContainerRuntime> = {},
+    settings: Partial<RawSettings> = {},
+  ) {
     const started = await startContainer(
-      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL, ...settings },
       { development: true },
       {
         clock: server.clock,
         monitoring,
         platform: on.platform,
-        biometricPromptText: (reason) => `prompt:${reason}`,
+        biometricPromptText: (reason) => ({
+          message: `prompt:${reason}`,
+          cancelLabel: CANCEL_LABEL,
+        }),
         ...overrides,
       },
     );
@@ -260,9 +279,12 @@ describe('createContainer, http configuration, end to end', () => {
 
     const stored = device.storage.snapshot();
 
-    expect(stored[SECURE_STORAGE_KEY.DatabaseKey]).toMatch(/^[0-9a-f]{64}$/);
+    // The generation of the file, and the key.
+    expect(stored[SECURE_STORAGE_KEY.DatabaseKey]).toMatch(/^[0-9]+:[0-9a-f]{64}$/);
     expect(
-      device.opener.keysUsed.every((key) => key === stored[SECURE_STORAGE_KEY.DatabaseKey]),
+      device.opener.keysUsed.every(
+        (key) => key === stored[SECURE_STORAGE_KEY.DatabaseKey]?.slice(-64),
+      ),
     ).toBe(true);
     // The token is in the keychain, not in the session the application sees.
     expect(JSON.parse(stored[SECURE_STORAGE_KEY.Session] ?? '{}')).toMatchObject({
@@ -287,8 +309,8 @@ describe('createContainer, http configuration, end to end', () => {
     expect(valueOf(await container.useCases.listPendingVotes.execute()).pending).toEqual([]);
   });
 
-  it('ends the session when the server no longer knows the token, and empties the saved copies', async () => {
-    const { start, credentials, server } = aWorld();
+  it('ends the session when the server no longer knows the token: it is forgotten on the device', async () => {
+    const { start, device, credentials, server } = aWorld();
     const container = await start();
     valueOf(await container.useCases.signIn.execute(credentials));
     valueOf(await list(container));
@@ -297,10 +319,12 @@ describe('createContainer, http configuration, end to end', () => {
     const refused = await list(container);
 
     expect(!refused.ok && refused.error.code).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
-    // The copies of the user were emptied: nothing is served from the cache any more.
-    installed.conditions.online = false;
-    const offline = await list(container);
-    expect(!offline.ok && offline.error.code).toBe(REPOSITORY_ERROR_CODE.NetworkUnavailable);
+    // The session is gone from the keychain, so that a restart does not find it.
+    expect(device.storage.snapshot()[SECURE_STORAGE_KEY.Session]).toBeUndefined();
+    const restarted = await start();
+    expect(valueOf(await restarted.useCases.restoreSession.execute()).status).toBe(
+      SESSION_RESTORE.None,
+    );
   });
 
   it('keeps the queue of a voter through a sign-out, and sends it when they come back', async () => {
@@ -344,7 +368,7 @@ describe('startContainer, http configuration, when it cannot start', () => {
       const started = await startContainer(
         { adapters: ADAPTERS.Http, apiBaseUrl },
         { development: false },
-        { platform: device.platform, biometricPromptText: (reason) => reason },
+        { platform: device.platform, biometricPromptText: promptText },
       );
 
       expect(started).toEqual({ ok: false, error: { code } });
@@ -360,7 +384,7 @@ describe('startContainer, http configuration, when it cannot start', () => {
     const started = await startContainer(
       { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
       { development: true },
-      { platform: device.platform, biometricPromptText: (reason) => reason },
+      { platform: device.platform, biometricPromptText: promptText },
     );
 
     expect(started).toEqual({
@@ -377,7 +401,7 @@ describe('startContainer, http configuration, when it cannot start', () => {
     const started = await startContainer(
       { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
       { development: true },
-      { platform: device.platform, biometricPromptText: (reason) => reason },
+      { platform: device.platform, biometricPromptText: promptText },
     );
 
     expect(started).toEqual({
@@ -391,17 +415,211 @@ describe('startContainer, http configuration, when it cannot start', () => {
 
   it('says the storage is unavailable when the database cannot be opened', async () => {
     const { device } = aWorld();
-    device.opener.failNextOpenWith(OPEN_FAILURE.Failed);
+    device.opener.failNextOpens();
 
     const started = await startContainer(
       { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
       { development: true },
-      { platform: device.platform, biometricPromptText: (reason) => reason },
+      { platform: device.platform, biometricPromptText: promptText },
     );
 
     expect(started).toEqual({
       ok: false,
       error: { code: CONTAINER_ERROR_CODE.StorageUnavailable, reason: DATABASE_FAILURE.Open },
+    });
+  });
+});
+
+describe('startContainer, http configuration, the settings reach the adapters', () => {
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    'with the passcode accepted = %s, the prompt of the biometrics disables the fallback = %s',
+    async (accepted, disabled) => {
+      const { start, device, credentials } = aWorld();
+      const container = await start(device, {}, { allowDevicePasscode: accepted });
+      valueOf(await container.useCases.signIn.execute(credentials));
+      valueOf(await container.useCases.restoreSession.execute());
+
+      valueOf(await container.useCases.unlockApp.execute());
+
+      expect(device.biometrics.asked.map((asked) => asked.disableDeviceFallback)).toEqual([
+        disabled,
+      ]);
+    },
+  );
+
+  it('refuses the passcode by default', async () => {
+    const { start, device, credentials } = aWorld();
+    const container = await start();
+    valueOf(await container.useCases.signIn.execute(credentials));
+    valueOf(await container.useCases.restoreSession.execute());
+
+    valueOf(await container.useCases.unlockApp.execute());
+
+    expect(device.biometrics.asked.map((asked) => asked.disableDeviceFallback)).toEqual([true]);
+  });
+
+  it('asks for strong biometrics, with the cancel label of the language, for the reason it was given', async () => {
+    const { start, device, credentials } = aWorld();
+    const container = await start();
+    valueOf(await container.useCases.signIn.execute(credentials));
+    valueOf(await container.useCases.restoreSession.execute());
+
+    valueOf(await container.useCases.unlockApp.execute());
+
+    expect(device.biometrics.asked).toEqual([
+      {
+        promptMessage: `prompt:${BIOMETRIC_REASON.UnlockApp}`,
+        cancelLabel: CANCEL_LABEL,
+        disableDeviceFallback: true,
+        biometricsSecurityLevel: 'strong',
+      },
+    ]);
+  });
+
+  it('gives the requests the timeout of the setting: a server that never answers is a network failure in time', async () => {
+    const { start, credentials } = aWorld();
+    const container = await start(undefined, {}, { requestTimeoutMillis: 1000 });
+    valueOf(await container.useCases.signIn.execute(credentials));
+    // A server slower than the setting, which answers after it: the request is given up on at the
+    // timeout, and the late answer is let through before the next test, so that it reaches nobody.
+    installed.conditions.delayMillis = SLOWER_THAN_THE_TIMEOUT_MILLIS;
+
+    const started = Date.now();
+    const listed = await list(container);
+    const elapsed = Date.now() - started;
+    await new Promise((resolve) => setTimeout(resolve, SLOWER_THAN_THE_TIMEOUT_MILLIS));
+
+    expect(!listed.ok && listed.error.code).toBe(REPOSITORY_ERROR_CODE.NetworkUnavailable);
+    // The default is fifteen seconds: the server answers long before.
+    expect(elapsed).toBeGreaterThanOrEqual(900);
+    expect(elapsed).toBeLessThan(SLOWER_THAN_THE_TIMEOUT_MILLIS);
+  });
+
+  it('refuses a timeout out of bounds and a passcode setting that is not a yes or a no, before it touches the device', async () => {
+    const { device } = aWorld();
+
+    const timeout = await startContainer(
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL, requestTimeoutMillis: 5 },
+      { development: true },
+      { platform: device.platform, biometricPromptText: promptText },
+    );
+    const passcode = await startContainer(
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL, allowDevicePasscode: 'yes' },
+      { development: true },
+      { platform: device.platform, biometricPromptText: promptText },
+    );
+
+    expect(timeout).toEqual({
+      ok: false,
+      error: { code: CONTAINER_ERROR_CODE.InvalidRequestTimeout },
+    });
+    expect(passcode).toEqual({
+      ok: false,
+      error: { code: CONTAINER_ERROR_CODE.InvalidBiometricFallback },
+    });
+    expect(device.storage.snapshot()).toEqual({});
+  });
+});
+
+describe('startContainer, http configuration, when local data cannot be read', () => {
+  /** Votes cast offline, waiting in the encrypted database, and the app stopped. */
+  async function aDeviceWithAWaitingVote() {
+    const world = aWorld();
+    const container = await world.start();
+    valueOf(await container.useCases.signIn.execute(world.credentials));
+    valueOf(await container.useCases.getMeeting.execute({ meetingId: MEETING }));
+    world.goOffline();
+    valueOf(
+      await container.useCases.castVote.execute({
+        meetingId: MEETING,
+        resolutionId: FIRST,
+        choice: VOTE_CHOICE.For,
+      }),
+    );
+    world.goOnline();
+    return world;
+  }
+
+  it('starts on a new database, tells the notice once, and keeps the old file', async () => {
+    const world = await aDeviceWithAWaitingVote();
+    // The keychain gives back a key that does not open the file: a restored backup, say.
+    world.device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, `0:${'c'.repeat(64)}`);
+
+    const restarted = await world.start();
+
+    expect(restarted.notices.localDataReset).toBe(true);
+    expect(valueOf(await restarted.useCases.restoreSession.execute()).status).toBe(
+      SESSION_RESTORE.UnlockRequired,
+    );
+    valueOf(await restarted.useCases.unlockApp.execute());
+    expect(valueOf(await restarted.useCases.listPendingVotes.execute()).pending).toEqual([]);
+    expect(world.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.DatabaseRecreated]);
+    expect(world.device.files.exists(DATABASE_NAME)).toBe(true);
+  });
+
+  it('tells the notice again at the next start until it is acknowledged, and not after', async () => {
+    const world = await aDeviceWithAWaitingVote();
+    world.device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, `0:${'c'.repeat(64)}`);
+    const first = await world.start();
+
+    const again = await world.start();
+    await again.notices.acknowledgeLocalDataReset();
+    const after = await world.start();
+
+    expect(first.notices.localDataReset).toBe(true);
+    expect(again.notices.localDataReset).toBe(true);
+    expect(after.notices.localDataReset).toBe(false);
+  });
+
+  it('has nothing to tell on a start where nothing was lost', async () => {
+    const world = aWorld();
+
+    const container = await world.start();
+    await world.start();
+
+    expect(container.notices.localDataReset).toBe(false);
+  });
+
+  it('does not start, and sets nothing aside, when what the keychain holds is not a key', async () => {
+    const world = await aDeviceWithAWaitingVote();
+    world.device.storage.seed(SECURE_STORAGE_KEY.DatabaseKey, 'not a key');
+
+    const started = await startContainer(
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
+      { development: true },
+      { platform: world.device.platform, biometricPromptText: promptText },
+    );
+
+    expect(started).toEqual({
+      ok: false,
+      error: { code: CONTAINER_ERROR_CODE.StorageUnavailable, reason: DATABASE_FAILURE.KeyStorage },
+    });
+    expect(world.device.storage.snapshot()[SECURE_STORAGE_KEY.LocalDataReset]).toBeUndefined();
+  });
+});
+
+describe('startContainer, when something the device provides fails to load', () => {
+  it('answers with an error of its own instead of rejecting, whatever was thrown', async () => {
+    // Reading the platform is where the modules under it are loaded, in the real runtime.
+    const runtime: ContainerRuntime = { biometricPromptText: promptText };
+    Object.defineProperty(runtime, 'platform', {
+      get: (): never => {
+        throw new Error('Cannot find native module /private/path/ExpoSQLite');
+      },
+    });
+
+    const started = await startContainer(
+      { adapters: ADAPTERS.Http, apiBaseUrl: TEST_API_URL },
+      { development: true },
+      runtime,
+    );
+
+    expect(started).toEqual({
+      ok: false,
+      error: { code: CONTAINER_ERROR_CODE.PlatformUnavailable },
     });
   });
 });
