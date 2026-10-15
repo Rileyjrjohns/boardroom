@@ -22,7 +22,7 @@ The app holds meeting papers that are confidential, and the choices of a secret 
 - A copy of the database file, a locked lost phone or a backup restored elsewhere reveals nothing. Someone who runs code as the app on an unlocked, rooted or jailbroken device reads the key and the data: the key and the data are on the same device.
 - The lock is enforced by the application layer and tested, not a flag a screen may forget.
 - Fail-closed choices cost the user something (a locked-out biometric means waiting or signing in again), and the cost is accepted.
-- The watermark and the screen protection deter and attribute; they prevent nothing on iOS, where a screenshot or a photo of the screen remains possible. The text of a protected document cannot be copied from the viewer there, because the selection is cleared as soon as it appears and the menu that follows is dismissed (it was run on a simulator, not on a device); the text of a document that is not protected still can.
+- The watermark and the screen protection deter and attribute; they prevent nothing on iOS, where a screenshot or a photo of the screen remains possible. Hosting the document in the secure layer of a `UITextField` with `isSecureTextEntry` (an undocumented workaround) was tried on a physical iPhone under iOS 27: captures still showed the document, so it was dropped. The text of a protected document cannot be copied from the viewer there, because the selection is cleared as soon as it appears and the menu that follows is dismissed (it was run on a simulator, not on a device); the text of a document that is not protected still can.
 
 ## Alternatives considered
 
