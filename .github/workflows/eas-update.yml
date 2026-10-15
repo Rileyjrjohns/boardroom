@@ -30,10 +30,11 @@ env:
 jobs:
   publish:
     name: Publish to the preview channel
-    # Gated on the CI: only a successful run of a push to main publishes.
+    # Gated on the CI: only a successful run of a push to main publishes. Skipped (not failed) while
+    # the repository has no EAS project configured (the EAS_PROJECT_ID variable).
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+      ${{ vars.EAS_PROJECT_ID != '' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
