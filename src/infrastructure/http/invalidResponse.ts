@@ -63,6 +63,14 @@ export const CONTENT_VIOLATION = {
   NoVersion: 'noVersion',
 } as const;
 
+/** Why an answer that is well formed was refused, for the logs. */
+export const IDENTITY_VIOLATION = {
+  /** It describes another item than the one that was asked for. */
+  OtherItem: 'otherItem',
+} as const;
+
+export type IdentityViolation = (typeof IDENTITY_VIOLATION)[keyof typeof IDENTITY_VIOLATION];
+
 export type ContentViolation = (typeof CONTENT_VIOLATION)[keyof typeof CONTENT_VIOLATION];
 
 /**
@@ -74,6 +82,25 @@ export function contentViolation(
   monitoring: Monitoring,
   resource: HttpResource,
   violation: ContentViolation,
+): UnexpectedError {
+  const error = unexpected(INVALID_RESPONSE_CAUSE);
+  monitoring.captureError(MONITORING_EVENT.ResponseInvalid, error, {
+    [LOG_ATTRIBUTE.Resource]: resource,
+    [LOG_ATTRIBUTE.Reason]: violation,
+  });
+  return error;
+}
+
+/**
+ * An answer that has the shape of the API but is about another item than the one that was asked
+ * for (a server, a proxy or a cache that mixes up two requests) becomes `unexpected`. It is not
+ * trusted: the metadata of one document must never be shown for another, nor saved under its
+ * identifier. The monitoring is told which rule was broken, and neither identifier.
+ */
+export function identityViolation(
+  monitoring: Monitoring,
+  resource: HttpResource,
+  violation: IdentityViolation,
 ): UnexpectedError {
   const error = unexpected(INVALID_RESPONSE_CAUSE);
   monitoring.captureError(MONITORING_EVENT.ResponseInvalid, error, {

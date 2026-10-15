@@ -20,6 +20,8 @@ import {
   contentViolation,
   domainViolation,
   HTTP_RESOURCE,
+  IDENTITY_VIOLATION,
+  identityViolation,
 } from './invalidResponse';
 import { HTTP_METHOD, MAX_DOCUMENT_BYTES, MEDIA_TYPE_PDF, ROUTES } from './protocol';
 
@@ -35,7 +37,8 @@ export interface HttpDocumentRepositoryOptions {
 
 /**
  * The documents of the API: `GET /documents/{id}` for the metadata, and `GET /documents/{id}/content`
- * for the file. The requests are given to the client as functions, so that the route, which is made
+ * for the file. The metadata must be those of the document that was asked for: an answer about
+ * another one is `unexpected`. The requests are given to the client as functions, so that the route, which is made
  * of an identifier, is built where the client can catch a failure: an adapter never throws.
  *
  * **Downloading.** `fetchContent` fetches the PDF through the client, which gives it the rules of
@@ -73,9 +76,15 @@ export class HttpDocumentRepository implements DocumentRepository {
     if (!answer.ok) return err(asRepositoryError(answer.error));
 
     const document = toDocument(answer.value);
-    return document.ok
-      ? document
-      : err(domainViolation(this.monitoring, HTTP_RESOURCE.Document, document.error));
+    if (!document.ok) {
+      return err(domainViolation(this.monitoring, HTTP_RESOURCE.Document, document.error));
+    }
+    if (document.value.id !== id) {
+      return err(
+        identityViolation(this.monitoring, HTTP_RESOURCE.Document, IDENTITY_VIOLATION.OtherItem),
+      );
+    }
+    return document;
   }
 
   async fetchContent(id: DocumentId): Promise<Result<DocumentLocation, RepositoryError>> {

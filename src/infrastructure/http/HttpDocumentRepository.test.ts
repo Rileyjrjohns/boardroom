@@ -1,9 +1,10 @@
 import { MONITORING_EVENT } from '@application/ports/Monitoring';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
-import { aDocument, aDuration, aMeeting, aUserId } from '@domain/testing/builders';
+import { aDocument, aDocumentId, aDuration, aMeeting, aUserId } from '@domain/testing/builders';
 import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 
 import { documentFileName } from '../documents/storeDocumentContent';
+import { toDocumentWire } from './dto/documentDto';
 import { createDocumentPdf } from '../pdf/createDocumentPdf';
 import { createHttpWorld, installMockApi, TEST_API_URL } from '../testing/httpWorld';
 import type { HttpWorld, HttpWorldOptions } from '../testing/httpWorld';
@@ -66,6 +67,39 @@ function streamOf(size: number): ReadableStream<Uint8Array> {
     },
   });
 }
+
+describe('HttpDocumentRepository, reading the metadata', () => {
+  it('answers the document that was asked for', async () => {
+    const world = await aWorld();
+
+    expect(await world.documents.get(DOCUMENT.id)).toEqual({ ok: true, value: DOCUMENT });
+  });
+
+  it('refuses the metadata of another document than the one asked for, and tells nothing of either', async () => {
+    const world = await aWorld();
+    const other = aDocument({ id: aDocumentId('document-other'), title: 'Board minutes' });
+    serverSends(JSON.stringify(toDocumentWire(other)), {
+      status: HTTP_STATUS.Ok,
+      headers: { [HTTP_HEADER.ContentType]: 'application/json' },
+    });
+
+    const refused = await world.documents.get(DOCUMENT.id);
+
+    expect(refused).toEqual({
+      ok: false,
+      error: { code: REPOSITORY_ERROR_CODE.Unexpected, cause: 'invalid response' },
+    });
+    expect(world.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.ResponseInvalid]);
+    expect(world.monitoring.errors[0]?.attributes).toEqual({
+      resource: 'document',
+      reason: 'otherItem',
+    });
+    const everything = JSON.stringify([refused, world.monitoring.errors, world.monitoring.logs]);
+    expect(everything).not.toContain(DOCUMENT.id);
+    expect(everything).not.toContain(other.id);
+    expect(everything).not.toContain(other.title);
+  });
+});
 
 describe('HttpDocumentRepository, downloading the content', () => {
   describe('a PDF', () => {
