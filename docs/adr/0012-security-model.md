@@ -15,14 +15,14 @@ The app holds meeting papers that are confidential, and the choices of a secret 
 - **Screen.** `FLAG_SECURE` on Android blocks screenshots and recordings of the activity window. iOS cannot block them: a cover hides the app switcher and the app listens for captures. A confidential document, and any document served from the cache, is protected. Every document viewed carries a watermark with the name, the email and the time of the reader.
 - **Transport and logs.** HTTPS outside development builds, no redirects, `Cache-Control: no-store`. The monitoring gets identifiers, codes and counts, never a name, a token, a path or the choice of a vote. No secret goes into `app.config.ts` or an `EXPO_PUBLIC_` variable (a test checks the first).
 
-**Not covered**, and written in the README: certificate pinning, root and jailbreak detection, app attestation, server-side revocation (the demo API has none), encryption of the document files (they are plain PDFs in the sandbox, out of the backups and deleted at sign-out), the encrypted database in the iOS backup, key rotation, data in memory while the app runs, and the Keychain of iOS outliving a reinstall.
+**Not covered**, and written in the README: certificate pinning, root and jailbreak detection, app attestation, server-side revocation (the demo API has none), encryption of the document files (they are plain PDFs in the sandbox, out of the backups and deleted at sign-out), copying the text of a document on iOS (the viewer keeps the selection of PDFKit, and the `enableTextSelection` prop of `react-native-pdf` 7.0.5 does not reach the iOS view; Android has no text selection in this viewer; a patch of the library that clears the selection while the protection is on, or a native viewer, is future work), the encrypted database in the iOS backup, key rotation, data in memory while the app runs, and the Keychain of iOS outliving a reinstall.
 
 ## Consequences
 
 - A copy of the database file, a locked lost phone or a backup restored elsewhere reveals nothing. Someone who runs code as the app on an unlocked, rooted or jailbroken device reads the key and the data: the key and the data are on the same device.
 - The lock is enforced by the application layer and tested, not a flag a screen may forget.
 - Fail-closed choices cost the user something (a locked-out biometric means waiting or signing in again), and the cost is accepted.
-- The watermark and the screen protection deter and attribute; they prevent nothing on iOS.
+- The watermark and the screen protection deter and attribute; they prevent nothing on iOS, where a reader can also select and copy the text of a document.
 
 ## Alternatives considered
 
