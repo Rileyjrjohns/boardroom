@@ -1,5 +1,5 @@
 import { NavigationContext } from 'expo-router/react-navigation';
-import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import type { ReactNode } from 'react';
 
@@ -31,6 +31,7 @@ import { ACCESS } from '../state/uiStore';
 import { TEST_IDS } from '../testIds';
 import { pdfProps, pdfStub, resetPdfStub } from '../testing/reactNativePdfStub';
 import { renderScreen } from '../testing/renderScreen';
+import { resetSecureViewStub, secureViewStub } from '../testing/screenProtectionSecureViewStub';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
 import { DocumentScreen } from './DocumentScreen';
@@ -81,6 +82,7 @@ async function opened(): Promise<void> {
 
 beforeEach(() => {
   resetPdfStub();
+  resetSecureViewStub();
 });
 
 afterEach(() => {
@@ -173,6 +175,35 @@ describe('DocumentScreen, a confidential document', () => {
       new RegExp(`${READER.fullName}|${READER.email}|Remuneration`),
     );
   });
+});
+
+describe('DocumentScreen, the secure container', () => {
+  it('puts the PDF and the watermark of a protected document in the secure container, and the title and the badge outside it', async () => {
+    renderDocument();
+    await opened();
+
+    expect(secureViewStub.latest).toBe(true);
+    const container = screen.getByTestId(TEST_IDS.documentSecureContent);
+    expect(within(container).getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(
+      within(container).getByTestId(TEST_IDS.documentWatermark, { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(within(container).queryByTestId(TEST_IDS.documentTitle)).toBeNull();
+    expect(within(container).queryByTestId(TEST_IDS.documentProtectedBadge)).toBeNull();
+    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toBeTruthy();
+  });
+
+  it.each([PACK, MINUTES])(
+    'keeps the container plain for a document that is not protected: %s',
+    async (document) => {
+      renderDocument(document.id);
+      await opened();
+
+      expect(secureViewStub.latest).toBe(false);
+      const container = screen.getByTestId(TEST_IDS.documentSecureContent);
+      expect(within(container).getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    },
+  );
 });
 
 describe('DocumentScreen, a document that is not confidential', () => {

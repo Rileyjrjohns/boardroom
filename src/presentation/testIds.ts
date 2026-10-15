@@ -95,6 +95,7 @@ export const TEST_IDS = {
   documentPdfError: 'document-pdf-error',
   documentPageIndicator: 'document-page-indicator',
   documentWatermark: 'document-watermark',
+  documentSecureContent: 'document-secure-content',
   documentWatermarkTile: 'document-watermark-tile',
   documentCaptureNotice: 'document-capture-notice',
   documentCaptureDismiss: 'document-capture-dismiss',

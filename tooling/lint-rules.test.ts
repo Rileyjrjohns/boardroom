@@ -619,6 +619,19 @@ const nativeModuleRejectedFiles = {
   'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
 } as const;
 
+/** The one component of the presentation that may import the secure view of the native module. */
+const SECURE_CONTENT = 'src/presentation/components/SecureContent.tsx';
+const OTHER_COMPONENT = 'src/presentation/components/Sample.tsx';
+
+/** The import of the secure view only, by the entry point of the native module. */
+function secureViewImport(filePath: string): Record<string, string> {
+  const to = path.posix.relative(path.posix.dirname(filePath), 'modules/screen-protection');
+  return {
+    'the secure view of the native module': `import { ScreenProtectionSecureView } from '${to}';\nexport const View = ScreenProtectionSecureView;`,
+    'the type of the props of the secure view': `import type { ScreenProtectionSecureViewProps } from '${to}';\nexport type Props = ScreenProtectionSecureViewProps;`,
+  };
+}
+
 const nativeModuleAcceptedFiles = {
   'the native adapter': NATIVE_ADAPTER,
   'a test of the native adapter': NATIVE_ADAPTER_TEST,
@@ -634,6 +647,31 @@ const acceptedNativeModule = Object.fromEntries(
   Object.entries(nativeModuleAcceptedFiles).map(([where, filePath]) => [
     where,
     registerAll(nativeModuleImports(filePath), asWritten, filePath),
+  ]),
+);
+
+/** What `SecureContent` may not import of the native module: all but its secure view. */
+const rejectedInSecureContent = registerAll(
+  nativeModuleImports(SECURE_CONTENT),
+  asWritten,
+  SECURE_CONTENT,
+);
+const acceptedInSecureContent = registerAll(
+  secureViewImport(SECURE_CONTENT),
+  asWritten,
+  SECURE_CONTENT,
+);
+/** The secure view, imported anywhere else in the presentation: still rejected. */
+const rejectedSecureViewElsewhere = Object.fromEntries(
+  Object.entries({
+    'another component': OTHER_COMPONENT,
+    'a screen': SCREEN,
+    'a hook of the presentation': PRESENTATION_HOOK,
+    'a route': ROUTE,
+    'a test of SecureContent': 'src/presentation/components/SecureContent.test.tsx',
+  }).map(([where, filePath]) => [
+    where,
+    registerAll(secureViewImport(filePath), asWritten, filePath),
   ]),
 );
 
@@ -1074,6 +1112,34 @@ describe('The native module ScreenProtection lint rules', () => {
       expect(guarded(snippet)).toEqual([]);
     });
   });
+
+  // The one exception: the component that mounts the secure view (a native view cannot cross the
+  // ScreenProtection port). It may import the secure view from the entry point, and nothing else.
+  describe('the exception for the secure view, in SecureContent', () => {
+    it.each(acceptedInSecureContent)('accepts the import of %s', (_name, snippet) => {
+      expect(guarded(snippet)).toEqual([]);
+    });
+
+    it.each(rejectedInSecureContent)(
+      'still rejects the import of %s, and says what it may import',
+      (_name, snippet) => {
+        expect(guarded(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringMatching(/may import the secure view|never a file inside it/),
+        );
+      },
+    );
+  });
+
+  describe.each(Object.entries(rejectedSecureViewElsewhere))(
+    'the secure view, in %s',
+    (_where, cases) => {
+      it.each(cases)('rejects the import of %s', (_name, snippet) => {
+        expect(guarded(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringContaining(NATIVE_MODULE_MESSAGE),
+        );
+      });
+    },
+  );
 });
 
 describe('The fetch lint rules', () => {

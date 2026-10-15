@@ -18,6 +18,7 @@ import { DocumentWatermark } from '../components/DocumentWatermark';
 import { LiveText } from '../components/LiveText';
 import { LoadingState } from '../components/LoadingState';
 import { PdfViewer } from '../components/PdfViewer';
+import { SecureContent } from '../components/SecureContent';
 import { StatusBanner } from '../components/StatusBanner';
 import { useFormatters } from '../format/FormattersProvider';
 import { DOCUMENT_VIEW_STATUS, useDocumentView } from '../hooks/useDocumentView';
@@ -155,13 +156,18 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
  * **Every document carries the watermark**, protected or not: the screen protection and the badge
  * are decided by the classification of the document (see `OpenDocument`), but the name of the
  * reader on a page deters a photograph of any document.
+ *
+ * **The pages and the watermark are in the secure container of a protected document**
+ * (`SecureContent`): on iOS they are left out of screenshots. The title, the badge and the page
+ * indicator are not, they are outside it. The loading veil is inside, so it does not matter which
+ * of the two a capture catches.
  */
 function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
   const { t } = useTranslation();
   const { number } = useFormatters();
   const insets = useSafeAreaInsets();
   const [pdf, setPdf] = useState<PdfState>(PDF_LOADING);
-  const { location, watermark } = opened;
+  const { location, watermark, screenProtected } = opened;
 
   const loaded = useCallback((pageCount: number) => {
     setPdf({ status: 'ready', page: FIRST_PAGE, pageCount });
@@ -186,21 +192,23 @@ function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
         </View>
       ) : (
         <View style={styles.page}>
-          <PdfViewer
-            uri={location}
-            onLoaded={loaded}
-            onPageChanged={pageChanged}
-            onFailed={failed}
-          />
-          {pdf.status === 'loading' ? (
-            <View style={styles.loading}>
-              <LoadingState
-                accessibilityLabel={t('document.rendering')}
-                testID={TEST_IDS.documentPdfLoading}
-              />
-            </View>
-          ) : null}
-          <DocumentWatermark watermark={watermark} />
+          <SecureContent secure={screenProtected}>
+            <PdfViewer
+              uri={location}
+              onLoaded={loaded}
+              onPageChanged={pageChanged}
+              onFailed={failed}
+            />
+            {pdf.status === 'loading' ? (
+              <View style={styles.loading}>
+                <LoadingState
+                  accessibilityLabel={t('document.rendering')}
+                  testID={TEST_IDS.documentPdfLoading}
+                />
+              </View>
+            ) : null}
+            <DocumentWatermark watermark={watermark} />
+          </SecureContent>
         </View>
       )}
 

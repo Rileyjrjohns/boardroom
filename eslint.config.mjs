@@ -20,7 +20,8 @@ import boundaries from 'eslint-plugin-boundaries';
  * (SQLite, secure storage, secure random numbers, biometrics, network), which only infrastructure
  * may use, and TanStack Query and Zustand, which only presentation may use. The local native
  * module ScreenProtection (`modules/screen-protection`) is imported by `src/infrastructure/native`
- * alone. `fetch` is used by one module only, the HTTP client.
+ * alone, with one exception: its secure view, a native *view* that no port can carry, which the
+ * presentation component `SecureContent` alone imports (see `SECURE_CONTENT_FILE`). `fetch` is used by one module only, the HTTP client.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
  * `@domain/*`-style aliases are classified like relative imports.
  *
@@ -122,6 +123,16 @@ const CRASH_REPORTER_PACKAGES = ['@sentry/**'];
 const NATIVE_MODULE_ELEMENT = 'native-modules';
 const NATIVE_MODULE_FILES = ['src/infrastructure/native/**'];
 
+/**
+ * The one file of the presentation that imports the native module: the component that mounts its
+ * secure view, a native element of the tree that the children of a document are mounted in. A view
+ * cannot cross the `ScreenProtection` port (a port carries data and calls), so this is a narrow,
+ * deliberate exception: the dependency policy below lets this file, and no other, import the module;
+ * `no-restricted-imports` lets it import the entry point only, and neither its default export (the
+ * native module, whose functions and events stay behind the port) nor a file inside it.
+ */
+const SECURE_CONTENT_FILE = 'src/presentation/components/SecureContent.tsx';
+
 /** The one module allowed to call `fetch`: everything that reaches the network goes through it. */
 const HTTP_CLIENT_FILE = 'src/infrastructure/http/HttpClient.ts';
 
@@ -182,6 +193,11 @@ const dependencyPolicies = [
     disallow: { to: element(NATIVE_MODULE_ELEMENT) },
     message:
       'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: the other layers reach it through the ScreenProtection port.',
+  },
+  // The exception to the rule above: the one component that mounts the secure view of the module.
+  {
+    from: { file: { path: SECURE_CONTENT_FILE } },
+    allow: { to: element(NATIVE_MODULE_ELEMENT) },
   },
   // Server state (TanStack Query) and interface state (Zustand) are presentation concerns: the
   // other layers hold no framework state, and a route file only mounts what the presentation gives it.
@@ -302,6 +318,22 @@ const NATIVE_MODULE_IMPORT_PATTERN = {
   message:
     'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: everything else reaches it through the ScreenProtection port.',
 };
+
+/**
+ * What `SecureContent` is not allowed to import from the native module, which it otherwise may: the
+ * default export (the native module itself, behind the port) and the module's own files.
+ */
+const SECURE_VIEW_ONLY_IMPORT_PATTERNS = [
+  {
+    group: ['**/modules/screen-protection'],
+    importNames: ['default', 'ScreenProtectionModule'],
+    message: `${SECURE_CONTENT_FILE} may import the secure view of the native module ScreenProtection and nothing else of it: the module itself is reached through the ScreenProtection port.`,
+  },
+  {
+    group: ['**/modules/screen-protection/**'],
+    message: `${SECURE_CONTENT_FILE} imports the entry point of the native module ScreenProtection, never a file inside it.`,
+  },
+];
 
 /**
  * The one file that imports `expo-file-system`: the volume of a device under the file store. The
@@ -857,6 +889,20 @@ export default defineConfig([
         TESTING_IMPORT_PATTERN,
         NATIVE_MODULE_IMPORT_PATTERN,
         FILE_SYSTEM_IMPORT_PATTERN,
+        SENTRY_IMPORT_PATTERN,
+      ),
+    },
+  },
+  {
+    // The component of the secure view is where the entry point of the native module is allowed,
+    // for the secure view only: exempt from the pattern of the module, not from the others.
+    files: [SECURE_CONTENT_FILE],
+    rules: {
+      'no-restricted-imports': restrictImports(
+        TESTING_IMPORT_PATTERN,
+        ...SECURE_VIEW_ONLY_IMPORT_PATTERNS,
+        FILE_SYSTEM_IMPORT_PATTERN,
+        PDF_VIEWER_IMPORT_PATTERN,
         SENTRY_IMPORT_PATTERN,
       ),
     },

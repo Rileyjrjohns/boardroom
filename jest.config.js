@@ -95,6 +95,17 @@ const pdfViewerStub = {
 };
 
 /**
+ * The local native module ScreenProtection, for the "ui" project: `SecureContent` imports its secure
+ * view, a native component. The stub renders the children in a plain view and records the `secure`
+ * prop. Only one component of the presentation imports the module (a lint rule).
+ * @type {Record<string, string>}
+ */
+const secureViewStub = {
+  '^(?:\\.\\./)+modules/screen-protection$':
+    '<rootDir>/src/presentation/testing/screenProtectionSecureViewStub.tsx',
+};
+
+/**
  * The Sentry SDK, for the "ui" project: the root layout builds the composition root, which builds
  * the monitoring over the SDK, and the SDK needs its native module. It is the empty module of the
  * "infra" project here too: no test of the screens starts the SDK (it takes an address).
@@ -218,7 +229,7 @@ const config = {
       preset: 'jest-expo',
       roots: ['<rootDir>/src/presentation'],
       testMatch: TEST_FILES,
-      moduleNameMapper: { ...pdfViewerStub, ...sentryStub, ...moduleNameMapper },
+      moduleNameMapper: { ...pdfViewerStub, ...secureViewStub, ...sentryStub, ...moduleNameMapper },
     },
     {
       displayName: 'tooling',
