@@ -51,12 +51,17 @@ describe('PdfViewer', () => {
     expect(pdfProps().source).toEqual({ uri: 'file:///documents/other.pdf', cache: false });
   });
 
-  it('turns off what copies a page and what leads out of the document', () => {
+  it('turns off what leads out of the document', () => {
     renderViewer();
 
-    expect(pdfProps().enableTextSelection).toBe(false);
     expect(pdfProps().enableAnnotationRendering).toBe(false);
     expect(pdfProps().onPressLink?.('https://example.com')).toBeUndefined();
+  });
+
+  it('does not set a text selection prop: the view ignores it, and setting it would claim a protection that is not there', () => {
+    renderViewer();
+
+    expect(pdfProps().enableTextSelection).toBeUndefined();
   });
 
   it('fits the width of the page', () => {

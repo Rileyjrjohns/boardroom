@@ -25,9 +25,19 @@ const ignoreLink = (): void => undefined;
 /**
  * Draws a PDF from a file of the device, with the native view of `react-native-pdf`. The one file
  * that imports the package (a lint rule keeps it so), and as small as it can be: it renames what
- * the view reports and sets what a confidential document needs off (text selection, which copies
- * what is on a page, annotations and links). Jest replaces the package with a stub that tests drive
- * (`testing/reactNativePdfStub.tsx`), so what is left unchecked here is the native view itself.
+ * the view reports and sets what a confidential document needs off (annotations and links). Jest
+ * replaces the package with a stub that tests drive (`testing/reactNativePdfStub.tsx`), so what is
+ * left unchecked here is the native view itself.
+ *
+ * Text selection is deliberately not set. The package has an `enableTextSelection` prop, and
+ * setting it to `false` would read as protection, but in 7.0.5 it protects nothing: the Fabric
+ * spec of the view does not declare it, so it never reaches the iOS view, which keeps the text
+ * selection of PDFKit (a reader can select and copy the text of a page); and where the old view
+ * manager does receive it, it only stops the view from reporting the selection to JavaScript, not
+ * from making one. Android has no text selection in this viewer. Closing the gap on iOS takes a
+ * patch of the package that clears the selection while the protection is on, or a native viewer;
+ * until then the screen protection, the watermark and the access log are what is left (see
+ * ADR 0012).
  */
 export function PdfViewer({ uri, onLoaded, onPageChanged, onFailed }: PdfViewerProps) {
   // The view reloads when it is given another source object, so the object is made once per file.
@@ -40,7 +50,6 @@ export function PdfViewer({ uri, onLoaded, onPageChanged, onFailed }: PdfViewerP
         style={styles.pdf}
         fitPolicy={0}
         enableAnnotationRendering={false}
-        enableTextSelection={false}
         renderActivityIndicator={renderNoProgress}
         onLoadComplete={onLoaded}
         onPageChanged={onPageChanged}

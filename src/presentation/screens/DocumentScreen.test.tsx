@@ -134,11 +134,10 @@ describe('DocumentScreen, a confidential document', () => {
     expect(screen.queryByTestId(TEST_IDS.documentWatermark)).toBeNull();
   });
 
-  it('hides the text of the file from selection, the annotations and the links', async () => {
+  it('turns off the annotations and the links of the file', async () => {
     renderDocument();
     await opened();
 
-    expect(pdfProps().enableTextSelection).toBe(false);
     expect(pdfProps().enableAnnotationRendering).toBe(false);
     pdfProps().onPressLink?.('https://example.com');
   });
