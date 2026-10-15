@@ -37,12 +37,19 @@ const config = JSON.parse(read('expo-module.config.json')) as {
 const eventNames = (source: string): string[] =>
   [...source.matchAll(/"(on[A-Z]\w*)"/g)].map((match) => match[1] ?? '').sort();
 
+/** The events of the module itself: the ones of the view are declared in its own definition. */
+const moduleEventNames = (source: string): string[] =>
+  eventNames(source).filter((name) => name !== VIEW_EVENT);
+
 /** The names given to `AsyncFunction("...")`. */
 const functionNames = (source: string): string[] =>
   [...source.matchAll(/AsyncFunction\("(\w+)"\)/g)].map((match) => match[1] ?? '').sort();
 
 const EVENTS = Object.values(NATIVE_EVENT).sort();
 const FUNCTIONS = ['isCaptured', 'setProtectionEnabled'];
+/** The event of the secure view: declared by the view, on both platforms, not by the module. */
+const VIEW_EVENT = 'onSecureLayerFallback';
+const VIEW_NAME = 'ScreenProtectionSecureView';
 
 describe('the native module ScreenProtection, its three sides', () => {
   it('is called ScreenProtection on both platforms', () => {
@@ -54,8 +61,8 @@ describe('the native module ScreenProtection, its three sides', () => {
   });
 
   it('declares the events the adapter listens to, on both platforms, and no other', () => {
-    expect(eventNames(swift)).toEqual(EVENTS);
-    expect(eventNames(kotlin)).toEqual(EVENTS);
+    expect(moduleEventNames(swift)).toEqual(EVENTS);
+    expect(moduleEventNames(kotlin)).toEqual(EVENTS);
     for (const name of EVENTS) expect(types).toContain(`${name}:`);
   });
 
@@ -145,6 +152,129 @@ describe('the native module ScreenProtection, text selection on iOS', () => {
 
   it('stops observing when the module is destroyed', () => {
     expect(swiftFunction('tearDown')).toContain('stopObservingSelections()');
+  });
+});
+
+// The secure view (see "Native module: ScreenProtection" in the README): its children are left out of
+// captures on iOS because the view sets the private `disableUpdateMask` flag of its own layer, the
+// flag UIKit sets for a secure text field. What a capture shows cannot be checked here: the owner
+// checks it on a phone (screenshots only, so far). What is checked here is that the wiring is there
+// on the three sides: the view is registered under the name the TypeScript side asks for, with the
+// prop and the event, on both platforms; the iOS view sets the flag through key-value coding behind
+// a guard on the setter, falls back to a plain view when there is none, and re-parents nothing (the
+// children are mounted by React as in any view); the Android view is a plain container that leaves
+// the layout of the children to React.
+describe('the native module ScreenProtection, the secure view', () => {
+  const iosView = read('ios', 'ScreenProtectionSecureView.swift');
+  const androidView = read(
+    'android',
+    'src',
+    'main',
+    'java',
+    'expo',
+    'modules',
+    'screenprotection',
+    'ScreenProtectionSecureView.kt',
+  );
+  const viewTs = read('src', 'ScreenProtectionSecureView.tsx');
+  const index = read('index.ts');
+
+  it('is registered under the name the TypeScript side asks for, with its prop and its event', () => {
+    expect(swift).toContain('View(ScreenProtectionSecureView.self)');
+    expect(swift).toContain('Prop("secure")');
+    expect(swift).toContain(`"${VIEW_EVENT}"`);
+    expect(kotlin).toContain('View(ScreenProtectionSecureView::class)');
+    expect(kotlin).toContain('Prop("secure")');
+    expect(kotlin).toContain(`"${VIEW_EVENT}"`);
+    expect(viewTs).toContain(`const VIEW_NAME = '${VIEW_NAME}'`);
+    expect(viewTs).toContain("const MODULE_NAME = 'ScreenProtection'");
+    expect(viewTs).toContain(VIEW_EVENT);
+    expect(types).toContain('SecureLayerFallbackEvent');
+  });
+
+  it('is exported by the entry point of the module', () => {
+    expect(index).toContain(
+      "export { ScreenProtectionSecureView } from './src/ScreenProtectionSecureView'",
+    );
+  });
+
+  it('is only asked of the native side when its view config is registered', () => {
+    expect(viewTs).toContain('getViewConfig(MODULE_NAME, VIEW_NAME)');
+    expect(viewTs).toContain('catch');
+  });
+
+  // The code of the Swift view, without its comments: the comments say what was tried before.
+  const iosCode = iosView
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('//'))
+    .join('\n');
+
+  it('sets the private flag of the layer that UIKit sets for a secure text field', () => {
+    expect(iosCode).toContain('static let key = "disableUpdateMask"');
+    expect(iosCode).toContain('static let setter = NSSelectorFromString("setDisableUpdateMask:")');
+    expect(iosCode).toContain('static let hiddenFromCapture = (1 << 1) | (1 << 4)');
+    expect(iosCode).toContain('static let visible = 0');
+    expect(iosCode).toContain('layer.setValue(mask, forKey: CaptureExclusion.key)');
+    expect(iosCode).toContain(
+      'let mask = secure ? CaptureExclusion.hiddenFromCapture : CaptureExclusion.visible',
+    );
+  });
+
+  it('only sets the flag when the layer answers to its setter, so that a missing one cannot crash', () => {
+    const guard = iosCode.indexOf('layer.responds(to: CaptureExclusion.setter)');
+    const set = iosCode.indexOf('layer.setValue(');
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(set).toBeGreaterThan(guard);
+    // The guard leaves the function: nothing is set when it fails.
+    expect(iosCode).toMatch(
+      /guard layer\.responds\(to: CaptureExclusion\.setter\) else \{[\s\S]*?\n {6}return\n {4}\}/,
+    );
+  });
+
+  it('applies the flag when the view reaches a window and when the prop changes', () => {
+    expect(iosCode).toContain('override func didMoveToWindow()');
+    expect(iosCode).toContain('if secure != oldValue');
+    expect(iosCode.match(/applyMode\(\)/g)).toHaveLength(3); // two calls and the definition
+    expect(iosCode).toContain('private func applyMode()');
+  });
+
+  it('puts nothing in a secure text field and moves no child: React mounts them as in any view', () => {
+    for (const absent of [
+      'UITextField',
+      'isSecureTextEntry',
+      'CanvasView',
+      'mountChildComponentView',
+      'unmountChildComponentView',
+      'insertSubview',
+      'addSubview',
+      'removeFromSuperview',
+      'canBecomeFirstResponder',
+      'isEnabled',
+    ]) {
+      expect(iosCode).not.toContain(absent);
+    }
+  });
+
+  it('falls back to a plain view, and says so, when the layer has no such property', () => {
+    expect(iosCode).toContain(
+      'reportFallback(reason: "the layer has no \\(CaptureExclusion.key) property")',
+    );
+    expect(iosCode).toContain('onSecureLayerFallback(["reason": reason])');
+    expect(iosCode).toContain('secureViewLog.error(');
+    expect(iosCode).toContain('guard window != nil, !reportedFallback else { return }');
+    expect(iosCode).not.toContain('fatalError');
+    expect(iosCode).not.toContain('try!');
+    expect(iosCode).not.toContain('as!');
+    expect(iosCode).not.toContain('!.');
+  });
+
+  it('is a plain container on Android, which lays nothing out itself', () => {
+    expect(androidView).toContain('class ScreenProtectionSecureView');
+    expect(androidView).toContain('ExpoView(context, appContext)');
+    expect(androidView).toContain(
+      'override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) = Unit',
+    );
+    expect(androidView).not.toContain('addFlags');
   });
 });
 

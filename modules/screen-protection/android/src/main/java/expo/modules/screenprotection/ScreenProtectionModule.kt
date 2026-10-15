@@ -10,6 +10,8 @@ import expo.modules.kotlin.modules.ModuleDefinition
 
 private const val SCREENSHOT_TAKEN = "onScreenshotTaken"
 private const val CAPTURE_CHANGED = "onCaptureChanged"
+// An event of the secure view, not of the module. Never sent on Android: the window flag is enough.
+private const val SECURE_LAYER_FALLBACK = "onSecureLayerFallback"
 
 /**
  * Screen protection for Android.
@@ -99,6 +101,15 @@ class ScreenProtectionModule : Module() {
       onMain {
         detachScreenshots()
         detachRecording()
+      }
+    }
+
+    // A plain container: FLAG_SECURE already keeps the whole window out of captures.
+    View(ScreenProtectionSecureView::class) {
+      Events(SECURE_LAYER_FALLBACK)
+
+      Prop("secure") { view: ScreenProtectionSecureView, secure: Boolean ->
+        view.secure = secure
       }
     }
 

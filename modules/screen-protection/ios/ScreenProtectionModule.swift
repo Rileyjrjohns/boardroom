@@ -4,6 +4,8 @@ import UIKit
 
 private let screenshotTakenEvent = "onScreenshotTaken"
 private let captureChangedEvent = "onCaptureChanged"
+/// An event of the secure view, not of the module (the view declares it).
+private let secureLayerFallbackEvent = "onSecureLayerFallback"
 
 /// How often, and for how long after a text selection, the edit menus of a PDF view are dismissed.
 private let editMenuSweepInterval: TimeInterval = 0.1
@@ -79,6 +81,17 @@ public final class ScreenProtectionModule: Module {
 
     OnDestroy { [weak self] in
       DispatchQueue.main.async { self?.tearDown() }
+    }
+
+    // A view whose layer is left out of captures through the private flag that UIKit sets for a
+    // secure text field (see ScreenProtectionSecureView.swift). The event reports that the layer has
+    // no such flag and the children are in a plain view.
+    View(ScreenProtectionSecureView.self) {
+      Events(secureLayerFallbackEvent)
+
+      Prop("secure") { (view: ScreenProtectionSecureView, secure: Bool) in
+        view.secure = secure
+      }
     }
   }
 

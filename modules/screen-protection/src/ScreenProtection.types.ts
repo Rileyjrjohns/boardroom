@@ -11,3 +11,9 @@ export type ScreenProtectionModuleEvents = {
   /** The screen started or stopped being captured. Sent when the state changes, not repeated. */
   onCaptureChanged: (event: CaptureChangedEvent) => void;
 };
+
+/** The payload of `onSecureLayerFallback`, an event of the secure view. */
+export interface SecureLayerFallbackEvent {
+  /** Why the children are in a plain container: a sentence for a log, not for the user. */
+  readonly reason: string;
+}
