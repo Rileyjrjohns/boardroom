@@ -1,0 +1,110 @@
+# The text of a protected PDF cannot be selected and copied on iOS, and the text of an unprotected one
+# can: the same long-press that brings the edit menu (Copy, Share, Look Up) over an internal document
+# brings nothing over a confidential one.
+#
+# The PDF view of iOS is a PDFKit `PDFView` that lets a reader select text, and the package that
+# draws it cannot turn that off. While a document is protected, the native module ScreenProtection
+# clears any selection of a `PDFView` as soon as PDFKit reports it (see "Native module:
+# ScreenProtection" in the README), so the menu has nothing to hang on. Android has no text
+# selection in this viewer, so the flow does nothing there.
+#
+# The menu is a system element and Maestro sees it on iOS (the flow below relies on it for the
+# control at the end), under the label of the language of the device: "Copy" or "Copier". The
+# long-press is done twice on the confidential document: on the middle of the view, which is blank
+# page, and on a word of the title near the top of the page, which is what selects text (the points
+# are relative to the screen, and the title of this document is on two lines, below the badges).
+#
+# The control is what gives the first part its meaning: the same gesture on an internal document,
+# after leaving the confidential one (protection is turned off on the way out and must not keep
+# clearing), does show the menu. A flow that cannot see the menu would pass the first part for the
+# wrong reason.
+#
+# meeting-001 is the first upcoming meeting; its second document (meeting-001-document-2) is the
+# report of the meeting and is confidential, its first (meeting-001-document-1) is internal.
+appId: com.boardroom.demo
+---
+- runFlow:
+    when:
+      platform: iOS
+    commands:
+      - runFlow: subflows/launch.yaml
+      - runFlow: subflows/sign-in.yaml
+      - extendedWaitUntil:
+          visible:
+            id: meeting-row-meeting-001
+          timeout: 30000
+      - tapOn:
+          id: meeting-row-meeting-001
+      - extendedWaitUntil:
+          visible:
+            id: meeting-detail
+          timeout: 30000
+
+      # The confidential document: protected, so no menu.
+      - scrollUntilVisible:
+          element:
+            id: document-meeting-001-document-2
+          timeout: 30000
+      - tapOn:
+          id: document-meeting-001-document-2
+      - extendedWaitUntil:
+          visible:
+            id: document-screen
+          timeout: 60000
+      - assertVisible:
+          id: document-protected-badge
+      - extendedWaitUntil:
+          visible:
+            id: document-pdf
+          timeout: 60000
+      - assertNotVisible:
+          id: document-pdf-error
+      # Let the first page be drawn, so that there is text to select.
+      - waitForAnimationToEnd:
+          timeout: 3000
+      - longPressOn:
+          id: document-pdf
+      - waitForAnimationToEnd:
+          timeout: 3000
+      - assertNotVisible: 'Copy|Copier'
+      - longPressOn:
+          point: '37%,35%'
+      - waitForAnimationToEnd:
+          timeout: 3000
+      - assertNotVisible: 'Copy|Copier'
+
+      # Back to the meeting with the back button of the header (at the top left of the screen; its
+      # label is the name of the previous screen, so it is tapped by position), then the internal
+      # document.
+      - tapOn:
+          point: '16%,10%'
+      - extendedWaitUntil:
+          visible:
+            id: meeting-detail
+          timeout: 30000
+      - scrollUntilVisible:
+          element:
+            id: document-meeting-001-document-1
+          timeout: 30000
+      - tapOn:
+          id: document-meeting-001-document-1
+      - extendedWaitUntil:
+          visible:
+            id: document-screen
+          timeout: 60000
+      - assertNotVisible:
+          id: document-protected-badge
+      - extendedWaitUntil:
+          visible:
+            id: document-pdf
+          timeout: 60000
+      - waitForAnimationToEnd:
+          timeout: 3000
+
+      # The control: the same gesture, on a word of the title (one line here, above the confidential
+      # one), brings the menu.
+      - longPressOn:
+          point: '31%,32%'
+      - extendedWaitUntil:
+          visible: 'Copy|Copier'
+          timeout: 10000

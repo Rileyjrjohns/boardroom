@@ -13,6 +13,9 @@ Pod::Spec.new do |s|
   s.source         = { git: '' }
   s.static_framework = true
 
+  # PDFKit: the module clears the text selection of the PDF views (see ScreenProtectionModule.swift).
+  s.frameworks = 'PDFKit'
+
   s.dependency 'ExpoModulesCore'
 
   s.pod_target_xcconfig = {

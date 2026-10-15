@@ -32,12 +32,11 @@ const ignoreLink = (): void => undefined;
  * Text selection is deliberately not set. The package has an `enableTextSelection` prop, and
  * setting it to `false` would read as protection, but in 7.0.5 it protects nothing: the Fabric
  * spec of the view does not declare it, so it never reaches the iOS view, which keeps the text
- * selection of PDFKit (a reader can select and copy the text of a page); and where the old view
- * manager does receive it, it only stops the view from reporting the selection to JavaScript, not
- * from making one. Android has no text selection in this viewer. Closing the gap on iOS takes a
- * patch of the package that clears the selection while the protection is on, or a native viewer;
- * until then the screen protection, the watermark and the access log are what is left (see
- * ADR 0012).
+ * selection of PDFKit; and where the old view manager does receive it, it only stops the view from
+ * reporting the selection to JavaScript, not from making one. Android has no text selection in
+ * this viewer. On iOS the native screen protection module clears the selection of any PDF view as
+ * soon as it appears, while a document is protected, and dismisses the edit menu that follows; it
+ * watches PDFKit, so a viewer that is not a `PDFView` would need its own handling (see ADR 0012).
  */
 export function PdfViewer({ uri, onLoaded, onPageChanged, onFailed }: PdfViewerProps) {
   // The view reloads when it is given another source object, so the object is made once per file.

@@ -86,6 +86,68 @@ describe('the native module ScreenProtection, its three sides', () => {
   });
 });
 
+// The text selection of the PDF views of iOS is cleared by the module (see "Native module:
+// ScreenProtection" in the README). The behaviour is checked on a simulator, with the Maestro flow
+// `document-no-copy`; what is checked here is that the wiring is there: PDFKit is imported and
+// linked, the observer listens to any PDFView, clears a selection that is not empty and dismisses
+// the edit menu that follows, and goes away when protection is turned off and when the module is
+// destroyed.
+describe('the native module ScreenProtection, text selection on iOS', () => {
+  const podspec = read('ios', 'ScreenProtection.podspec');
+
+  /** The body of a Swift function, from its signature to the closing brace at the same indentation. */
+  const swiftFunction = (name: string): string => {
+    const match = new RegExp(
+      `^( *)(?:private )?func ${name}\\([^\\n]*\\{\\n([\\s\\S]*?)\\n\\1\\}`,
+      'm',
+    ).exec(swift);
+    return match?.[2] ?? '';
+  };
+
+  it('imports PDFKit and links the framework in the podspec', () => {
+    expect(swift).toContain('import PDFKit');
+    expect(podspec).toContain("s.frameworks = 'PDFKit'");
+  });
+
+  it('observes the selection of any PDFView, on the main queue, without keeping the module alive', () => {
+    const start = swiftFunction('startObservingSelections');
+    expect(start).toContain('.PDFViewSelectionChanged');
+    expect(start).toContain('object: nil');
+    expect(start).toContain('queue: .main');
+    expect(start).toContain('[weak self]');
+    expect(start).toContain('self.protectionEnabled');
+    expect(start).toContain('notification.object as? PDFView');
+    expect(start).toContain('pdfView.currentSelection != nil');
+    expect(start).toContain('pdfView.clearSelection()');
+  });
+
+  it('dismisses the edit menus of the view after the selection, for a bounded time', () => {
+    expect(swiftFunction('startObservingSelections')).toContain(
+      'keepEditMenusDismissed(of: pdfView)',
+    );
+    const sweep = swiftFunction('keepEditMenusDismissed');
+    expect(sweep).toContain('[weak self, weak pdfView]');
+    expect(sweep).toContain('remaining > 0');
+    expect(sweep).toContain('self.dismissEditMenus(in: pdfView)');
+    expect(sweep).toContain('forMode: .common');
+    expect(swiftFunction('dismissEditMenus')).toContain('UIEditMenuInteraction');
+  });
+
+  it('starts observing when protection is turned on, and stops when it is turned off', () => {
+    const setProtection = swiftFunction('setProtection');
+    const [whenOn = '', whenOff = ''] = setProtection.split('} else {');
+    expect(whenOn).toContain('startObservingSelections()');
+    expect(whenOff).toContain('stopObservingSelections()');
+    const stop = swiftFunction('stopObservingSelections');
+    expect(stop).toContain('NotificationCenter.default.removeObserver(observer)');
+    expect(stop).toContain('editMenuSweep?.invalidate()');
+  });
+
+  it('stops observing when the module is destroyed', () => {
+    expect(swiftFunction('tearDown')).toContain('stopObservingSelections()');
+  });
+});
+
 describe('the native module ScreenProtection, Android permissions', () => {
   it.each(['DETECT_SCREEN_CAPTURE', 'DETECT_SCREEN_RECORDING'])(
     'asks for %s in the manifest of the module, which the build merges into the app',
