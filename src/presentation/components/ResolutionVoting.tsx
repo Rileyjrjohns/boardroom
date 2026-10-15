@@ -21,7 +21,13 @@ import {
 } from '../i18n/translationKeys';
 import { rejectionReasonText, votingReasonText } from '../i18n/voteMessages';
 import { useUiStore } from '../state/uiStore';
-import { TEST_IDS, voteChoiceTestId, voteNoticeTestId, voteOutcomeTestId } from '../testIds';
+import {
+  TEST_IDS,
+  voteChoiceTestId,
+  voteChoicesTestId,
+  voteNoticeTestId,
+  voteOutcomeTestId,
+} from '../testIds';
 import { colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 
 import { AcknowledgeButton } from './AcknowledgeButton';
@@ -150,19 +156,18 @@ function VoteState({ view, resolution, onChoose }: VoteStateProps) {
           <Text accessibilityRole="header" style={styles.heading}>
             {t('voting.choose')}
           </Text>
-          <View style={styles.row}>
+          <View style={styles.choiceList} testID={voteChoicesTestId(resolution.id)}>
             {CHOICES.map((value) => (
-              <View key={value} style={styles.choice}>
-                <Button
-                  title={t(VOTE_CHOICE_KEYS[value])}
-                  variant="secondary"
-                  accessibilityHint={t('voting.choiceHint')}
-                  onPress={() => {
-                    onChoose(value);
-                  }}
-                  testID={voteChoiceTestId(resolution.id, value)}
-                />
-              </View>
+              <Button
+                key={value}
+                title={t(VOTE_CHOICE_KEYS[value])}
+                variant="secondary"
+                accessibilityHint={t('voting.choiceHint')}
+                onPress={() => {
+                  onChoose(value);
+                }}
+                testID={voteChoiceTestId(resolution.id, value)}
+              />
             ))}
           </View>
         </View>
@@ -199,12 +204,11 @@ const styles = StyleSheet.create({
     fontWeight: fontWeights.semibold,
     color: colors.textPrimary,
   },
-  row: {
-    flexDirection: 'row',
+  // One below the other, each as wide as the screen: side by side, a third of the width left too
+  // little for "Abstention" (French, 16 points) on a 402-point phone, which broke the word in two,
+  // and a larger text size would do the same in any language.
+  choiceList: {
     gap: spacing.sm,
-  },
-  choice: {
-    flex: 1,
   },
   outcome: {
     fontSize: fontSizes.body,

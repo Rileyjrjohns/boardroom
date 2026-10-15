@@ -44,6 +44,7 @@ import {
   TEST_IDS,
   acknowledgeTestId,
   voteChoiceTestId,
+  voteChoicesTestId,
   voteNoticeTestId,
   voteOutcomeTestId,
   resolutionTestId,
@@ -180,6 +181,18 @@ describe('who may vote', () => {
 
     expect(button).toHaveStyle({ minHeight: 44 });
     expect(button.props.accessibilityHint).toBe(t('voting.choiceHint'));
+  });
+
+  it('stacks the choices instead of putting them side by side, so that no label is cut in two', async () => {
+    renderMeeting(MEETING);
+    await findChoices();
+
+    const list = screen.getByTestId(voteChoicesTestId(OPEN));
+
+    expect(list).not.toHaveStyle({ flexDirection: 'row' });
+    for (const choice of Object.values(VOTE_CHOICE)) {
+      expect(within(list).getByTestId(choiceId(choice))).toBeTruthy();
+    }
   });
 
   it.each([

@@ -107,6 +107,7 @@ const RESOLUTION_PREFIX = 'resolution-';
 const DOCUMENT_PREFIX = 'document-';
 const PARTICIPANT_PREFIX = 'participant-';
 const VOTE_CHOICE_PREFIX = 'vote-choice-';
+const VOTE_CHOICES_PREFIX = 'vote-choices-';
 const VOTE_NOTICE_PREFIX = 'vote-notice-';
 const VOTE_OUTCOME_PREFIX = 'vote-outcome-';
 const ACKNOWLEDGE_PREFIX = 'acknowledge-';
@@ -122,6 +123,9 @@ export const agendaItemTestId = (id: string): string => `${AGENDA_ITEM_PREFIX}${
 export const resolutionTestId = (id: string): string => `${RESOLUTION_PREFIX}${id}`;
 export const documentTestId = (id: string): string => `${DOCUMENT_PREFIX}${id}`;
 export const participantTestId = (userId: string): string => `${PARTICIPANT_PREFIX}${userId}`;
+/** The list that holds the three choice buttons of a resolution. */
+export const voteChoicesTestId = (resolutionId: ResolutionId): string =>
+  `${VOTE_CHOICES_PREFIX}${resolutionId}`;
 /** The button of one choice (for, against, abstain) under a resolution. */
 export const voteChoiceTestId = (resolutionId: ResolutionId, choice: VoteChoice): string =>
   `${VOTE_CHOICE_PREFIX}${resolutionId}-${choice}`;
