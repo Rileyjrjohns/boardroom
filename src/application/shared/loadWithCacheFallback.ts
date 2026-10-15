@@ -1,4 +1,5 @@
 import { isWithinMaxAge } from '@domain/policies/cacheAge';
+import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import type { SessionChangedError } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import type { RepositoryError } from '@domain/errors/RepositoryError';
@@ -57,7 +58,10 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
  * 1. Read the remote source. Then check that the user it was read for is still the one signed in
  *    (and the app still unlocked): a request can take long, and a sign-out and a sign-in can fall
  *    in the middle of it. If somebody else is signed in now, nothing is written, nothing is
- *    returned, and the answer is `sessionChanged`.
+ *    returned, and the answer is `sessionChanged`. If the remote call had succeeded, what it may
+ *    have left on the device (the file of a downloaded document, which no entry points at) is
+ *    removed by emptying both caches, unless the answer is `appLocked`: the user is the same and
+ *    comes back.
  * 2. On success, write the data through to the cache and return it `Fresh`. A cache that cannot be
  *    written does not fail the call: the failure is captured, the fresh data is returned, and the
  *    entry is removed (a copy that could not be refreshed must not stay readable as if it were
@@ -93,7 +97,17 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
   const remote = await source.fetch();
 
   const stillSignedIn = await requireSameUser(deps, owner);
-  if (isErr(stillSignedIn)) return stillSignedIn;
+  if (isErr(stillSignedIn)) {
+    // A source can keep what it fetched before this function sees it (the repository of the
+    // documents writes the file as soon as the download is complete), and nothing points at it:
+    // no entry is saved. Nobody must be left with it, so both caches are emptied, the files of
+    // the documents with them. Not when the app is only locked: the user is still the one who
+    // asked, and the cache they have is theirs. A failed remote call kept nothing.
+    if (isOk(remote) && stillSignedIn.error.code !== AUTHENTICATION_ERROR_CODE.AppLocked) {
+      await purgeCaches(deps);
+    }
+    return stillSignedIn;
+  }
 
   if (isOk(remote)) {
     const loadedAt = clock.now();

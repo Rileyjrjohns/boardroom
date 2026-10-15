@@ -21,8 +21,16 @@ export interface ScreenProtectionCoordinatorDeps {
  *
  * Calls are serialised. `acquire` and `release` are queued, and each one starts only when the one
  * before has settled, so the calls reach the platform in the order they were made and a slow
- * `disable` of A can never land after the `enable` of B that was asked for later. The queue and the
- * counts are the only state, in memory: they die with the app, as does the protection of the screen.
+ * `disable` of A can never land after the `enable` of B that was asked for later. The queue, the
+ * counts and whether a `disable` is owed are the only state, in memory: they die with the app, as
+ * does the protection of the screen.
+ *
+ * A view that is closed is gone, whatever the platform answers. When the last one is closed and the
+ * platform fails to turn the protection off, the failure is returned, and the coordinator remembers
+ * that a `disable` is owed: the next `release` that finds no view open (the closing of the view
+ * that failed, again, or of any other) sends it again. An `acquire` needs no retry of its own: its
+ * `enable` puts the protection on, and the view it counts will owe the `disable` when it is closed.
+ * So a `disable` that failed once can never keep the protection on for the rest of the session.
  *
  * One instance must be shared by every use case that opens or closes a document (`OpenDocument`,
  * `CloseDocument`): the composition root creates it once and injects it. Two instances would each
@@ -30,6 +38,8 @@ export interface ScreenProtectionCoordinatorDeps {
  */
 export class ScreenProtectionCoordinator {
   private readonly views = new Map<DocumentId, number>();
+  /** Set when a `disable` failed with no view open, until one goes through. */
+  private disableOwed = false;
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly deps: ScreenProtectionCoordinatorDeps) {}
@@ -50,25 +60,22 @@ export class ScreenProtectionCoordinator {
   }
 
   /**
-   * A view of a document is closed. A document with no view is ignored (no effect, success). When
-   * it was the last view of all, turns the protection off. If that fails the view stays counted,
-   * since the screen is still protected, and the failure is returned: calling again retries.
+   * A view of a document is closed, and is no longer counted, whatever happens next. A document
+   * with no view is ignored (no effect, success), unless a `disable` is owed and no view of any
+   * document is open: then it is sent again. When this was the last view of all, turns the
+   * protection off. If that fails, the failure is returned and the `disable` is owed (see the
+   * class).
    */
   release(documentId: DocumentId): Promise<Result<void, ScreenProtectionError>> {
     return this.enqueue(async () => {
-      const count = this.views.get(documentId) ?? 0;
-      if (count === 0) return ok(undefined);
+      if ((this.views.get(documentId) ?? 0) > 0) this.drop(documentId);
+      else if (!this.disableOwed) return ok(undefined);
 
-      if (this.totalViews() > 1) {
-        this.drop(documentId);
-        return ok(undefined);
-      }
+      if (this.totalViews() > 0) return ok(undefined);
 
       const disabled = await this.deps.screenProtection.disable();
-      if (isErr(disabled)) return disabled;
-
-      this.drop(documentId);
-      return ok(undefined);
+      this.disableOwed = isErr(disabled);
+      return disabled;
     });
   }
 

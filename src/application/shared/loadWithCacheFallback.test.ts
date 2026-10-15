@@ -1,4 +1,4 @@
-import { appLocked, sessionChanged } from '@domain/errors/AuthenticationError';
+import { appLocked, notAuthenticated, sessionChanged } from '@domain/errors/AuthenticationError';
 import {
   forbidden,
   networkUnavailable,
@@ -453,6 +453,51 @@ describe('loadWithCacheFallback', () => {
       expect(saved).toEqual([]);
     });
 
+    it('empties both caches when a fetch that succeeded ends after a sign-in, since it may have kept a file', async () => {
+      const deps = setup();
+      const { source } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)).then((result) => {
+          deps.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
+          return result;
+        }),
+      });
+
+      await loadWithCacheFallback(deps, OWNER, source);
+
+      expect(deps.meetingCache.purgeCalls).toBe(1);
+      expect(deps.documentCache.purgeCalls).toBe(1);
+    });
+
+    it('empties both caches when a fetch that succeeded ends after a sign-out', async () => {
+      const deps = setup();
+      const { source, saved } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)).then((result) => {
+          deps.auth.session = undefined;
+          return result;
+        }),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(notAuthenticated()));
+
+      expect(saved).toEqual([]);
+      expect(deps.meetingCache.purgeCalls).toBe(1);
+      expect(deps.documentCache.purgeCalls).toBe(1);
+    });
+
+    it('captures a purge that fails and still answers the refusal of the session', async () => {
+      const deps = setup();
+      deps.documentCache.purgeFailure = storageWriteFailed('disk full');
+      const { source } = scriptedSource({
+        fetch: Promise.resolve(ok(REMOTE)).then((result) => {
+          deps.auth.session = undefined;
+          return result;
+        }),
+      });
+
+      expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(notAuthenticated()));
+      expect(deps.monitoring.capturedEvents()).toEqual([MONITORING_EVENT.CachePurgeFailed]);
+    });
+
     it('does not read the cache of the previous owner either, nor evict anything', async () => {
       const deps = setup();
       const { source, reads, removals, revocations } = scriptedSource({
@@ -465,6 +510,8 @@ describe('loadWithCacheFallback', () => {
 
       expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(sessionChanged()));
       expect(reads() + removals() + revocations()).toBe(0);
+      // The remote call failed, so it kept nothing: the caches are left alone.
+      expect(deps.meetingCache.purgeCalls + deps.documentCache.purgeCalls).toBe(0);
     });
 
     it('answers appLocked when the app was locked meanwhile, and writes nothing', async () => {
@@ -478,6 +525,8 @@ describe('loadWithCacheFallback', () => {
 
       expect(await loadWithCacheFallback(deps, OWNER, source)).toEqual(err(appLocked()));
       expect(saved).toEqual([]);
+      // The user is the same and unlocks the app again: their cache is not theirs to lose.
+      expect(deps.meetingCache.purgeCalls + deps.documentCache.purgeCalls).toBe(0);
     });
   });
 

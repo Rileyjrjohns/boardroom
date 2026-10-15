@@ -144,7 +144,7 @@ describe('ScreenProtectionCoordinator', () => {
     expect(screenProtection.disableCalls).toBe(1);
   });
 
-  it('keeps the document registered when the protection cannot be turned off, so that a retry works', async () => {
+  it('does not keep counting a view whose protection could not be turned off', async () => {
     const { screenProtection, coordinator } = setup();
     await coordinator.acquire(A);
     screenProtection.disableFailure = screenProtectionFailed();
@@ -152,8 +152,59 @@ describe('ScreenProtectionCoordinator', () => {
     expect(await coordinator.release(A)).toEqual(err(screenProtectionFailed()));
     expect(screenProtection.enabled).toBe(true);
 
+    // The view is gone whatever the platform said: the next document that is opened and closed
+    // finds no view of A left, and turns the protection off for good.
     screenProtection.disableFailure = undefined;
+    await coordinator.acquire(B);
+    expect(await coordinator.release(B)).toEqual(ok(undefined));
+    expect(screenProtection.enabled).toBe(false);
+  });
+
+  it('retries the disable that failed on the next release that leaves no view', async () => {
+    const { screenProtection, coordinator } = setup();
+    await coordinator.acquire(A);
+    screenProtection.disableFailure = screenProtectionFailed();
+    await coordinator.release(A);
+    screenProtection.disableFailure = undefined;
+
+    // The same document closed again: it has no view, and there is none at all.
     expect(await coordinator.release(A)).toEqual(ok(undefined));
+
+    expect(screenProtection.enabled).toBe(false);
+    expect(screenProtection.disableCalls).toBe(2);
+    // Once it went through, nothing is pending any more.
+    await coordinator.release(A);
+    expect(screenProtection.disableCalls).toBe(2);
+  });
+
+  it('keeps the protection on, and does not retry the disable, while a view is open', async () => {
+    const { screenProtection, coordinator } = setup();
+    await coordinator.acquire(A);
+    screenProtection.disableFailure = screenProtectionFailed();
+    await coordinator.release(A);
+    screenProtection.disableFailure = undefined;
+
+    await coordinator.acquire(B);
+    await coordinator.release(A);
+
+    expect(screenProtection.enabled).toBe(true);
+    expect(screenProtection.disableCalls).toBe(1);
+
+    await coordinator.release(B);
+
+    expect(screenProtection.enabled).toBe(false);
+  });
+
+  it('ends with the protection off after A fails to close, then B is opened and closed', async () => {
+    const { screenProtection, coordinator } = setup();
+    await coordinator.acquire(A);
+    screenProtection.disableFailure = screenProtectionFailed();
+    await coordinator.release(A);
+    screenProtection.disableFailure = undefined;
+
+    await coordinator.acquire(B);
+    await coordinator.release(B);
+
     expect(screenProtection.enabled).toBe(false);
   });
 
