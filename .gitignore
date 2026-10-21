@@ -12,6 +12,10 @@ expo-env.d.ts
 /android
 .kotlin/
 
+# Gradle caches, and the build output of the local native modules (their sources stay tracked)
+.gradle/
+/modules/*/android/build/
+
 # Fastlane and Bundler output (the Gemfile and its lockfile are committed)
 /build/
 /vendor/bundle/
