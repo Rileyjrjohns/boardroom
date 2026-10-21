@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -14,8 +15,46 @@ const ROOT = path.resolve(__dirname, '..');
 const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 const WORKFLOWS = path.join('.github', 'workflows');
-const workflowFiles = fs.readdirSync(path.join(ROOT, WORKFLOWS)).filter((f) => f.endsWith('.yml'));
+const workflowFiles = fs.readdirSync(path.join(ROOT, WORKFLOWS)).filter((f) => /\.ya?ml$/.test(f));
 const workflow = (name: string): string => read(path.join(WORKFLOWS, name));
+
+/** A workflow without its comment lines, so that a comment never satisfies a check, or breaks one. */
+const withoutComments = (text: string): string => text.replace(/^[ \t]*#.*\n/gm, '');
+
+/**
+ * The jobs of a workflow, by id, each with its own text. A job is a key two spaces in, under
+ * `jobs:`; Prettier keeps every workflow in that shape.
+ */
+const jobsOf = (name: string): Record<string, string> => {
+  const body = withoutComments(workflow(name)).split(/^jobs:\n/m)[1] ?? '';
+  const jobs: Record<string, string> = {};
+  let current: string | undefined;
+  for (const line of body.split('\n')) {
+    const id = /^ {2}([\w-]+):\s*$/.exec(line)?.[1];
+    if (id !== undefined) {
+      current = id;
+      jobs[id] = '';
+    } else if (current !== undefined) {
+      jobs[current] += `${line}\n`;
+    }
+  }
+  return jobs;
+};
+
+/** The commands a job runs with `npm`, in order. */
+const npmCommandsOf = (job: string | undefined): string[] =>
+  [...(job ?? '').matchAll(/^\s+run: (npm .+)$/gm)].map(([, command]) => command ?? '');
+
+// Prettier is a dev dependency and parses YAML, but it is an ES module that Jest cannot load: its
+// command line is run in its own process, which exits with 2 on a syntax error. It reads the text on
+// the standard input, and the file name only tells it which parser to use.
+const PRETTIER = path.join(ROOT, 'node_modules', 'prettier', 'bin', 'prettier.cjs');
+const parseYaml = (file: string, text: string) =>
+  spawnSync(process.execPath, [PRETTIER, '--stdin-filepath', file], {
+    cwd: ROOT,
+    input: text,
+    encoding: 'utf8',
+  });
 
 interface BuildProfile {
   developmentClient?: boolean;
@@ -26,6 +65,7 @@ interface BuildProfile {
 }
 
 const eas = JSON.parse(read('eas.json')) as { build: Record<string, BuildProfile> };
+const { scripts } = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
 const config = jest.requireActual<{ default: ExpoConfig }>('../app.config.ts').default;
 
 describe('eas.json', () => {
@@ -114,8 +154,45 @@ describe('the workflows', () => {
     expect(workflow(file)).not.toMatch(/pull_request_target/);
   });
 
+  it.each([
+    ...workflowFiles.map((f) => path.join(WORKFLOWS, f)),
+    path.join('.github', 'dependabot.yml'),
+  ])('%s is valid YAML', (file) => {
+    const result = parseYaml(file, read(file));
+
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('notices a text that is not YAML, so that the check above can fail', () => {
+    const result = parseYaml('broken.yml', 'jobs:\n  build: [unclosed\n');
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/SyntaxError/);
+  });
+
+  it.each(workflowFiles)(
+    '%s runs every job on ubuntu-24.04, not on ubuntu-latest, and says why',
+    (file) => {
+      // A job that calls a reusable workflow (a `uses` at the level of the job) has no runner: the
+      // jobs of the called file have theirs.
+      const withRunner = Object.values(jobsOf(file)).filter((job) => !/^ {4}uses:/m.test(job));
+
+      expect(withRunner.length).toBeGreaterThan(0);
+      for (const job of withRunner) {
+        expect(/^ {4}runs-on: (.+)$/m.exec(job)?.[1]).toBe('ubuntu-24.04');
+      }
+      expect(withoutComments(workflow(file))).not.toContain('ubuntu-latest');
+      expect(workflow(file)).toMatch(
+        /^\s*# .*ubuntu-24\.04.*ubuntu-latest.*Ubuntu 26.*19 October 2026/m,
+      );
+    },
+  );
+
   describe('ci.yml', () => {
     const ci = workflow('ci.yml');
+    const code = withoutComments(ci);
+    const jobs = jobsOf('ci.yml');
 
     it('runs on pull requests and on main, and can be called', () => {
       expect(ci).toMatch(/^ {2}pull_request:/m);
@@ -129,26 +206,43 @@ describe('the workflows', () => {
       );
     });
 
-    it('uses the Node.js of .nvmrc, and the cache of npm', () => {
-      expect(ci).toMatch(/node-version-file: \.nvmrc/);
-      expect(ci).toMatch(/cache: npm/);
+    it('has a job for the architecture boundaries, which runs beside the job of the other checks', () => {
+      expect(Object.keys(jobs).sort()).toEqual(['architecture', 'validate']);
+      expect(jobs.architecture).toMatch(/^ {4}name: Architecture boundaries$/m);
+      expect(jobs.validate).toMatch(/^ {4}name: Lint, types, format, tests$/m);
+      // Neither waits for the other: they run in parallel, and each can fail on its own.
+      expect(code).not.toMatch(/^\s+needs:/m);
     });
 
-    it('runs everything npm run validate runs, with the boundaries as a step of their own', () => {
-      const validate = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
-      const steps = [...ci.matchAll(/^\s+run: (npm .+)$/gm)].map(([, command]) => command);
+    it('runs the rules of the boundaries alone in their job, with the command of the package', () => {
+      expect(npmCommandsOf(jobs.architecture)).toEqual(['npm ci', 'npm run lint:architecture']);
+      expect(scripts['lint:architecture']).toBe('eslint app src --max-warnings 0');
+    });
 
-      expect(steps).toEqual([
+    it.each(['architecture', 'validate'])(
+      'sets up the %s job alike: the code, the Node.js of .nvmrc, the cache of npm, npm ci first',
+      (id) => {
+        const job = jobs[id] ?? '';
+
+        expect(job).toMatch(/uses: actions\/checkout@v\d+/);
+        expect(job).toMatch(/node-version-file: \.nvmrc/);
+        expect(job).toMatch(/cache: npm/);
+        expect(npmCommandsOf(job)[0]).toBe('npm ci');
+        expect(job.indexOf('actions/checkout')).toBeLessThan(job.indexOf('actions/setup-node'));
+        expect(job.indexOf('actions/setup-node')).toBeLessThan(job.indexOf('run: npm ci'));
+      },
+    );
+
+    it('runs the rest of npm run validate in the other job, without the boundaries', () => {
+      expect(npmCommandsOf(jobs.validate)).toEqual([
         'npm ci',
-        'npm run lint:architecture',
         'npm run lint',
         'npm run typecheck',
         'npm run format:check',
         'npm run test:coverage -- --ci',
       ]);
-      expect(validate.scripts['lint:architecture']).toBe('eslint app src --max-warnings 0');
       for (const part of ['lint', 'typecheck', 'format:check', 'test:coverage']) {
-        expect(validate.scripts.validate).toContain(`npm run ${part}`);
+        expect(scripts.validate).toContain(`npm run ${part}`);
       }
     });
 
@@ -189,25 +283,110 @@ describe('the workflows', () => {
   });
 
   describe('eas-build.yml', () => {
-    const build = workflow('eas-build.yml');
+    const text = workflow('eas-build.yml');
+    const build = withoutComments(text);
+    const jobs = jobsOf('eas-build.yml');
+    // The inputs of a run started by hand: the only place where a profile can be chosen.
+    const dispatch = /^ {2}workflow_dispatch:\n(?: {4,}.*\n)+/m.exec(build)?.[0] ?? '';
+    const tagProfile = /PROFILE: \$\{\{ inputs\.profile \|\| '(\w+)' \}\}/.exec(build)?.[1] ?? '';
 
-    it('builds on a version tag and by hand, after the CI for a tag', () => {
-      expect(build).toMatch(/tags: \['v\*\.\*\.\*'\]/);
-      expect(build).toMatch(/workflow_dispatch:/);
-      expect(build).toMatch(/uses: \.\/\.github\/workflows\/ci\.yml/);
+    it('builds on a tag v* and by hand', () => {
+      expect(build).toMatch(/^on:\n {2}push:\n {4}tags: \['v\*'\]\n {2}workflow_dispatch:\n/m);
+      expect(dispatch).not.toBe('');
     });
 
-    it('offers the preview and the production profiles, and defaults a tag to the production one', () => {
-      expect(build).toMatch(/options: \[preview, production\]/);
-      expect(build).toMatch(/PROFILE: \$\{\{ inputs\.profile \|\| 'production' \}\}/);
+    it('builds a tag after the CI, and waits for every job of the CI', () => {
+      const ciJobs = Object.keys(jobsOf('ci.yml')).sort();
+
+      // The CI is called as a job, whose result is that of all the jobs of ci.yml: the build waits
+      // for it, and runs without it only when it was not asked for (by hand).
+      expect(ciJobs).toEqual(['architecture', 'validate']);
+      expect(jobs.verify).toMatch(/^ {4}if: \$\{\{ github\.event_name == 'push' \}\}$/m);
+      expect(jobs.verify).toMatch(/^ {4}uses: \.\/\.github\/workflows\/ci\.yml$/m);
+      expect(jobs.build).toMatch(/^ {4}needs: \[verify\]$/m);
+      expect(jobs.build).toMatch(/^ {4}if: \$\{\{ !failure\(\) && !cancelled\(\) \}\}$/m);
+      // A job of the CI that is skipped counts as passed: none of them may have a condition.
+      expect(withoutComments(workflow('ci.yml'))).not.toMatch(/^ {4}if:/m);
     });
 
-    it('submits only a production build', () => {
+    it('builds the preview profile for a tag: internal distribution, and no store submission', () => {
+      expect(tagProfile).toBe('preview');
+      expect(eas.build[tagProfile]).toMatchObject({ distribution: 'internal', channel: 'preview' });
+      expect(build).not.toMatch(/\|\| 'production'/);
+      expect(build).toMatch(/name: Build \$\{\{ inputs\.profile \|\| 'preview' \}\}/);
+      // A push has no inputs, and the submission is read from them only for a run started by hand.
+      expect(build).toMatch(
+        /SUBMIT: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.submit \}\}/,
+      );
+    });
+
+    it('builds the production profile only by hand, where its submission is an option', () => {
+      expect(dispatch).toMatch(/options: \[preview, production\]/);
+      expect(dispatch).toMatch(/profile:[\s\S]*?default: preview\n/);
+      expect(dispatch).toMatch(/submit:[\s\S]*?type: boolean\n\s+default: false/);
+      // Nothing else names the production profile but the guard of the submission: not the default
+      // of the profile, not the name of the job, not the trigger of a tag.
+      const mentions = [...build.replace(dispatch, '').matchAll(/^.*\bproduction\b.*$/gm)].map(
+        ([line]) => line.trim(),
+      );
+      expect(mentions).toEqual([
+        `if [ "\${SUBMIT}" = 'true' ] && [ "\${PROFILE}" = 'production' ]; then`,
+      ]);
+    });
+
+    it('submits only a production build, and only once', () => {
       expect(build).toMatch(/"\$\{PROFILE\}" = 'production'/);
+      expect(build.match(/--auto-submit/g)).toHaveLength(1);
+      expect(build).toMatch(
+        /if \[ "\$\{SUBMIT\}" = 'true' \] && \[ "\$\{PROFILE\}" = 'production' \]; then\n\s+args\+=\(--auto-submit\)/,
+      );
     });
 
     it('does not let the CI of a tag share a group with the build that calls it', () => {
       expect(build).toMatch(/group: eas-build-\$\{\{ github\.ref \}\}/);
+    });
+
+    describe('the check of the tag against the version of the app', () => {
+      const step =
+        /- name: Check that the tag is the version of the app\n(?:\s+.*\n)+?\s+run: \|\n((?: {10}.*\n)+)/.exec(
+          build,
+        );
+      const script = (step?.[1] ?? '').replaceAll(/^ {10}/gm, '');
+      const VERSION = '1.2.0';
+
+      // Runs the script of the step as it is in the workflow, with the version of the app given by a
+      // stand-in for the two commands that read it (they need the installed dependencies).
+      const check = (tag: string) =>
+        spawnSync('bash', ['-c', `npx() { :; }; jq() { echo "$APP_VERSION"; }; ${script}`], {
+          env: { ...process.env, GITHUB_REF_NAME: tag, APP_VERSION: VERSION },
+          encoding: 'utf8',
+        });
+
+      it('is kept for the tags, which are builds of a version whose updates they receive', () => {
+        expect(script).not.toBe('');
+        expect(build).toMatch(
+          /- name: Check that the tag is the version of the app\n\s+if: \$\{\{ github\.event_name == 'push' \}\}\n/,
+        );
+        expect(build).toMatch(/npx expo config --type public --json \| jq -r \.version/);
+        // Before the build is started, so that a tag that lies costs nothing.
+        expect(build.indexOf('Check that the tag is the version')).toBeLessThan(
+          build.indexOf('Start the build'),
+        );
+      });
+
+      it.each(['v1.2.0', 'v1.2.0-rc.1', 'v1.2.0-beta'])('accepts the tag %s', (tag) => {
+        expect(check(tag).status).toBe(0);
+      });
+
+      it.each(['v1.2.1', 'v1.3.0', 'v1.2', 'v1.2.0.1', 'v1.2.0rc1', 'vnext', 'v'])(
+        'refuses the tag %s, and names it',
+        (tag) => {
+          const result = check(tag);
+
+          expect(result.status).toBe(1);
+          expect(result.stdout).toContain(`::error::The tag ${tag} is not the version of the app`);
+        },
+      );
     });
   });
 
