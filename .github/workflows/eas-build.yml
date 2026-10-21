@@ -1,15 +1,16 @@
-# Builds the app with EAS Build: the production profile when a version is tagged (and submits it to
-# the stores), the preview or production profile when started by hand. The build runs on the servers
-# of Expo: this workflow only starts it, so it costs a minute of the runner, not the build.
+# Builds the app with EAS Build. A tag `v*` builds the preview profile: internal distribution, for
+# the testers, never submitted to a store. The production profile is built only by hand
+# (workflow_dispatch), and only there can its build be submitted to the stores. The build runs on the
+# servers of Expo: this workflow only starts it, so it costs a minute of the runner, not the build.
 name: EAS Build
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       profile:
-        description: The build profile of eas.json
+        description: The build profile of eas.json (production is built only from here)
         type: choice
         options: [preview, production]
         default: preview
@@ -37,25 +38,29 @@ env:
   HUSKY: '0'
 
 jobs:
-  # A tag is built only if the code it points at passes the same checks as a pull request.
+  # A tag is built only if the code it points at passes the same checks as a pull request: both jobs
+  # of the CI, since the result of this job is that of every job of the workflow it calls.
   verify:
     name: CI
     if: ${{ github.event_name == 'push' }}
     uses: ./.github/workflows/ci.yml
 
   build:
-    name: Build ${{ inputs.profile || 'production' }}
+    name: Build ${{ inputs.profile || 'preview' }}
     needs: [verify]
     # Runs when the CI passed (a tag) or was not asked for (by hand), never when it failed.
     if: ${{ !failure() && !cancelled() }}
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04: GitHub began moving ubuntu-latest to Ubuntu 26 on 19 October 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
-      PROFILE: ${{ inputs.profile || 'production' }}
+      # A tag has no inputs, so it builds the preview. Production is a choice made by hand.
+      PROFILE: ${{ inputs.profile || 'preview' }}
       PLATFORM: ${{ inputs.platform || 'all' }}
-      # A tag is a release: it goes to the stores. By hand, only when asked, and only for production.
-      SUBMIT: ${{ github.event_name == 'push' || inputs.submit }}
+      # Only a run started by hand can submit, when asked, and only a production build is submitted
+      # (see the last step). A tag never submits.
+      SUBMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.submit }}
     steps:
       - name: Check out the code
         uses: actions/checkout@v7
@@ -76,14 +81,16 @@ jobs:
       - name: Install the dependencies
         run: npm ci
 
-      # The version is the runtime version of the updates (app.config.ts): a store build tagged
-      # with another version than the one it carries would receive the wrong updates.
+      # The version is the runtime version of the updates (app.config.ts): a build tagged with another
+      # version than the one it carries would receive the wrong updates, and a preview build is no
+      # exception, since it is on the channel that EAS Update publishes to. A tag is the version, or
+      # the version and a suffix for a candidate (v1.2.0, v1.2.0-rc.1).
       - name: Check that the tag is the version of the app
         if: ${{ github.event_name == 'push' }}
         run: |
           version="$(npx expo config --type public --json | jq -r .version)"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::The tag ${GITHUB_REF_NAME} is not the version of the app (v${version}, in app.config.ts)."
+          if [ "${GITHUB_REF_NAME%%-*}" != "v${version}" ]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} is not the version of the app (v${version} or v${version}-<suffix>, from app.config.ts)."
             exit 1
           fi
 
