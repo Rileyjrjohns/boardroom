@@ -16,7 +16,7 @@ EAS is the default, driven by GitHub Actions; Fastlane is kept, working and docu
 - **EAS Update** (`eas-update.yml`) publishes the JavaScript of a green `main` to the `preview` channel. The runtime version policy is `appVersion`: an update reaches only builds with the same `version` as `app.config.ts`.
 - **Sentry** receives crash reports through an adapter of the `Monitoring` port; it is off without an address.
 - **Fastlane** (`fastlane/`, `Gemfile`) does the work of EAS Build and Submit from the machine that runs it: lanes `ios beta` and `android internal`, a `prebuild` lane that uses the environment of the production profile of `eas.json` (one source of values), signing through `match` and an upload key, secrets from the environment only. It gives no over-the-air updates. It is the alternative to the by-hand production build and submission above, and no workflow runs it.
-- The README ("CI/CD") says when to choose which.
+- [The CI/CD document](../ci-cd.md#fastlane-the-alternative-to-eas) says when to choose which.
 
 ## Consequences
 
@@ -25,7 +25,7 @@ EAS is the default, driven by GitHub Actions; Fastlane is kept, working and docu
 - Two paths have to stay consistent. `tooling/release.test.ts` checks the workflows, `eas.json` and the Fastlane files against each other, and Fastlane reads its values from `eas.json`.
 - Going to the stores takes a manual run of the build workflow, on purpose: a tag, which is cheap to push and easy to push by mistake, only produces a build for the testers.
 - The runtime version needs discipline: a native change without a new `version` sends an update to a build that cannot run it.
-- **None of it was run against real accounts.** The configuration was validated and tested, and the workflows, the EAS servers, the Fastlane lanes and the Sentry delivery were not run; the README says so.
+- **None of it was run against real accounts.** The configuration was validated and tested, and the workflows, the EAS servers, the Fastlane lanes and the Sentry delivery were not run; [the CI/CD document](../ci-cd.md#what-was-run-and-what-could-not-be) says so.
 
 ## Alternatives considered
 

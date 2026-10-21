@@ -23,7 +23,7 @@ Expo SDK 57 (React Native 0.86, the New Architecture, always on from SDK 55), wi
 - Every native need becomes a plugin or a module. For small needs this is more ceremony than editing a file.
 - The toolchain can run ahead of the SDK: Xcode 27 needed [a plugin](0013-uiscene-life-cycle-through-a-local-config-plugin.md) on SDK 57.
 - A development build is required before the first run (the native toolchain, and a project path without spaces: an Expo build script fails on one).
-- The generated native folders are not the host project of an existing native app, so this layout does not carry over to a brownfield integration as it is (see the migration section of the README).
+- The generated native folders are not the host project of an existing native app, so this layout does not carry over to a brownfield integration as it is (see [the migration strategy](../migration.md#how-this-repositorys-architecture-helps)).
 
 ## Alternatives considered
 

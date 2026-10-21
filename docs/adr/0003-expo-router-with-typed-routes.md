@@ -19,7 +19,7 @@ expo-router (file-based routes on top of React Navigation) with `experiments.typ
 ## Consequences
 
 - Deep links and protected screens come from the router, with no linking table to keep in step.
-- Hrefs are typed. The types (`.expo/types/router.d.ts`) are written only while the dev server runs, so a fresh clone, and a CI job, do not check `href` values until Metro has run once. The README says so.
+- Hrefs are typed. The types (`.expo/types/router.d.ts`) are written only while the dev server runs, so a fresh clone, and a CI job, do not check `href` values until Metro has run once. [The project setup notes](../build-setup.md#typed-routes) say so.
 - A file name is a public name: renaming a file is a route change. Test files cannot live under `app/`.
 - The project depends on the release cadence of expo-router, and some of its API still carries `dangerously` in its name (`dangerouslySingular`).
 

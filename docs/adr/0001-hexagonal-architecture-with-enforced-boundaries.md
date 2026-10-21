@@ -30,7 +30,7 @@ Features are the second axis, not the first: inside a layer the code is grouped 
 - Swapping an adapter is wiring (the `mock` and `http` configurations differ by the adapters only).
 - Every external thing costs a port, an adapter, a fake and a contract suite. That is more files and one more hop to read.
 - A feature touches several folders. The names of the use cases and of the screens are what keep them findable.
-- The lint configuration is a part of the product: it is large and has its own tests. Some bypasses cannot be seen by a lint rule (an aliased `require`), which the README states.
+- The lint configuration is a part of the product: it is large and has its own tests. Some bypasses cannot be seen by a lint rule (an aliased `require`), which [the architecture document](../architecture.md#how-the-rule-is-enforced) states.
 
 ## Alternatives considered
 
