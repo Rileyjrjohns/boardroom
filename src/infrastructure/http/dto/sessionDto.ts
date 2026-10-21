@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createSession } from '@domain/entities/Session';
 import type { Session } from '@domain/entities/Session';
 import { createUser } from '@domain/entities/User';
+import type { User } from '@domain/entities/User';
 import type { ValidationError } from '@domain/errors/ValidationError';
 import { andThen, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
@@ -31,7 +32,7 @@ const MAX_TOKEN_LENGTH = 4096;
 /** The longest session the app accepts: a server that grants more is wrong, or hostile. */
 export const MAX_SESSION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
-const userSchema = z.object({
+export const userSchema = z.object({
   id: z.string(),
   fullName: z.string(),
   email: z.string(),
@@ -62,6 +63,15 @@ export interface SignedIn {
   readonly session: Session;
 }
 
+/** The user of the API (a sign-in answer, an account of the fixtures), through the factories of the domain. */
+export function toUser(wire: z.output<typeof userSchema>): Result<User, ValidationError> {
+  return andThen(parseUserId(wire.id), (id) =>
+    andThen(parseEmailAddress(wire.email), (email) =>
+      createUser({ id, fullName: wire.fullName, email }),
+    ),
+  );
+}
+
 /**
  * The session the server granted. The expiry is computed on the clock of the device from the
  * lifetime the server grants (see `AuthSession`), never copied from a timestamp of the server.
@@ -70,14 +80,10 @@ export function toSignedIn(
   wire: z.output<typeof signInResponseSchema>,
   now: Instant,
 ): Result<SignedIn, ValidationError> {
-  return andThen(parseUserId(wire.user.id), (id) =>
-    andThen(parseEmailAddress(wire.user.email), (email) =>
-      andThen(createUser({ id, fullName: wire.user.fullName, email }), (user) =>
-        andThen(durationFromMillis(wire.expiresIn * MILLIS_PER_SECOND), (lifetime) =>
-          andThen(plus(now, lifetime), (expiresAt) =>
-            ok({ token: wire.accessToken, session: createSession({ user, expiresAt }) }),
-          ),
-        ),
+  return andThen(toUser(wire.user), (user) =>
+    andThen(durationFromMillis(wire.expiresIn * MILLIS_PER_SECOND), (lifetime) =>
+      andThen(plus(now, lifetime), (expiresAt) =>
+        ok({ token: wire.accessToken, session: createSession({ user, expiresAt }) }),
       ),
     ),
   );
