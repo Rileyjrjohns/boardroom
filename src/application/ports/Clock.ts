@@ -8,8 +8,8 @@ import type { Instant } from '@domain/value-objects/Instant';
 export interface Clock {
   /**
    * The current instant, on the clock of the device. Never fails. The device clock is not
-   * trustworthy (the user can set it), which the rules built on it account for: see the README,
-   * "Clock limits".
+   * trustworthy (the user can set it), which the rules built on it account for: see
+   * "Clock limits" in docs/design-in-depth.md.
    */
   now(): Instant;
 }

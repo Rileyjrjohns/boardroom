@@ -67,9 +67,10 @@ interface MockWiring {
  * windows on one simulated server (`InMemoryBackend`), which learns who is calling from the
  * session store (`InMemoryAuthSession`) and shares its network with it; the caches and the outbox
  * are in memory (the documents' content is in files of the device, written by the repository the
- * way the http configuration does); the biometrics always succeed. The connectivity is that of the simulated network,
- * so that its offline switch drives the app. The seed is generated from the clock, so there are
- * always upcoming and past meetings.
+ * way the http configuration does); the biometrics always succeed. The connectivity is that of the
+ * simulated network, so that its offline switch drives the app. The seed is not generated: it is
+ * loaded from the frozen fixtures of docs/spec/fixtures, with every date shifted by whole days to
+ * the clock (see `buildSeed`), so there are always upcoming and past meetings.
  *
  * The screen protection is a concern of the device, not of the backend that is simulated: on a
  * build that has the native module it is the device's, as in the http configuration. Only without

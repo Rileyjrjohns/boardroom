@@ -1,5 +1,5 @@
-# Ruby tools of the Fastlane setup (see "Fastlane, the alternative to EAS" in the README). Install them with Bundler, in the
-# folder of the project, never as global gems:
+# Ruby tools of the Fastlane setup (see "Fastlane, the alternative to EAS" in docs/ci-cd.md).
+# Install them with Bundler, in the folder of the project, never as global gems:
 #
 #   bundle config set --local path vendor/bundle
 #   bundle install

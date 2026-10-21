@@ -4,8 +4,8 @@
 #
 # The PDF view of iOS is a PDFKit `PDFView` that lets a reader select text, and the package that
 # draws it cannot turn that off. While a document is protected, the native module ScreenProtection
-# clears any selection of a `PDFView` as soon as PDFKit reports it (see "Native module:
-# ScreenProtection" in the README), so the menu has nothing to hang on. Android has no text
+# clears any selection of a `PDFView` as soon as PDFKit reports it (see "What it does, per
+# platform" in docs/native-module.md), so the menu has nothing to hang on. Android has no text
 # selection in this viewer, so the flow does nothing there.
 #
 # The menu is a system element and Maestro sees it on iOS (the flow below relies on it for the

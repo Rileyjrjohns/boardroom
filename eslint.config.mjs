@@ -418,7 +418,7 @@ const restrictImports = (...patterns) => [
  * `null` are never reported.
  *
  * A selector cannot follow a value through a variable, a function call or a callback. What a
- * selector of this section cannot see is listed in the README ("What it cannot catch").
+ * selector of this section cannot see is listed in docs/conventions.md ("What it cannot catch").
  */
 
 /**

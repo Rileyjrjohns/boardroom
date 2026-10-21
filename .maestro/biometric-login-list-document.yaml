@@ -4,7 +4,7 @@
 #
 # The mock configuration simulates the biometrics: the lock screen offers the unlock button and a
 # tap on it succeeds, with no system prompt. Whatever the prompt of a device does is not exercised
-# here (see "What is verified on a device, and what is not" in the README).
+# here (see "What is verified on a device, and what is not" in docs/not-verified.md).
 #
 # The session is kept in the memory of the process: `stopApp: false` is essential when the app is
 # brought back, as in `lock-on-resume.yaml`, otherwise it would start again on the sign-in screen.
