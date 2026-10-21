@@ -50,7 +50,8 @@ function renderListHeaderActions() {
  *   exists (sign-in or lock). Once the user is allowed in, they land on the list: the link is not
  *   kept, because remembering where a link wanted to go would send whoever signs in next (another
  *   user, say) to a meeting they may not have, and the state of the stack is not the state of the
- *   session to keep (the choice is documented in the README);
+ *   session to keep (the choice is documented in "Session, lock and navigation" of
+ *   docs/design-in-depth.md);
  * - **the back stack never returns to a protected screen.** When the guard turns false (a sign-out,
  *   a lock) the screens are removed from the stack, history included, so there is nothing to go
  *   back to, and when it turns true again the stack starts anew on the first screen.

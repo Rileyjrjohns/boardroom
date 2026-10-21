@@ -93,9 +93,9 @@ describe('the native module ScreenProtection, its three sides', () => {
   });
 });
 
-// The text selection of the PDF views of iOS is cleared by the module (see "Native module:
-// ScreenProtection" in the README). The behaviour is checked on a simulator, with the Maestro flow
-// `document-no-copy`; what is checked here is that the wiring is there: PDFKit is imported and
+// The text selection of the PDF views of iOS is cleared by the module (see "What it does, per
+// platform" in docs/native-module.md). The behaviour is checked on a simulator, with the Maestro
+// flow `document-no-copy`; what is checked here is that the wiring is there: PDFKit is imported and
 // linked, the observer listens to any PDFView, clears a selection that is not empty and dismisses
 // the edit menu that follows, and goes away when protection is turned off and when the module is
 // destroyed.
@@ -155,7 +155,7 @@ describe('the native module ScreenProtection, text selection on iOS', () => {
   });
 });
 
-// The secure view (see "Native module: ScreenProtection" in the README): its children are left out of
+// The secure view (see "The secure view" in docs/native-module.md): its children are left out of
 // captures on iOS because the view sets the private `disableUpdateMask` flag of its own layer, the
 // flag UIKit sets for a secure text field. What a capture shows cannot be checked here: the owner
 // checks it on a phone (screenshots only, so far). What is checked here is that the wiring is there

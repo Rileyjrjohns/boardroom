@@ -32,7 +32,8 @@ private let editMenuSweepDuration: TimeInterval = 10
 ///   scenes on iOS 17 and later (`UITraitCollection.sceneCaptureState`), and from `UIScreen` before.
 ///
 /// The cover is on only while protection is on. Which screens need protection is the business of
-/// the application layer, not of this module (see the README): the module does what it is told.
+/// the application layer, not of this module (see "How it plugs into the port" in
+/// docs/native-module.md): the module does what it is told.
 ///
 /// Threading: all state is read and written on the main queue, and every entry point hops there.
 public final class ScreenProtectionModule: Module {

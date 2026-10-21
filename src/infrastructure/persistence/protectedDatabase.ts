@@ -121,7 +121,8 @@ function queueOf(storage: SecureStorage): SerialQueue {
  *   last write and goes on from there.
  * - **Rotation.** The key is made once for a file, and replaced only in the case above. Nothing
  *   rotates it while the database is in use: that would be `PRAGMA rekey` with the new key written
- *   to the keychain first, which no policy of the app asks for (see the README).
+ *   to the keychain first, which no policy of the app asks for (see "Persistence" in
+ *   docs/design-in-depth.md).
  * - **No encryption.** An engine that cannot encrypt (plain SQLite: the native build lacks the
  *   `useSQLCipher` option of the `expo-sqlite` plugin) fails the start with `encryptionUnavailable`:
  *   confidential data is never written in clear because the build was wrong.

@@ -5,8 +5,8 @@ import { en } from '../src/presentation/i18n/resources/en';
 import * as tokens from '../src/presentation/theme/tokens';
 
 // Things the presentation layer declares for its screens to use: design tokens and translation
-// keys. One that no screen uses is dead weight that the README would have to explain, so it is
-// removed. These tests read the sources, which is why they live with the tooling.
+// keys. One that no screen uses is dead weight that the documentation would have to explain, so it
+// is removed. These tests read the sources, which is why they live with the tooling.
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE_FOLDERS = ['app', path.join('src', 'presentation')];

@@ -2,7 +2,7 @@
  * Design tokens. This is the only place where raw colours are written (the lint rules forbid them
  * everywhere else). It holds the tokens that screens use today and grows with them: a token that
  * nothing uses is removed (`tooling/tokens.test.ts` fails on it). Light theme only: the app locks
- * the light appearance (see the README).
+ * the light appearance (see "Placeholders in the native configuration" in docs/build-setup.md).
  */
 
 export const colors = {

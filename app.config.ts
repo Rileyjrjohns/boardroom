@@ -16,8 +16,8 @@ const FACE_ID_USAGE_DESCRIPTION =
 
 // Settings of the build, read from the environment of whoever runs it (the shell, the secrets of the
 // CI, the environment variables of EAS). None of them is a secret that ends up in the app, and none
-// has a value in this repository: see "CI/CD" in the README and .env.example. A blank value counts
-// as missing.
+// has a value in this repository: see "Secrets and variables" in docs/ci-cd.md and .env.example. A
+// blank value counts as missing.
 const setting = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
   return value === undefined || value === '' ? undefined : value;
@@ -99,7 +99,8 @@ const config: ExpoConfig = {
     ['expo-localization', { supportedLocales: SUPPORTED_LOCALES }],
     // The local database (the cache of meetings and the outbox of votes) is encrypted: SQLCipher
     // replaces the SQLite of the system in both native projects. Without it the app refuses to open
-    // the database (see "Persistence" in the README), it never stores the data in clear.
+    // the database (see "Persistence" in docs/design-in-depth.md), it never stores the data in
+    // clear.
     ['expo-sqlite', { useSQLCipher: true }],
     // The session token and the key of the database live in the keychain (iOS) and the keystore
     // (Android). The plugin keeps them out of the automatic backups of Android.
@@ -114,7 +115,7 @@ const config: ExpoConfig = {
     'react-native-blob-util',
     // The iOS 27 SDK stops an app at launch unless it uses the UIScene life cycle, and the iOS
     // template of Expo SDK 57 does not generate it yet. Local plugin, to delete with SDK 58 (see
-    // "iOS scene life cycle" in the README).
+    // "iOS scene life cycle" in docs/build-setup.md).
     './plugins/withSceneLifecycle',
     // The upload of the source maps and of the debug files to Sentry, so that the crash reports
     // are readable. Only when the build can upload (see `uploadsSourceMaps`); the reports are sent

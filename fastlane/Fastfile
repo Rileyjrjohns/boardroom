@@ -5,8 +5,8 @@
 #   bundle exec fastlane ios beta        sign with match (read-only), build, upload to TestFlight
 #   bundle exec fastlane android internal  build the app bundle, upload to the internal track of Google Play
 #
-# Everything secret is read from the environment, and nothing has a default (see "Fastlane" in the
-# README for the list). A lane that lacks one stops with its name.
+# Everything secret is read from the environment, and nothing has a default (see "Secrets and
+# variables" in docs/ci-cd.md for the list). A lane that lacks one stops with its name.
 
 require 'json'
 

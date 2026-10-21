@@ -55,8 +55,8 @@ export interface HttpWiring {
  * - the screen protection is the native module of the app, over `NativeScreenProtection`, unless
  *   the runtime hands over another one;
  * - the cache of documents is in the same database for the metadata and in files of the device for
- *   the content, which the repository downloads to (README, "Persistence" and "Documents and
- *   watermark"); the files no entry points at are deleted when it starts.
+ *   the content, which the repository downloads to (docs/design-in-depth.md, "Persistence" and
+ *   "Documents and watermark"); the files no entry points at are deleted when it starts.
  */
 export async function createHttpPorts(
   config: HttpConfiguration,

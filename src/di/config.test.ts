@@ -23,7 +23,7 @@ const MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR;
 // The values are pinned: changing one is a decision that shows in this file. The relations between
 // them are what the app relies on, and are checked on their own.
 describe('the configuration values', () => {
-  it('are the ones the README and the comments of the module give', () => {
+  it('are the ones the documents of docs/ and the comments of the module give', () => {
     expect(MAX_CACHE_AGE).toBe(7 * MILLIS_PER_DAY);
     expect(MAX_VOTE_DELIVERY_ATTEMPTS).toBe(5);
     expect(APP_LOCK_GRACE_PERIOD).toBe(30 * MILLIS_PER_SECOND);

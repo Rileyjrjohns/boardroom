@@ -5,7 +5,7 @@ import { userSchema } from '../../http/dto/sessionDto';
 import { voteRequestSchema } from '../../http/dto/voteDto';
 import { isoInstantSchema } from '../../http/dto/wire';
 
-// The files of docs/spec/fixtures (see the README there). Every file is an object whose
+// The files of docs/spec/fixtures (see docs/spec/fixtures/README.md). Every file is an object whose
 // `referenceDate` comes first. What the HTTP API has an equivalent for is read with the schema of
 // the API (docs/api.md, `src/infrastructure/http/dto`): a meeting is a `GET /meetings/{id}` answer,
 // a recorded vote is the body of `POST /votes`, a user is the `user` of a sign-in answer. What the

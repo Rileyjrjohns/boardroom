@@ -216,7 +216,7 @@ describe('createContainer, mock configuration', () => {
     expect(seen).toBeGreaterThan(2 * MEETINGS_PAGE_SIZE);
   });
 
-  it('generates its content from the clock it is given', async () => {
+  it('shifts its content to the clock it is given', async () => {
     const created = await createContainer(mock(), silentRuntime({ clock: new FakeClock(NOW) }));
     const container = valueOf(created);
 

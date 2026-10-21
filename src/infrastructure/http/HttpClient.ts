@@ -80,7 +80,8 @@ export interface FetchRequestInit {
   readonly body?: string;
   /**
    * A redirect is an error, never followed: the API does not redirect, and a redirect would carry
-   * the token to another address. (React Native's `fetch` may not honour it: see the README.)
+   * the token to another address. (React Native's `fetch` may not honour it: see "What is not
+   * verified" in docs/not-verified.md.)
    */
   readonly redirect: 'error';
   readonly signal: AbortSignal;

@@ -39,8 +39,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      # The project the update belongs to, and the token that may publish to it (see "CI/CD" in the
-      # README). Neither has a value in this repository.
+      # The project the update belongs to, and the token that may publish to it (see "Secrets and
+      # variables" in docs/ci-cd.md). Neither has a value in this repository.
       EAS_PROJECT_ID: ${{ vars.EAS_PROJECT_ID }}
       HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
