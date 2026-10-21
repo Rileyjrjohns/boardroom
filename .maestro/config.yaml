@@ -1,5 +1,16 @@
 # Workspace configuration of the end-to-end flows. Only the flows at the top of this folder are
 # run by `maestro test .maestro`; the files under subflows/ are building blocks that a flow calls
 # with `runFlow`, and mean nothing on their own.
+#
+# The two flows the project owner asked for come first, in this order, then the others:
+#   1. biometric-login-list-document: biometric login, the meetings list, a confidential document;
+#   2. offline-vote-resync: an offline vote, the network back, the outbox synchronised.
+# `flowsOrder` names the flows by their file name without the extension. The flows do not depend
+# on one another (each one kills the app first), so a failure does not stop the ones after it.
 flows:
   - '*.yaml'
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - biometric-login-list-document
+    - offline-vote-resync

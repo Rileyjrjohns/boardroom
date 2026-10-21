@@ -1,0 +1,77 @@
+# The path of a reader who opens a confidential document: sign in, see the meetings, leave the app
+# for longer than the grace period, unlock it with the biometrics, open a meeting and read its
+# confidential report (protected badge, PDF view).
+#
+# The mock configuration simulates the biometrics: the lock screen offers the unlock button and a
+# tap on it succeeds, with no system prompt. Whatever the prompt of a device does is not exercised
+# here (see "What is verified on a device, and what is not" in the README).
+#
+# The session is kept in the memory of the process: `stopApp: false` is essential when the app is
+# brought back, as in `lock-on-resume.yaml`, otherwise it would start again on the sign-in screen.
+#
+# meeting-001 is the first upcoming meeting; its second document (meeting-001-document-2) is the
+# report of the meeting and is confidential. Only ids are used, so the flow runs in any language.
+appId: com.boardroom.demo
+---
+- runFlow: subflows/launch.yaml
+- runFlow: subflows/sign-in.yaml
+- assertVisible:
+    id: meetings-list
+- pressKey: Home
+# Maestro has no "sleep": wait for something that never shows up, and let the wait run out. 35
+# seconds, longer than the grace period (APP_LOCK_GRACE_PERIOD in src/di/config.ts, 30 seconds).
+- extendedWaitUntil:
+    visible:
+      id: never-shown-wait-for-the-grace-period
+      optional: true
+    timeout: 35000
+- launchApp:
+    appId: com.boardroom.demo
+    stopApp: false
+    clearState: false
+# The app is locked: the lock screen is shown and nothing of the signed-in user is behind it.
+- extendedWaitUntil:
+    visible:
+      id: lock-screen
+    timeout: 30000
+- assertNotVisible:
+    id: meetings-list
+# The biometric unlock (simulated in the mock configuration) gives the meetings back.
+- tapOn:
+    id: lock-unlock
+- extendedWaitUntil:
+    visible:
+      id: meetings-list
+    timeout: 30000
+- assertNotVisible:
+    id: lock-screen
+# From the list to the meeting, then to its confidential document.
+- extendedWaitUntil:
+    visible:
+      id: meeting-row-meeting-001
+    timeout: 30000
+- tapOn:
+    id: meeting-row-meeting-001
+- extendedWaitUntil:
+    visible:
+      id: meeting-detail
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: document-meeting-001-document-2
+    timeout: 30000
+- tapOn:
+    id: document-meeting-001-document-2
+- extendedWaitUntil:
+    visible:
+      id: document-screen
+    timeout: 60000
+# The document is confidential: the badge says the screen is protected, and the PDF is drawn.
+- assertVisible:
+    id: document-protected-badge
+- extendedWaitUntil:
+    visible:
+      id: document-pdf
+    timeout: 60000
+- assertNotVisible:
+    id: document-pdf-error
