@@ -34,6 +34,9 @@ import boundaries from 'eslint-plugin-boundaries';
  * No hardcoded user-facing text and no magic value, enforced under app/ and src/presentation (see
  * "UI code" below): text is translated, colours are theme tokens, test IDs are constants.
  *
+ * In every TypeScript file, the type system stays on: no `any`, no `@ts-ignore`, no `@ts-nocheck`,
+ * and a `@ts-expect-error` only with a description.
+ *
  * domain and application are also pure, which makes two more claims checkable (see "Core code"
  * below): no `throw` (every failure is an error `Result`) and no read of the system clock (time
  * comes from the `Clock` port). Test support under a `testing` folder can be imported by tests and
@@ -766,6 +769,25 @@ export default defineConfig([
     files: ['**/*.mts', '**/*.cts'],
     plugins: { '@typescript-eslint': typescriptPlugin },
     languageOptions: { parser: typescriptParser },
+  },
+
+  {
+    // The type system is never switched off: no `any`, no `@ts-ignore`, no `@ts-nocheck`. A
+    // `@ts-expect-error` (a type test that must fail the typecheck) says why, in ten characters at
+    // least. Every TypeScript file of the repository, tooling and configs included.
+    files: [`**/*.{${TYPESCRIPT_EXTENSIONS}}`],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+          'ts-ignore': true,
+          'ts-nocheck': true,
+          'ts-expect-error': 'allow-with-description',
+          minimumDescriptionLength: 10,
+        },
+      ],
+    },
   },
 
   {

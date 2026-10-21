@@ -3,8 +3,9 @@ import path from 'node:path';
 
 // Checks what the ESLint configuration accepts and rejects: in UI code, no hardcoded user-facing
 // text, no raw colour, no raw test ID; in domain and application code, no `throw` and no read of the
-// system clock; in production code, no import of test support. Each snippet is linted with the real
-// configuration, through tooling/lint-snippets.mjs, in a single ESLint process.
+// system clock; in production code, no import of test support; in every TypeScript file, no `any` and
+// no silenced compiler error. Each snippet is linted with the real configuration, through
+// tooling/lint-snippets.mjs, in a single ESLint process.
 //
 // Only the rules that enforce these conventions are looked at, so that an unrelated finding (an
 // unused import in a snippet) cannot hide a regression. A snippet that does not parse always fails.
@@ -35,6 +36,12 @@ const BOUNDARY_RULES = new Set(['boundaries/dependencies']);
 
 /** The rule on the ambient globals: `fetch` outside the HTTP client. */
 const GLOBAL_RULES = new Set(['no-restricted-globals']);
+
+/** The rules that keep the type system on: no `any`, no `@ts-ignore`, no `@ts-nocheck`. */
+const TYPE_SAFETY_RULES = new Set([
+  '@typescript-eslint/no-explicit-any',
+  '@typescript-eslint/ban-ts-comment',
+]);
 
 const CONVENTION_RULES = new Set([
   'no-restricted-syntax',
@@ -844,6 +851,68 @@ const exemptFilesKeepTheirOtherRules: [string, Snippet][] = [
   ],
 ];
 
+/** A line that the compiler rejects, preceded by `comment`. */
+const afterComment = (comment: string): string =>
+  [comment, "export const count: number = 'text';"].join('\n');
+
+/** `any` switches the type checker off for a value, wherever it is written. */
+const rejectedAny = {
+  'an any annotation': 'export const value: any = 1;',
+  'an any in a type assertion': "export const value = JSON.parse('1') as any;",
+  'an any as a type argument': 'export const values: Array<any> = [];',
+} as const;
+
+/** The comments that silence the compiler without saying why. */
+const rejectedTsComments = {
+  '@ts-ignore': afterComment('// @ts-ignore'),
+  '@ts-ignore with a description': afterComment('// @ts-ignore The compiler is wrong here.'),
+  '@ts-nocheck': afterComment('// @ts-nocheck'),
+  '@ts-expect-error without a description': afterComment('// @ts-expect-error'),
+  '@ts-expect-error with a description of nine characters': afterComment(
+    '// @ts-expect-error Too short',
+  ),
+} as const;
+
+const acceptedTsComments = {
+  '@ts-expect-error with a description': afterComment(
+    '// @ts-expect-error A string is not a number: this must fail the typecheck.',
+  ),
+  '@ts-expect-error with a description of ten characters': afterComment(
+    '// @ts-expect-error Known bug.',
+  ),
+  unknown: 'export const value: unknown = 1;',
+} as const;
+
+/** Every kind of TypeScript file of the repository, by folder and by extension. */
+const typeScriptFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'infrastructure code': INFRASTRUCTURE,
+  'the composition root': DI,
+  'a screen (.tsx)': SCREEN,
+  'a route': ROUTE,
+  'a domain test': DOMAIN_TEST,
+  'test support': TEST_SUPPORT,
+  'the native module': 'modules/screen-protection/src/sample.ts',
+  'a config plugin': 'plugins/sample.ts',
+  'a tooling file': 'tooling/sample.ts',
+  'a tooling test': 'tooling/sample.test.ts',
+  'a root config': 'app.config.ts',
+  'an ES module file (.mts)': 'tooling/sample.mts',
+  'a CommonJS file (.cts)': 'tooling/sample.cts',
+} as const;
+
+const typeSafetyCases = (cases: Record<string, string>) =>
+  Object.fromEntries(
+    Object.entries(typeScriptFiles).map(([where, filePath]) => [
+      where,
+      registerAll(cases, asWritten, filePath),
+    ]),
+  );
+const rejectedAnyEverywhere = typeSafetyCases(rejectedAny);
+const rejectedTsCommentsEverywhere = typeSafetyCases(rejectedTsComments);
+const acceptedTypeSafety = typeSafetyCases(acceptedTsComments);
+
 let findings: Finding[][] = [];
 
 beforeAll(() => {
@@ -878,6 +947,15 @@ function reportedBoundaries(snippet: Snippet): Finding[] {
   expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
   return messages.filter(
     (message) => message.ruleId !== null && BOUNDARY_RULES.has(message.ruleId),
+  );
+}
+
+/** What the rules on `any` and on the `@ts-` comments report for a snippet, once it parsed. */
+function reportedTypeSafety(snippet: Snippet): Finding[] {
+  const messages = findings[snippets.indexOf(snippet)] ?? [];
+  expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
+  return messages.filter(
+    (message) => message.ruleId !== null && TYPE_SAFETY_RULES.has(message.ruleId),
   );
 }
 
@@ -1237,4 +1315,38 @@ describe('The packages that one file alone may import', () => {
       ]);
     },
   );
+});
+
+describe('Type safety lint rules', () => {
+  describe.each(Object.entries(rejectedAnyEverywhere))('in %s', (_where, cases) => {
+    it.each(cases)('rejects %s', (_name, snippet) => {
+      expect(reportedTypeSafety(snippet).map(({ ruleId }) => ruleId)).toEqual([
+        '@typescript-eslint/no-explicit-any',
+      ]);
+    });
+  });
+
+  describe.each(Object.entries(rejectedTsCommentsEverywhere))('in %s', (_where, cases) => {
+    it.each(cases)('rejects %s', (_name, snippet) => {
+      expect(reportedTypeSafety(snippet).map(({ ruleId }) => ruleId)).toEqual([
+        '@typescript-eslint/ban-ts-comment',
+      ]);
+    });
+  });
+
+  describe.each(Object.entries(acceptedTypeSafety))('in %s', (_where, cases) => {
+    it.each(cases)('accepts %s', (_name, snippet) => {
+      expect(reportedTypeSafety(snippet)).toEqual([]);
+    });
+  });
+
+  it('asks for a description of ten characters at least', () => {
+    const cases = rejectedTsCommentsEverywhere['domain code'] ?? [];
+
+    expect(
+      reportedTypeSafety(named(cases, '@ts-expect-error without a description')).map(
+        ({ message }) => message,
+      ),
+    ).toEqual([expect.stringContaining('10 characters or longer')]);
+  });
 });
