@@ -11,7 +11,7 @@ import boundaries from 'eslint-plugin-boundaries';
  *   app             -> presentation, di, assets
  *   domain          -> domain
  *   application     -> domain, application
- *   infrastructure  -> domain, application, infrastructure
+ *   infrastructure  -> domain, application, infrastructure, the spec fixtures
  *   presentation    -> domain, application, presentation, assets
  *   di              -> domain, application, infrastructure, di
  *
@@ -24,6 +24,9 @@ import boundaries from 'eslint-plugin-boundaries';
  * presentation component `SecureContent` alone imports (see `SECURE_CONTENT_FILE`). `fetch` is used by one module only, the HTTP client.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
  * `@domain/*`-style aliases are classified like relative imports.
+ *
+ * The spec fixtures (`docs/spec/fixtures`, JSON files shared with the other clients of the domain)
+ * sit outside app/ and src/, and are imported by src/infrastructure alone (see `SPEC_FIXTURES_ELEMENT`).
  *
  * Every file of the repository is visible to the plugin (see `boundaries/include` below). A file
  * that is neither an app, a layer nor an asset (a script, a config, `package.json`, a test
@@ -127,6 +130,16 @@ const NATIVE_MODULE_ELEMENT = 'native-modules';
 const NATIVE_MODULE_FILES = ['src/infrastructure/native/**'];
 
 /**
+ * The fixtures of the specification: the JSON files of `docs/spec/fixtures`, which the in-memory
+ * adapters load as the content of the simulated server and which other clients of the same domain
+ * read as they are. They are data, not code, and they sit outside app/ and src/, which the
+ * dependency rule would reject as unknown files. Only `src/infrastructure` may import them, and
+ * only that folder: nothing else of `docs/` is visible to the code.
+ */
+const SPEC_FIXTURES_ELEMENT = 'spec-fixtures';
+const SPEC_FIXTURES_FOLDER = 'docs/spec/fixtures';
+
+/**
  * The one file of the presentation that imports the native module: the component that mounts its
  * secure view, a native element of the tree that the children of a document are mounted in. A view
  * cannot cross the `ScreenProtection` port (a port carries data and calls), so this is a narrow,
@@ -196,6 +209,17 @@ const dependencyPolicies = [
     disallow: { to: element(NATIVE_MODULE_ELEMENT) },
     message:
       'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: the other layers reach it through the ScreenProtection port.',
+  },
+  // The fixtures of the specification are data that the in-memory adapters of the infrastructure
+  // layer load: no other layer reads them, it gets the content through the ports.
+  {
+    from: element('infrastructure'),
+    allow: { to: element(SPEC_FIXTURES_ELEMENT) },
+  },
+  {
+    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    disallow: { to: element(SPEC_FIXTURES_ELEMENT) },
+    message: `The fixtures of the specification (${SPEC_FIXTURES_FOLDER}) may only be imported from src/infrastructure: the other layers get the content through the ports.`,
   },
   // The exception to the rule above: the one component that mounts the secure view of the module.
   {
@@ -810,6 +834,7 @@ export default defineConfig([
         { type: 'app', pattern: 'app', partialMatch: false },
         { type: 'assets', pattern: 'assets', partialMatch: false },
         { type: NATIVE_MODULE_ELEMENT, pattern: 'modules', partialMatch: false },
+        { type: SPEC_FIXTURES_ELEMENT, pattern: SPEC_FIXTURES_FOLDER, partialMatch: false },
         ...LAYERS.map((layer) => ({
           type: layer,
           pattern: `src/${layer}`,
