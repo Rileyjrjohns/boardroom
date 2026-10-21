@@ -34,6 +34,9 @@ const PRESENTATION_HOOK = 'src/presentation/hooks/useSample.ts';
 /** The rule of the dependency policies of the architecture (the layers, the reserved packages). */
 const BOUNDARY_RULES = new Set(['boundaries/dependencies']);
 
+/** The rule that rejects the import of a local file that belongs to no element of the architecture. */
+const UNKNOWN_DEPENDENCY_RULES = new Set(['boundaries/no-unknown-dependencies']);
+
 /** The rule on the ambient globals: `fetch` outside the HTTP client. */
 const GLOBAL_RULES = new Set(['no-restricted-globals']);
 
@@ -682,6 +685,67 @@ const rejectedSecureViewElsewhere = Object.fromEntries(
   ]),
 );
 
+const FIXTURES_FOLDER = 'docs/spec/fixtures';
+
+/**
+ * Imports of a fixture file of the specification (a JSON file outside app/ and src/), written as they
+ * would be from `filePath`: by the relative path, with the import attribute a JSON module needs.
+ */
+function fixtureImports(filePath: string): Record<string, string> {
+  const to = (file: string) => path.posix.relative(path.posix.dirname(filePath), file);
+  return {
+    'a fixture file': `import meetings from '${to(`${FIXTURES_FOLDER}/meetings.json`)}' with { type: 'json' };\nexport const data: unknown = meetings;`,
+    'another fixture file': `import accounts from '${to(`${FIXTURES_FOLDER}/accounts.json`)}' with { type: 'json' };\nexport const data: unknown = accounts;`,
+  };
+}
+
+/** Other JSON files of the repository: the rule opens the folder of the fixtures, not JSON files. */
+function otherJsonImports(filePath: string): Record<string, string> {
+  const to = (file: string) => path.posix.relative(path.posix.dirname(filePath), file);
+  return {
+    'package.json': `import manifest from '${to('package.json')}' with { type: 'json' };\nexport const data: unknown = manifest;`,
+    'tsconfig.json': `import config from '${to('tsconfig.json')}' with { type: 'json' };\nexport const data: unknown = config;`,
+  };
+}
+
+const fixtureRejectedFiles = {
+  'domain code': DOMAIN,
+  'application code': APPLICATION,
+  'test support of the application': TEST_SUPPORT,
+  'the composition root': DI,
+  'a route': ROUTE,
+  'a screen': SCREEN,
+  'a hook of the presentation': PRESENTATION_HOOK,
+} as const;
+
+const fixtureAcceptedFiles = {
+  'an HTTP adapter': INFRASTRUCTURE,
+  'a persistence adapter': PERSISTENCE,
+  'an in-memory adapter': 'src/infrastructure/in-memory/sample.ts',
+  'a test of the infrastructure': INFRASTRUCTURE_TEST,
+  'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
+} as const;
+
+const rejectedFixtures = Object.fromEntries(
+  Object.entries(fixtureRejectedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(fixtureImports(filePath), asWritten, filePath),
+  ]),
+);
+const acceptedFixtures = Object.fromEntries(
+  Object.entries(fixtureAcceptedFiles).map(([where, filePath]) => [
+    where,
+    registerAll(fixtureImports(filePath), asWritten, filePath),
+  ]),
+);
+/** Other JSON files stay unknown to the code, in the infrastructure as everywhere else. */
+const rejectedOtherJson = Object.fromEntries(
+  Object.entries({ ...fixtureAcceptedFiles, ...fixtureRejectedFiles }).map(([where, filePath]) => [
+    where,
+    registerAll(otherJsonImports(filePath), asWritten, filePath),
+  ]),
+);
+
 /** `fetch`, which a module of the infrastructure layer alone may call. */
 const fetchCalls = {
   'a call of fetch': "export const load = () => fetch('https://example.com');",
@@ -947,6 +1011,15 @@ function reportedBoundaries(snippet: Snippet): Finding[] {
   expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
   return messages.filter(
     (message) => message.ruleId !== null && BOUNDARY_RULES.has(message.ruleId),
+  );
+}
+
+/** What the rule on unknown dependencies reports for a snippet, after checking that it parsed. */
+function reportedUnknownDependencies(snippet: Snippet): Finding[] {
+  const messages = findings[snippets.indexOf(snippet)] ?? [];
+  expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
+  return messages.filter(
+    (message) => message.ruleId !== null && UNKNOWN_DEPENDENCY_RULES.has(message.ruleId),
   );
 }
 
@@ -1218,6 +1291,36 @@ describe('The native module ScreenProtection lint rules', () => {
       });
     },
   );
+});
+
+describe('The fixtures of the specification lint rules', () => {
+  describe.each(Object.entries(rejectedFixtures))('in %s', (_where, cases) => {
+    it.each(cases)(
+      'rejects the import of %s, and says where it may be imported',
+      (_name, snippet) => {
+        expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
+          expect.stringContaining(
+            'fixtures of the specification (docs/spec/fixtures) may only be imported from src/infrastructure',
+          ),
+        );
+      },
+    );
+  });
+
+  describe.each(Object.entries(acceptedFixtures))('in %s', (_where, cases) => {
+    it.each(cases)('accepts the import of %s', (_name, snippet) => {
+      expect(reportedBoundaries(snippet)).toEqual([]);
+      expect(reportedUnknownDependencies(snippet)).toEqual([]);
+    });
+  });
+
+  describe.each(Object.entries(rejectedOtherJson))('in %s', (_where, cases) => {
+    it.each(cases)('still rejects the import of %s, which is no fixture', (_name, snippet) => {
+      const findingsOf = [...reportedBoundaries(snippet), ...reportedUnknownDependencies(snippet)];
+
+      expect(findingsOf.length).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe('The fetch lint rules', () => {
