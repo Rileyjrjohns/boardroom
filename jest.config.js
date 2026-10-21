@@ -30,6 +30,10 @@ const { paths } = require('./tsconfig.json').compilerOptions;
 
 const CORE_LAYERS = ['src/domain', 'src/application'];
 
+/** Coverage gates, in percent, on statements, branches, functions and lines alike. */
+const CORE_COVERAGE_GATE = 90;
+const GLOBAL_COVERAGE_GATE = 70;
+
 /**
  * Jest module name mapper derived from the tsconfig paths:
  * `"@domain/*": ["./src/domain/*"]` becomes `'^@domain/(.*)$': '<rootDir>/src/domain/$1'`.
@@ -136,16 +140,30 @@ function hasSourceFiles(dir) {
   });
 }
 
-// The 90 percent gate is registered for a layer as soon as it contains source code. While a layer
-// is still empty, Jest would fail with "coverage data not found" for its path, so it is skipped.
-// The empty `global` entry sets no threshold: it only satisfies the Jest typings, which require it.
+/**
+ * The same percentage for the four measures Jest knows.
+ * @param {number} percent
+ */
+const gate = (percent) => ({
+  statements: percent,
+  branches: percent,
+  functions: percent,
+  lines: percent,
+});
+
+// Two gates, on all of `src/` (see `collectCoverageFrom` below):
+//
+// - 90 percent for each of the two layers that hold the rules, `src/domain` and `src/application`,
+//   each on its own. It is registered as soon as the layer contains source code: while a layer is
+//   still empty, Jest would fail with "coverage data not found" for its path, so it is skipped.
+// - 70 percent in `global`, for everything else. Jest takes the files that have a threshold of
+//   their own out of the global figure and applies it to the rest: it is the bar for
+//   `src/infrastructure`, `src/presentation` and `src/di` together. Since both parts are above
+//   70 percent, so is the whole of `src/` (the "Total" row of the table in the CI summary).
 const coverageThreshold = {
-  global: {},
+  global: gate(GLOBAL_COVERAGE_GATE),
   ...Object.fromEntries(
-    CORE_LAYERS.filter(hasSourceFiles).map((dir) => [
-      `./${dir}/`,
-      { statements: 90, branches: 90, functions: 90, lines: 90 },
-    ]),
+    CORE_LAYERS.filter(hasSourceFiles).map((dir) => [`./${dir}/`, gate(CORE_COVERAGE_GATE)]),
   ),
 };
 
@@ -180,6 +198,13 @@ const nodeTransform = { '\\.[jt]sx?$': babelTransformer };
  */
 const infraTransform = { '\\.m?[jt]sx?$': babelTransformer };
 
+/**
+ * The transform of the "tooling" project: the same as the one of the "infra" project, so that a test
+ * can import one of the `.mjs` scripts of tooling/ (Babel turns it into CommonJS).
+ * @type {import('jest').Config['transform']}
+ */
+const toolingTransform = infraTransform;
+
 const MSW_PACKAGES = [
   'msw',
   '@msw',
@@ -195,16 +220,20 @@ const MSW_PACKAGES = [
 
 /** @type {import('jest').Config} */
 const config = {
+  // Every source file of `src/` is measured, tested or not: a layer cannot hide behind the files
+  // that happen to be imported by a test. Test files, test support (fakes, builders, contract
+  // suites, stubs: the `testing` folders) and type declarations are not production code.
   collectCoverageFrom: [
-    ...CORE_LAYERS.map((dir) => `${dir}/**/*.{ts,tsx}`),
+    'src/**/*.{ts,tsx}',
     '!**/*.d.ts',
     '!**/*.{test,spec}.{ts,tsx}',
     '!**/__tests__/**',
-    // Test support (fakes of the ports, builders of fixtures), not production code.
-    ...CORE_LAYERS.map((dir) => `!${dir}/testing/**`),
+    '!src/**/testing/**',
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'text-summary', 'lcov'],
+  // `json-summary` writes coverage/coverage-summary.json, which tooling/printCoverageTable.mjs turns
+  // into the table of the CI run summary.
+  coverageReporters: ['text', 'text-summary', 'lcov', 'json-summary'],
   coverageThreshold,
   projects: [
     {
@@ -237,7 +266,7 @@ const config = {
       roots: ['<rootDir>/tooling'],
       testMatch: TEST_FILES,
       moduleNameMapper,
-      transform: nodeTransform,
+      transform: toolingTransform,
     },
   ],
 };
