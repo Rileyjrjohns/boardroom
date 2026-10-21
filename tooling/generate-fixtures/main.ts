@@ -7,6 +7,7 @@ import { parseInstant } from '@domain/value-objects/Instant';
 import { toMeetingWire } from '@infrastructure/http/dto/meetingDto';
 import { toVoteRequestWire } from '@infrastructure/http/dto/voteDto';
 import { toIsoString } from '@infrastructure/http/dto/wire';
+import { loadFixtures } from '@infrastructure/in-memory/fixtures/loadFixtures';
 
 import { buildSeed } from './buildSeed';
 
@@ -20,6 +21,10 @@ import { buildSeed } from './buildSeed';
 //
 // The fixtures are the source of truth, not this script: it exists to say how they were made, and
 // running it again overwrites them, hand edits included. Two runs give the same bytes.
+//
+// What it writes is read back through the loader of the app before anything is saved, so that a
+// generation that breaks a rule of the fixtures (among them the margin of a day around the reference
+// date that the whole-day shift relies on) fails here instead of being committed.
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const DEFAULT_OUTPUT = path.join(ROOT, 'docs', 'spec', 'fixtures');
@@ -72,10 +77,26 @@ const files: Record<string, Record<string, unknown>> = {
   'recorded-votes.json': { recordedVotes: content.recordedVotes.map(toVoteRequestWire) },
 };
 
+const rendered = new Map<string, string>();
+for (const [name, fileContent] of Object.entries(files)) {
+  rendered.set(name, await render(fileContent));
+}
+
+const reread = (name: string): unknown => JSON.parse(rendered.get(name) ?? '') as unknown;
+const loaded = loadFixtures(
+  {
+    accounts: reread('accounts.json'),
+    meetings: reread('meetings.json'),
+    recordedVotes: reread('recorded-votes.json'),
+  },
+  parsedReference.value,
+);
+if (!loaded.ok) throw new Error(`The fixtures are not loadable: ${loaded.error.detail}`);
+
 const output = process.argv[2] ?? DEFAULT_OUTPUT;
 fs.mkdirSync(output, { recursive: true });
-for (const [name, fileContent] of Object.entries(files)) {
-  fs.writeFileSync(path.join(output, name), await render(fileContent));
+for (const [name, text] of rendered) {
+  fs.writeFileSync(path.join(output, name), text);
   console.log(`${name}`);
 }
 console.log(`Reference date: ${toIsoString(parsedReference.value)}`);
