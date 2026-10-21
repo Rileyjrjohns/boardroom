@@ -52,7 +52,7 @@ export function createDocument(input: DocumentInput): Result<Document, Validatio
   );
 }
 
-/** A confidential document is shown with its screen protected and a watermark. */
+/** A confidential document is shown with its screen protected (every document carries a watermark). */
 export function isConfidential(document: Document): boolean {
   return document.confidentiality === CONFIDENTIALITY_LEVEL.Confidential;
 }
