@@ -17,6 +17,15 @@ import { API_ERROR_CODE, MockApi } from './MockApi';
 
 const BASE = 'http://api.test';
 
+/** The fields of a JSON answer that the tests read. The rest of it is compared whole, with `toEqual`. */
+interface AnswerBody {
+  readonly id: string;
+  readonly accessToken: string;
+  readonly nextCursor: string;
+  readonly items: readonly { readonly id: string }[];
+  readonly agenda: readonly { readonly resolution: object }[];
+}
+
 function aServer() {
   const unused: InstalledMockApi = {
     api: undefined,
@@ -58,7 +67,7 @@ function aServer() {
       body:
         text === '' || response.headers.get(HTTP_HEADER.ContentType) !== 'application/json'
           ? undefined
-          : (JSON.parse(text) as Record<string, any>),
+          : (JSON.parse(text) as AnswerBody),
     };
   }
 
@@ -272,7 +281,7 @@ describe('MockApi, authentication', () => {
     const asAlice = await call('GET', ROUTES.meeting('meeting-1'), { token: alice });
     const asBruno = await call('GET', ROUTES.meeting('meeting-1'), { token: other });
 
-    expect(asAlice.body?.agenda[1].resolution).not.toHaveProperty('recordedVote');
+    expect(asAlice.body?.agenda[1]?.resolution).not.toHaveProperty('recordedVote');
     expect(asBruno.status).toBe(HTTP_STATUS.Ok);
   });
 });
@@ -294,13 +303,18 @@ describe('MockApi, reading', () => {
     const first = await call('GET', `${ROUTES.meetings}?period=upcoming&limit=2`, { token });
     const second = await call(
       'GET',
-      `${ROUTES.meetings}?period=upcoming&limit=2&cursor=${encodeURIComponent(first.body?.nextCursor)}`,
+      `${ROUTES.meetings}?period=upcoming&limit=2&cursor=${encodeURIComponent(first.body?.nextCursor as string)}`,
       { token },
     );
 
     expect(first.status).toBe(HTTP_STATUS.Ok);
     expect(first.body?.items.map((item: { id: string }) => item.id)).toEqual(['m-1', 'm-2']);
-    expect(Object.keys(first.body?.items[0])).toEqual(['id', 'title', 'scheduledAt', 'location']);
+    expect(Object.keys(first.body?.items[0] ?? {})).toEqual([
+      'id',
+      'title',
+      'scheduledAt',
+      'location',
+    ]);
     expect(second.body?.items.map((item: { id: string }) => item.id)).toEqual(['m-3']);
     expect(second.body).not.toHaveProperty('nextCursor');
   });
