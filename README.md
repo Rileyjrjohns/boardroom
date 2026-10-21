@@ -1,5 +1,7 @@
 # Boardroom
 
+[![CI](https://github.com/Rileyjrjohns/boardroom/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rileyjrjohns/boardroom/actions/workflows/ci.yml)
+
 Boardroom is a React Native app for board-of-directors governance: members read the papers of their meetings, vote on resolutions, and keep working when the network does not. It is a demonstration built to show how a mobile codebase can be structured, secured, tested and shipped like a product, and how it would replace a native app. The server is simulated (and a mock API can be run on a laptop), the business rules, the persistence, the security and the tooling are real.
 
 What it is meant to show:
@@ -152,7 +154,7 @@ The build-time variables are never needed to run the app; see "CI/CD" for where 
 | `npm run android`                       | Builds and runs the Android development client                                                   |
 | `npm run mock:api`                      | Starts the mock API on this computer, for the `http` configuration                               |
 | `npm run lint`                          | ESLint over the whole repository, zero warnings allowed                                          |
-| `npm run lint:architecture`             | ESLint on `app/` and `src/` alone, where the boundary rules apply (a separate step of the CI)    |
+| `npm run lint:architecture`             | ESLint on `app/` and `src/` alone, where the boundary rules apply (a separate job of the CI)     |
 | `npm run lint:fix`                      | ESLint with autofix                                                                              |
 | `npm run typecheck`                     | `tsc --noEmit`, which also checks the JS config files at the repository root                     |
 | `npm test`                              | Runs every Jest project, without the coverage gate                                               |
@@ -939,36 +941,39 @@ Not verified, and so not claimed:
 
 ## CI/CD
 
-Every change goes through the same checks, `main` publishes its JavaScript to the testers by itself, and a version tag becomes a store build. The pipeline is GitHub Actions around EAS (build, submit, update) and Sentry (crash reports); Fastlane is the documented alternative to EAS for the builds.
+Every change goes through the same checks, `main` publishes its JavaScript to the testers by itself, a version tag becomes a preview build, and a store build is started by hand. The pipeline is GitHub Actions around EAS (build, submit, update) and Sentry (crash reports); Fastlane is the documented alternative to EAS for the builds.
 
 ```mermaid
 flowchart LR
-  PR["Pull request"] --> CI1{"CI<br/>boundaries, lint, types,<br/>format, tests + coverage gate"}
+  PR["Pull request"] --> CI1{"CI, two jobs side by side<br/>Architecture boundaries<br/>Lint, types, format, tests + coverage gate"}
   CI1 -->|"green, merged"| MAIN["main"]
   MAIN --> CI2{"CI on main"}
   CI2 -->|"green"| UPD["EAS Update<br/>channel preview"]
   UPD --> PREVIEW["Preview builds<br/>fetch it at their next start"]
-  MAIN -->|"tag vX.Y.Z"| CI3{"CI on the tag"}
-  CI3 -->|"green"| BUILD["EAS Build<br/>production profile"]
-  BUILD --> SUBMIT["EAS Submit"]
+  MAIN -->|"tag v*"| CI3{"CI on the tag"}
+  CI3 -->|"green"| BUILD["EAS Build<br/>preview profile<br/>(internal distribution)"]
+  BUILD --> PREVIEW
+  MANUAL["Manual run"] -.->|"production profile"| PROD["EAS Build<br/>production profile"]
+  PROD -.->|"submit option"| SUBMIT["EAS Submit"]
   SUBMIT --> STORES["TestFlight and<br/>Google Play internal track"]
-  MANUAL["Manual run"] -.-> BUILD
   MANUAL -.-> E2E["E2E on an emulator<br/>(Maestro, Android)"]
 ```
 
 ### The workflows
 
-| File                                | Runs on                                                  | What it does                                                                                                                                                                                                                 |
-| ----------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/ci.yml`          | Pull requests, pushes to `main`, and called by the build | Installs with `npm ci` (Node.js from `.nvmrc`, npm cache), then runs the boundaries, the lint, the typecheck, the format check and the tests with the coverage gate, and uploads the coverage report                         |
-| `.github/workflows/eas-update.yml`  | A successful CI of a push to `main`, or by hand          | Publishes the JavaScript of that commit to the `preview` channel with EAS Update                                                                                                                                             |
-| `.github/workflows/eas-build.yml`   | A tag `v*.*.*`, or by hand                               | A tag: CI on the tag, then the production build, submitted to the stores. By hand: the preview or the production profile, for one platform or both, with or without submission. It starts the build and does not wait for it |
-| `.github/workflows/e2e-android.yml` | By hand                                                  | Builds a release APK with the environment of the preview profile and runs the Maestro flows of `.maestro` on an Android emulator                                                                                             |
-| `.github/dependabot.yml`            | Weekly                                                   | Opens a pull request when an action has a new major version, which the CI then checks                                                                                                                                        |
+| File                                | Runs on                                                  | What it does                                                                                                                                                                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/ci.yml`          | Pull requests, pushes to `main`, and called by the build | Two jobs side by side, each with `npm ci` (Node.js from `.nvmrc`, npm cache): the architecture boundaries, and the lint, the typecheck, the format check and the tests with the coverage gate (which uploads the coverage report)                                  |
+| `.github/workflows/eas-update.yml`  | A successful CI of a push to `main`, or by hand          | Publishes the JavaScript of that commit to the `preview` channel with EAS Update                                                                                                                                                                                   |
+| `.github/workflows/eas-build.yml`   | A tag `v*`, or by hand                                   | A tag: CI on the tag, then the preview build (internal distribution, never submitted). By hand: the preview or the production profile, for one platform or both, and for production with or without store submission. It starts the build and does not wait for it |
+| `.github/workflows/e2e-android.yml` | By hand                                                  | Builds a release APK with the environment of the preview profile and runs the Maestro flows of `.maestro` on an Android emulator                                                                                                                                   |
+| `.github/dependabot.yml`            | Weekly                                                   | Opens a pull request when an action has a new major version, which the CI then checks                                                                                                                                                                              |
 
-**The CI.** Its steps are separate so that the one that fails is the one the run page shows: `npm run lint:architecture` (ESLint on `app/` and `src/` alone, which is where the boundaries of the layers and the packages each layer may import are enforced, so a broken boundary is named before the full lint), `npm run lint`, `npm run typecheck`, `npm run format:check` and `npm run test:coverage -- --ci`, which is `npm run validate` taken apart (a test of the tooling checks that nothing `validate` runs is missing from the workflow). The 90 percent gate on `src/domain` and `src/application` is Jest's: the step fails when a layer falls under it. The coverage report is uploaded as an artifact even when the tests fail. A new push to a branch cancels the run of the previous one (`concurrency` with `cancel-in-progress`, per ref). The permissions are `contents: read`, declared in every workflow, and the CI uses no secret, so a pull request from a fork runs the same checks. Every action is pinned to a major version (`@v7`), and Dependabot proposes the next major. `HUSKY=0` keeps the Git hooks, which are for the machines of the developers, from running on the runner.
+**The CI.** Two jobs, which run side by side and fail separately. **Architecture boundaries** runs `npm run lint:architecture` (ESLint on `app/` and `src/` alone, which is where the boundaries of the layers and the packages each layer may import are enforced), so a broken boundary is a red check named after it. **Lint, types, format, tests** runs `npm run lint`, `npm run typecheck`, `npm run format:check` and `npm run test:coverage -- --ci` as steps of their own; together the two jobs are `npm run validate` taken apart (a test of the tooling checks that nothing `validate` runs is missing from the workflow, and that the boundaries are a job of their own). The full lint repeats the boundary rules, so the second job is still the whole of `validate` on its own. The 90 percent gate on `src/domain` and `src/application` is Jest's: the step fails when a layer falls under it. The coverage report is uploaded as an artifact even when the tests fail. A new push to a branch cancels the run of the previous one (`concurrency` with `cancel-in-progress`, per ref). The permissions are `contents: read`, declared in every workflow, and the CI uses no secret, so a pull request from a fork runs the same checks. Every action is pinned to a major version (`@v7`), and Dependabot proposes the next major. Every job runs on `ubuntu-24.04` and not on `ubuntu-latest`: GitHub began moving that label to Ubuntu 26 on 19 October 2026, and the runner should not change under the repository (a test checks it, and a comment in each workflow says why); moving to a newer image is a commit. `HUSKY=0` keeps the Git hooks, which are for the machines of the developers, from running on the runner. If the branch is protected, require both checks.
 
-**The gate of EAS Update.** `eas-update.yml` starts on `workflow_run` of the CI, limited to `main`, and publishes only when that run succeeded and was a push (never a pull request, which could carry someone else's code into a run that has the token). It checks out the commit the CI validated (`head_sha`), not whatever `main` is by then. Publications are queued, not cancelled, so one cannot be left half done. A tag is built only after the CI has passed on it: `eas-build.yml` calls `ci.yml` as a reusable workflow first, and refuses a tag that is not `v` plus the `version` of `app.config.ts`.
+**The gate of EAS Update.** `eas-update.yml` starts on `workflow_run` of the CI, limited to `main`, and publishes only when that run succeeded and was a push (never a pull request, which could carry someone else's code into a run that has the token). It checks out the commit the CI validated (`head_sha`), not whatever `main` is by then. Publications are queued, not cancelled, so one cannot be left half done. A tag is built only after the CI has passed on it: `eas-build.yml` calls `ci.yml` as a reusable workflow first (the call finishes when both jobs have, and fails if either does), and refuses a tag that is not `v` plus the `version` of `app.config.ts`, with or without a suffix for a candidate (`v1.2.0`, `v1.2.0-rc.1`).
+
+**Which tag builds what.** A tag `v*` builds the **preview** profile: internal distribution, for the testers, never submitted to a store. The **production** profile is built only by hand, from the Actions tab (`workflow_dispatch`), where the profile, the platform and the store submission are inputs. Nothing a tag does can reach a store: shipping to the stores is a decision of a person, not a side effect of pushing a tag. The check of the tag against the version stays for preview tags, because a preview build receives the updates of its channel and an update reaches only builds of the same version (see the runtime version below): the tag is the version of the app or the version and a suffix (`-rc.1`), so that several candidates of one version can be built.
 
 **The environment of an update.** `eas update` bundles the JavaScript on the runner, and Metro inlines the `EXPO_PUBLIC_*` variables of the environment it runs in, not of a build profile. A bundle made without `EXPO_PUBLIC_BOARDROOM_ADAPTERS` refuses to start (a release build must be told which adapters it uses, see "Composition root"). So the update job copies the `env` of the `preview` profile from `eas.json` into its environment before publishing (`jq`), and the update and the builds it goes to cannot disagree: `eas.json` is the single source of those values. The same step is in the end-to-end workflow.
 
@@ -976,11 +981,11 @@ flowchart LR
 
 `eas.json` has the three profiles. Each one sets `EXPO_PUBLIC_BOARDROOM_ADAPTERS` itself, because a release build refuses a missing value, and none of them holds a secret (a test checks that every variable of a profile starts with `EXPO_PUBLIC_`, since whatever starts with it is readable in the bundle).
 
-| Profile       | Distribution | Channel      | Adapters | Notes                                                                                                                                                                  |
-| ------------- | ------------ | ------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `development` | internal     | none         | `mock`   | Development client (`expo-dev-client`) for the team, an APK on Android. Takes no update: it loads its JavaScript from Metro                                            |
-| `preview`     | internal     | `preview`    | `mock`   | What testers install. An APK on Android. Receives the updates that `main` publishes. To point it at a server, set `http` and `EXPO_PUBLIC_BOARDROOM_API_BASE_URL` here |
-| `production`  | store        | `production` | `http`   | The store build. `autoIncrement` raises the build number, which EAS keeps remotely (`appVersionSource: remote`). The API address is a placeholder                      |
+| Profile       | Distribution | Channel      | Adapters | Notes                                                                                                                                                                                                  |
+| ------------- | ------------ | ------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `development` | internal     | none         | `mock`   | Development client (`expo-dev-client`) for the team, an APK on Android. Takes no update: it loads its JavaScript from Metro                                                                            |
+| `preview`     | internal     | `preview`    | `mock`   | What testers install, built by a tag `v*` or by hand. An APK on Android. Receives the updates that `main` publishes. To point it at a server, set `http` and `EXPO_PUBLIC_BOARDROOM_API_BASE_URL` here |
+| `production`  | store        | `production` | `http`   | The store build, started by hand only. `autoIncrement` raises the build number, which EAS keeps remotely (`appVersionSource: remote`). The API address is a placeholder                                |
 
 **Placeholders to replace before a real release.** `EXPO_PUBLIC_BOARDROOM_API_BASE_URL` of the production profile is `https://api.replace-me.example.com`: a valid address (the app starts and then fails to reach it, loudly, which is better than a mock server in a store build), and `ascAppId` of the submit profile is `0000000000`. The bundle identifier and the package name (`com.boardroom.demo`) are the placeholders already noted in "Placeholders in the native configuration". There is no project id, token or secret in the repository: the project id is read from `EAS_PROJECT_ID`.
 
@@ -990,7 +995,7 @@ flowchart LR
 
 **The runtime version is the `appVersion` policy** (`runtimeVersion: { policy: 'appVersion' }`): an update reaches only the builds that have the same `version` as `app.config.ts`. The other choice, `fingerprint`, hashes the native side of the project and needs no discipline, but this configuration is not the same everywhere: the Sentry plugin is declared only where there is a token, the build number is written only by Fastlane, and the plugin list is part of the fingerprint. The same commit would then have one fingerprint on a laptop, one on the CI runner and one on the EAS servers, and an update published from the CI would never match the builds it is meant for. `appVersion` is explicit, readable on the store and in the EAS dashboard, and the same wherever the configuration is read. **The price is a rule:** raise `version` in `app.config.ts` whenever the native side changes (a package with native code, an Expo plugin, the local module ScreenProtection, an SDK upgrade), because an update with new JavaScript on a binary that lacks the native code it calls crashes at start. The check of the tag against the version, the store's own refusal of a version already uploaded, and the habit of testing a preview first are what protect it; a stricter team switches to `fingerprint` and gives every environment the same plugins.
 
-**Submission.** `eas-build.yml` adds `--auto-submit` to a production build, which sends it to TestFlight and to the internal track of Google Play (as a draft, which a person releases from the console), using the credentials stored in EAS. Going public is never automatic.
+**Submission.** `eas-build.yml` adds `--auto-submit` to a production build started by hand with the submit option on (a tag never submits), which sends it to TestFlight and to the internal track of Google Play (as a draft, which a person releases from the console), using the credentials stored in EAS. Going public is never automatic.
 
 ### Monitoring: Sentry behind the port
 
@@ -1046,7 +1051,7 @@ The EAS environment variables are set with `eas env:create` (for the `preview` a
 
 ### Running each part locally
 
-- **The CI.** `npm run validate` is the whole of it; `npm run lint:architecture` is the boundary step alone. `npm run test:coverage` writes `coverage/` as the artifact does.
+- **The CI.** `npm run validate` is the whole of it; `npm run lint:architecture` is the boundary job alone. `npm run test:coverage` writes `coverage/` as the artifact does.
 - **A build, on the servers of Expo.** `npx eas-cli login`, then `npx eas-cli build --profile preview --platform android` (`development`, `preview` or `production`; `--platform ios` needs the Apple credentials). The project id must be in the environment (`EAS_PROJECT_ID=<id>`) or in `.env`. `npx eas-cli build --profile preview --platform android --local` builds on this machine, which needs the Android toolchain (and a path without spaces, see "What is not verified").
 - **An update.** With the environment of the profile: `export $(jq -r '.build.preview.env | to_entries[] | "\(.key)=\(.value)"' eas.json | xargs)`, then `EAS_PROJECT_ID=<id> npx eas-cli update --channel preview --message "try it"`.
 - **What the build produces, without any account.** `npx expo config --type public` prints the configuration (no secret in it), `npx expo export --platform android` bundles the JavaScript, `npx expo prebuild --no-install` generates the native projects (add `EAS_PROJECT_ID=<id>` to see the update settings land in the manifest, and the three Sentry variables to see the plugin), and `npx expo-doctor` checks the project.
