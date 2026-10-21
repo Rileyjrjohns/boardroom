@@ -216,6 +216,6 @@ Responses:
 
 ## What the mock server adds
 
-It is the simulated server of the app behind these routes, so it also has what a simulation has: the seed (`src/infrastructure/in-memory/seed.ts`, generated from its clock: 24 upcoming and 42 past meetings and two accounts that share the password `boardroom-demo`), a configurable latency, and tokens it forgets when it stops. It listens on `127.0.0.1` by default. It answers `503` while its simulated network is cut, which the tests use to take it offline.
+It is the simulated server of the app behind these routes, so it also has what a simulation has: the seed (the frozen fixtures of `docs/spec/fixtures`, every date shifted by the time elapsed since their `referenceDate`: 24 upcoming and 42 past meetings and two accounts that share the password `boardroom-demo`), a configurable latency, and tokens it forgets when it stops. It listens on `127.0.0.1` by default. It answers `503` while its simulated network is cut, which the tests use to take it offline.
 
 The content of a document is generated: a valid PDF with one page of A4 for each page of the document, up to 100 (`DEMO_PDF_MAX_PAGES`), each page showing the title of the document and `page i / n`, in the standard Helvetica font. The same title and page count always give the same bytes. Its `ETag` is the revision of what the server holds, so replacing the content (which the tests do) gives every document a new version.
