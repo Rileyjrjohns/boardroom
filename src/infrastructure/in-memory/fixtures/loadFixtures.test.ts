@@ -32,10 +32,17 @@ const MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR;
 const NOWS = [
   ['the reference date', REFERENCE],
   ['a millisecond after the reference date', REFERENCE + 1],
+  ['a millisecond before the reference date', REFERENCE - 1],
   ['a day before the reference date', REFERENCE - MILLIS_PER_DAY],
+  ['a day less a millisecond after the reference date', REFERENCE + MILLIS_PER_DAY - 1],
+  ['a day after the reference date', REFERENCE + MILLIS_PER_DAY],
   ['the instant of the tests', NOW],
   ['the year 2096', 4_000_000_000_000],
 ] as const;
+
+/** The shift the files must get at `millis`: the complete days since the reference date, rounded down. */
+const expectedShift = (millis: number): number =>
+  Math.floor((millis - REFERENCE) / MILLIS_PER_DAY) * MILLIS_PER_DAY;
 
 describe('the fixtures of docs/spec/fixtures', () => {
   const names = fixtureFileNamesOnDisk();
@@ -113,6 +120,42 @@ describe('the fixtures of docs/spec/fixtures', () => {
     ]);
   });
 
+  describe('titles', () => {
+    const { meetings } = meetingsFileSchema.parse(readFixtureFile(FIXTURE_FILE.Meetings));
+
+    it('name no month and no year anywhere in the text, which the shift does not move', () => {
+      const months =
+        /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b/;
+      const years = /\b(?:19|20)\d{2}\b/;
+      const texts = JSON.stringify(meetings).match(/"[^"]*"/g) ?? [];
+
+      expect(texts.filter((text) => months.test(text) || years.test(text))).toEqual([]);
+    });
+
+    it('are a committee, a subject and a session number, which is distinct for every meeting', () => {
+      const titles = meetings.map(({ title }) => title);
+
+      expect(titles.every((title) => /^[^:]+: .+, session [1-9]\d*$/.test(title))).toBe(true);
+      expect(new Set(titles).size).toBe(titles.length);
+    });
+
+    it('number the sessions of each committee from 1, oldest first, with no gap', () => {
+      const byCommittee = new Map<string, number[]>();
+      for (const { title } of [...meetings].sort(
+        (first, second) => first.scheduledAt - second.scheduledAt,
+      )) {
+        const committee = title.split(':')[0] ?? '';
+        const session = Number(/session (\d+)$/.exec(title)?.[1]);
+        byCommittee.set(committee, [...(byCommittee.get(committee) ?? []), session]);
+      }
+
+      expect(byCommittee.size).toBeGreaterThan(1);
+      for (const sessions of byCommittee.values()) {
+        expect(sessions).toEqual(sessions.map((_, index) => index + 1));
+      }
+    });
+  });
+
   it('keep the votes already recorded out of the meetings: the API gives a user their own', () => {
     const { meetings } = meetingsFileSchema.parse(readFixtureFile(FIXTURE_FILE.Meetings));
 
@@ -127,7 +170,7 @@ describe('the fixtures of docs/spec/fixtures', () => {
 describe('loading the fixtures', () => {
   describe.each(NOWS)('at %s', (_name, millis) => {
     const now = instant(millis);
-    const delta = millis - REFERENCE;
+    const delta = expectedShift(millis);
     const raw = readFixtureFiles();
     const loaded = loadFixtures(raw, now);
 
@@ -135,7 +178,7 @@ describe('loading the fixtures', () => {
       expect(loaded.ok).toBe(true);
     });
 
-    it('moves every date of every file by now minus the reference date, exactly', () => {
+    it('moves every date of every file by the same whole number of days', () => {
       if (!loaded.ok) throw new Error(loaded.error.detail);
       const { meetings, recordedVotes } = meetingsAndVotes(raw);
       const { content } = loaded.value;
@@ -170,6 +213,19 @@ describe('loading the fixtures', () => {
       expect((first?.scheduledAt ?? 0) - (last?.scheduledAt ?? 0)).toBe(
         Date.parse(meetings[0]?.scheduledAt ?? '') - Date.parse(meetings.at(-1)?.scheduledAt ?? ''),
       );
+    });
+
+    it('keeps the time of day of every meeting, in UTC, on a round hour', () => {
+      if (!loaded.ok) throw new Error(loaded.error.detail);
+      const { meetings } = meetingsAndVotes(raw);
+
+      for (const [index, wire] of meetings.entries()) {
+        const written = new Date(wire.scheduledAt);
+        const shifted = new Date(loaded.value.content.meetings[index]?.scheduledAt ?? NaN);
+        expect(shifted.getUTCHours()).toBe(written.getUTCHours());
+        expect(shifted.getUTCMinutes()).toBe(0);
+        expect(shifted.getUTCSeconds() + shifted.getUTCMilliseconds()).toBe(0);
+      }
     });
 
     it('does not change what it reads, and gives a new copy each time', () => {
@@ -211,6 +267,32 @@ describe('loading the fixtures', () => {
     expect(loaded.ok && loaded.value.content.meetings[0]?.scheduledAt).toBe(
       Date.parse(meetingsFileOf(readFixtureFiles()).meetings[0]?.scheduledAt ?? ''),
     );
+  });
+
+  describe('the shift', () => {
+    const firstScheduledAt = (millis: number): number => {
+      const loaded = loadFixtures(readFixtureFiles(), instant(millis));
+      if (!loaded.ok) throw new Error(loaded.error.detail);
+      return loaded.value.content.meetings[0]?.scheduledAt ?? NaN;
+    };
+    it.each([
+      ['at the reference date', REFERENCE, 0],
+      ['until the last millisecond of the first day', REFERENCE + MILLIS_PER_DAY - 1, 0],
+      ['from a whole day after the reference date', REFERENCE + MILLIS_PER_DAY, 1],
+      ['for the days that follow', REFERENCE + 400 * MILLIS_PER_DAY + 5 * MILLIS_PER_HOUR, 400],
+      ['a millisecond before the reference date, rounded to the earlier day', REFERENCE - 1, -1],
+      ['exactly a day before the reference date', REFERENCE - MILLIS_PER_DAY, -1],
+      [
+        'a millisecond more than a day before, rounded to the earlier day',
+        REFERENCE - MILLIS_PER_DAY - 1,
+        -2,
+      ],
+      ['for the days before', REFERENCE - 9 * MILLIS_PER_DAY - 3 * MILLIS_PER_HOUR, -10],
+    ])('is a whole number of days %s: %d days', (_name, millis, days) => {
+      const written = Date.parse(meetingsFileOf(readFixtureFiles()).meetings[0]?.scheduledAt ?? '');
+
+      expect(firstScheduledAt(millis) - written).toBe(days * MILLIS_PER_DAY);
+    });
   });
 
   it('chooses the demo user the file names, not the first account', () => {
@@ -403,6 +485,55 @@ describe('a broken fixture', () => {
       'demoUserId',
     ],
     [
+      'a meeting less than a day after the reference date',
+      (files) => {
+        firstMeeting(files).scheduledAt = new Date(REFERENCE + MILLIS_PER_DAY - 1).toISOString();
+      },
+      FIXTURE_ERROR_CODE.TimelineMargin,
+      FIXTURE_FILE.Meetings,
+      'meetings.0.scheduledAt',
+    ],
+    [
+      'a meeting less than a day before the reference date',
+      (files) => {
+        firstMeeting(files).scheduledAt = new Date(REFERENCE - MILLIS_PER_DAY + 1).toISOString();
+      },
+      FIXTURE_ERROR_CODE.TimelineMargin,
+      FIXTURE_FILE.Meetings,
+      'meetings.0.scheduledAt',
+    ],
+    [
+      'a closing time less than a day after the reference date',
+      (files) => {
+        const resolution = firstMeeting(files).agenda[1]?.resolution;
+        if (resolution === undefined) throw new Error('no resolution');
+        resolution.closesAt = new Date(REFERENCE + MILLIS_PER_HOUR).toISOString();
+      },
+      FIXTURE_ERROR_CODE.TimelineMargin,
+      FIXTURE_FILE.Meetings,
+      'meetings.0.agenda.1.resolution.closesAt',
+    ],
+    [
+      'a closing time less than a day before the reference date',
+      (files) => {
+        const resolution = firstMeeting(files).agenda[1]?.resolution;
+        if (resolution === undefined) throw new Error('no resolution');
+        resolution.closesAt = new Date(REFERENCE - MILLIS_PER_HOUR).toISOString();
+      },
+      FIXTURE_ERROR_CODE.TimelineMargin,
+      FIXTURE_FILE.Meetings,
+      'meetings.0.agenda.1.resolution.closesAt',
+    ],
+    [
+      'a vote cast after the reference date',
+      (files) => {
+        (votesOf(files)[4] as { castAt: string }).castAt = new Date(REFERENCE + 1).toISOString();
+      },
+      FIXTURE_ERROR_CODE.TimelineMargin,
+      FIXTURE_FILE.RecordedVotes,
+      'recordedVotes.4.castAt',
+    ],
+    [
       'two meetings with the same id',
       (files) => {
         const { meetings } = meetingsFileOf(files);
@@ -495,6 +626,23 @@ describe('a broken fixture', () => {
         detail: 'accounts.json: $',
       },
     });
+  });
+
+  it.each([
+    ['exactly a day after the reference date', REFERENCE + MILLIS_PER_DAY],
+    ['exactly a day before the reference date', REFERENCE - MILLIS_PER_DAY],
+  ])('accepts a meeting and a closing time %s: the margin is a whole day', (_name, millis) => {
+    const files = readFixtureFiles();
+    const meeting = meetingsFileOf(files).meetings[0];
+    const resolution = meeting?.agenda[1]?.resolution;
+    if (meeting === undefined || resolution === undefined) throw new Error('no meeting');
+    meeting.scheduledAt = new Date(millis).toISOString();
+    resolution.closesAt = new Date(millis).toISOString();
+    const vote = (files.recordedVotes as VotesFile).recordedVotes[0];
+    if (vote === undefined) throw new Error('no vote');
+    vote.castAt = new Date(REFERENCE).toISOString();
+
+    expect(loadFixtures(files, instant(NOW)).ok).toBe(true);
   });
 
   it('is found before the files are read, in the order accounts, meetings, votes', () => {

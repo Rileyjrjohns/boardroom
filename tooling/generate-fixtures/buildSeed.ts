@@ -40,7 +40,7 @@ import { InvalidStaticValueError, valid } from '@infrastructure/shared/valid';
 
 /**
  * The password of the demo accounts. It protects nothing: the accounts exist only in the
- * simulation, and it is documented in the README so that anybody can sign in.
+ * simulation, and it is documented in docs/quick-start.md so that anybody can sign in.
  */
 export const DEMO_PASSWORD = 'boardroom-demo';
 
@@ -51,11 +51,19 @@ const MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR;
 export const UPCOMING_MEETING_COUNT = 24;
 export const PAST_MEETING_COUNT = 42;
 
-/** The first upcoming meeting is this many days away, the following ones `UPCOMING_SPACING_DAYS` apart. */
+/**
+ * The first upcoming meeting is this many days away, the following ones `UPCOMING_SPACING_DAYS` apart.
+ *
+ * The fixtures are loaded with a shift of a whole number of days (see
+ * docs/spec/fixtures/README.md), which keeps every meeting on its side of the clock only if no meeting, closing time or vote is
+ * within a day of the reference date. The offsets below make that true by construction: the
+ * nearest meeting ahead starts more than a day after `now`, the nearest one behind started more
+ * than a day before `now` and its voting window ended more than a day before it too.
+ */
 const FIRST_UPCOMING_DAYS = 2;
 const UPCOMING_SPACING_DAYS = 3;
 /** The latest past meeting was this many days ago, the earlier ones `PAST_SPACING_DAYS` apart. */
-const LATEST_PAST_DAYS = 1;
+const LATEST_PAST_DAYS = 2;
 const PAST_SPACING_DAYS = 4;
 
 /** Hours of the day (UTC) the meetings start at, in turn. */
@@ -109,12 +117,6 @@ const VOTE_PATTERN: readonly VoteChoice[] = [
   VOTE_CHOICE.Against,
   VOTE_CHOICE.Abstain,
 ];
-
-const MONTH_FORMAT = new Intl.DateTimeFormat('en', {
-  month: 'long',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
 
 interface MeetingKind {
   readonly committee: string;
@@ -319,13 +321,15 @@ function assemble(now: Instant): SeedData {
   const meetings: Meeting[] = [];
   const recordedVotes: Vote[] = [];
   const total = UPCOMING_MEETING_COUNT + PAST_MEETING_COUNT;
+  const sessions = sessionNumbers();
   for (let sequence = 0; sequence < total; sequence += 1) {
     const upcoming = sequence < UPCOMING_MEETING_COUNT;
     const offsetDays = upcoming
       ? FIRST_UPCOMING_DAYS + sequence * UPCOMING_SPACING_DAYS
       : -(LATEST_PAST_DAYS + (sequence - UPCOMING_MEETING_COUNT) * PAST_SPACING_DAYS);
     const scheduledAt = startOfDay(now, offsetDays, sequence);
-    const built = buildMeeting({ sequence, upcoming, scheduledAt, now, alice, bruno });
+    const session = sessions[sequence] ?? failMissing('session');
+    const built = buildMeeting({ sequence, upcoming, scheduledAt, session, now, alice, bruno });
     meetings.push(built.meeting);
     recordedVotes.push(...built.votes);
   }
@@ -344,6 +348,8 @@ interface MeetingSpec {
   readonly sequence: number;
   readonly upcoming: boolean;
   readonly scheduledAt: Instant;
+  /** The number of this meeting among the meetings of its committee, the oldest being the first. */
+  readonly session: number;
   readonly now: Instant;
   readonly alice: User;
   readonly bruno: User;
@@ -361,7 +367,7 @@ function buildMeeting(spec: MeetingSpec): { meeting: Meeting; votes: Vote[] } {
       summary: valid(
         createMeetingSummary({
           id: meetingId,
-          title: `${kind.committee}: ${kind.subject}, ${MONTH_FORMAT.format(new Date(scheduledAt))}`,
+          title: titleOf(kind, spec.session),
           scheduledAt,
           location: LOCATIONS[sequence % LOCATIONS.length] ?? failMissing('location'),
         }),
@@ -375,16 +381,50 @@ function buildMeeting(spec: MeetingSpec): { meeting: Meeting; votes: Vote[] } {
   return { meeting, votes: votesOf(spec, meetingId, participants, resolutions) };
 }
 
-/**
- * The kind of meeting, in turn along the calendar: the past meetings count backwards from today and
- * the upcoming ones forwards. Two meetings of the same kind are therefore at least 36 days apart,
- * in different months, so that no two titles are alike.
- */
-function kindOf({ sequence, upcoming }: MeetingSpec): MeetingKind {
-  const chronological = upcoming ? sequence : -(sequence - UPCOMING_MEETING_COUNT + 1);
+/** The place of a meeting along the calendar: the past ones count backwards from `now`, the upcoming ones forwards. */
+function chronologicalOf(sequence: number): number {
+  return sequence < UPCOMING_MEETING_COUNT ? sequence : -(sequence - UPCOMING_MEETING_COUNT + 1);
+}
+
+/** The kind of meeting at a place along the calendar, the kinds coming in turn. */
+function kindAt(chronological: number): MeetingKind {
   const index =
     ((chronological % MEETING_KINDS.length) + MEETING_KINDS.length) % MEETING_KINDS.length;
   return MEETING_KINDS[index] ?? failMissing('kind');
+}
+
+function kindOf({ sequence }: MeetingSpec): MeetingKind {
+  return kindAt(chronologicalOf(sequence));
+}
+
+/**
+ * The session number of every meeting, by sequence: the rank of the meeting among those of its
+ * committee, oldest first, starting at 1. It says nothing of a date, so it stays true whatever the
+ * day the fixtures are shifted to (a title that named a month would not), and it makes every title
+ * distinct: two meetings of a committee never share a number.
+ */
+function sessionNumbers(): number[] {
+  const total = UPCOMING_MEETING_COUNT + PAST_MEETING_COUNT;
+  const counts = new Map<string, number>();
+  const sessions: number[] = new Array<number>(total).fill(0);
+  for (
+    let chronological = -PAST_MEETING_COUNT;
+    chronological < UPCOMING_MEETING_COUNT;
+    chronological += 1
+  ) {
+    const { committee } = kindAt(chronological);
+    const session = (counts.get(committee) ?? 0) + 1;
+    counts.set(committee, session);
+    const sequence =
+      chronological >= 0 ? chronological : UPCOMING_MEETING_COUNT - chronological - 1;
+    sessions[sequence] = session;
+  }
+  return sessions;
+}
+
+/** "Board of directors: Annual budget, session 12": the committee, the subject and the session. */
+function titleOf(kind: MeetingKind, session: number): string {
+  return `${kind.committee}: ${kind.subject}, session ${session}`;
 }
 
 function demoUser(id: string, fullName: string, email: string): User {

@@ -25,8 +25,21 @@ import { accountsFileSchema, meetingsFileSchema, recordedVotesFileSchema } from 
 // factories of the domain, and a flaw is a `FixtureError`, never an exception.
 //
 // Every date of the files is relative to their `referenceDate`. Loading shifts all of them by the
-// same amount, `now - referenceDate`, so that the timeline keeps the shape it has in the files
-// (what was a day ahead of the reference is a day ahead of `now`) whatever the day the app starts.
+// same amount, a whole number of days: `floor((now - referenceDate) / one day)` days. The timeline
+// keeps its shape and the meetings keep their time of day (09:00 stays 09:00, in UTC), whatever the
+// day the app starts. A whole number of days is less than a day short of the exact
+// `now - referenceDate`, so the files must keep a margin of a day around the reference date, which
+// loading checks: that is what keeps an upcoming meeting upcoming and a past one past.
+
+const MILLIS_PER_DAY = 86_400_000;
+
+/**
+ * The room the files leave around the reference date: every meeting and every closing time is at
+ * least this far from it, on either side, and no vote was cast after it. The whole-day shift falls
+ * short of the exact `now - referenceDate` by less than this, so with this margin no instant of the
+ * files can cross `now`.
+ */
+const TIMELINE_MARGIN_MILLIS = MILLIS_PER_DAY;
 
 /** The files of the fixtures. */
 export const FIXTURE_FILE = {
@@ -56,6 +69,11 @@ export const FIXTURE_ERROR_CODE = {
   UnknownReference: 'unknownReference',
   /** Two members that must be unique share an identity. */
   Duplicate: 'duplicate',
+  /**
+   * A meeting or a closing time is less than a day from the reference date, or a vote was cast after
+   * it: shifted by whole days, it could fall on the other side of the clock.
+   */
+  TimelineMargin: 'timelineMargin',
 } as const;
 
 /**
@@ -143,6 +161,52 @@ function firstDuplicate<T>(
 }
 
 type ParsedMeeting = z.output<typeof meetingSchema>;
+type ParsedVote = z.output<typeof recordedVotesFileSchema>['recordedVotes'][number];
+
+/**
+ * The shift of the dates of the files, in milliseconds: a whole number of days, the number of
+ * complete days from the reference date to `now`. A `now` before the reference date gives a negative
+ * number of days, rounded to the earlier day (`floor`, not truncation towards zero): one millisecond
+ * before the reference date is a day back.
+ */
+function shiftOf(now: Instant, referenceDate: number): number {
+  return Math.floor((now - referenceDate) / MILLIS_PER_DAY) * MILLIS_PER_DAY;
+}
+
+/**
+ * The place of the first instant of the files that the whole-day shift could move to the other
+ * side of the clock, or `undefined`: a meeting or a closing time less than the margin from the
+ * reference date (either side), or a vote cast after it.
+ */
+function timelineViolation(
+  meetings: readonly ParsedMeeting[],
+  votes: readonly ParsedVote[],
+  referenceDate: number,
+): FixtureError | undefined {
+  const tooClose = (instant: number): boolean =>
+    Math.abs(instant - referenceDate) < TIMELINE_MARGIN_MILLIS;
+  const flaw = (file: FixtureFile, place: string): FixtureError =>
+    fixtureError(FIXTURE_ERROR_CODE.TimelineMargin, file, place);
+
+  for (const [index, meeting] of meetings.entries()) {
+    if (tooClose(meeting.scheduledAt))
+      return flaw(FIXTURE_FILE.Meetings, `meetings.${index}.scheduledAt`);
+    for (const [position, item] of meeting.agenda.entries()) {
+      const closesAt = item.resolution?.closesAt;
+      if (closesAt !== undefined && tooClose(closesAt)) {
+        return flaw(
+          FIXTURE_FILE.Meetings,
+          `meetings.${index}.agenda.${position}.resolution.closesAt`,
+        );
+      }
+    }
+  }
+  for (const [index, vote] of votes.entries()) {
+    if (vote.castAt > referenceDate)
+      return flaw(FIXTURE_FILE.RecordedVotes, `recordedVotes.${index}.castAt`);
+  }
+  return undefined;
+}
 
 /** The meeting with every instant moved by `delta` milliseconds. The domain checks the result. */
 function shiftMeeting(meeting: ParsedMeeting, delta: number): ParsedMeeting {
@@ -187,10 +251,11 @@ function firstSharedDocument(meetings: readonly Meeting[]): number | undefined {
 }
 
 /**
- * The content of the simulated server read from the fixtures, with every date shifted by
- * `now - referenceDate`, or the first flaw found: a file that breaks its schema, a value that
- * breaks a rule of the domain, files from different generations, an id that points to nothing, a
- * duplicate. Nothing is thrown.
+ * The content of the simulated server read from the fixtures, with every date shifted by a whole
+ * number of days (the complete days from the reference date to `now`, see `shiftOf`), or the first
+ * flaw found: a file that breaks its schema, files from different generations, a meeting or a
+ * closing time within a day of the reference date, a value that breaks a rule of the domain, an id
+ * that points to nothing, a duplicate. Nothing is thrown.
  */
 export function loadFixtures(files: FixtureFiles, now: Instant): Result<SeedData, FixtureError> {
   const accountsFile = parseFile(FIXTURE_FILE.Accounts, accountsFileSchema, files.accounts);
@@ -213,7 +278,7 @@ export function loadFixtures(files: FixtureFiles, now: Instant): Result<SeedData
       return err(fixtureError(FIXTURE_ERROR_CODE.ReferenceDateMismatch, file, 'referenceDate'));
     }
   }
-  const delta = now - referenceDate;
+  const delta = shiftOf(now, referenceDate);
 
   const read = readAll(
     FIXTURE_FILE.Accounts,
@@ -242,6 +307,13 @@ export function loadFixtures(files: FixtureFiles, now: Instant): Result<SeedData
       fixtureError(FIXTURE_ERROR_CODE.UnknownReference, FIXTURE_FILE.Accounts, 'demoUserId'),
     );
   }
+
+  const outOfMargin = timelineViolation(
+    meetingsFile.value.meetings,
+    votesFile.value.recordedVotes,
+    referenceDate,
+  );
+  if (outOfMargin !== undefined) return err(outOfMargin);
 
   const meetings = readAll(
     FIXTURE_FILE.Meetings,

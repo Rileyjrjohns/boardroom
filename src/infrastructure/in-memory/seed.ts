@@ -8,22 +8,23 @@ import type { FixtureError, SeedData } from './fixtures/loadFixtures';
 // The content of the simulated server. It is server data, not user interface text: it is written in
 // English, whatever the language of the app, and the screens show it as it comes. It is not
 // generated here: it is read from the fixtures of docs/spec/fixtures, which are shared with the
-// other clients of the same domain (see the README there).
+// other clients of the same domain (see docs/spec/fixtures/README.md).
 
 export type { FixtureError as SeedError, SeedData };
 
 /**
  * The password of the demo accounts. It protects nothing: the accounts exist only in the
- * simulation, and it is documented in the README so that anybody can sign in. It is the one of
- * `accounts.json`, and the tests check that the two agree.
+ * simulation, and it is documented in docs/quick-start.md so that anybody can sign in. It is the
+ * one of `accounts.json`, and the tests check that the two agree.
  */
 export const DEMO_PASSWORD = 'boardroom-demo';
 
 /**
  * The seed of the simulated server: the fixtures of docs/spec/fixtures with every date shifted by
- * `now` minus their reference date, so that there are always upcoming and past meetings whenever
- * the app starts, in the proportions the files have: 24 meetings ahead and 42 behind, nothing
- * random, so that two runs at the same instant give the same data.
+ * the complete days between their reference date and `now`, so that there are always upcoming and
+ * past meetings whenever the app starts, in the proportions the files have (24 meetings ahead and
+ * 42 behind), at the same time of day as in the files, nothing random, so that two runs at the same
+ * instant give the same data.
  *
  * Two demo accounts: Alice Martin, who is a voting member of most meetings, chairs some, attends
  * two as a guest and one as the secretary (no vote in those); and Bruno Durand, who is in two

@@ -87,7 +87,7 @@ describe('the seed of the simulated server, read from the fixtures', () => {
     }
   });
 
-  it('is built from the clock alone: the same instant gives the same data', () => {
+  it('depends on the clock alone: the same instant gives the same data', () => {
     expect(seedAt()).toEqual(seedAt());
   });
 
