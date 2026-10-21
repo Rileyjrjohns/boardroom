@@ -30,6 +30,14 @@ const { paths } = require('./tsconfig.json').compilerOptions;
 
 const CORE_LAYERS = ['src/domain', 'src/application'];
 
+/**
+ * Time a test may take. The screen tests of the "ui" project render whole screens, some of them the
+ * whole app on its composition root: under coverage instrumentation on a two-core CI runner, the
+ * first render of a file can take more than Jest's default 5 seconds. The bound still catches a
+ * test that never ends. It is a global option: Jest does not accept it per project.
+ */
+const TEST_TIMEOUT_MILLIS = 20_000;
+
 /** Coverage gates, in percent, on statements, branches, functions and lines alike. */
 const CORE_COVERAGE_GATE = 90;
 const GLOBAL_COVERAGE_GATE = 70;
@@ -235,6 +243,7 @@ const config = {
   // into the table of the CI run summary.
   coverageReporters: ['text', 'text-summary', 'lcov', 'json-summary'],
   coverageThreshold,
+  testTimeout: TEST_TIMEOUT_MILLIS,
   projects: [
     {
       displayName: 'core',
