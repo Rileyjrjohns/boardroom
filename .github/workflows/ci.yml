@@ -1,6 +1,7 @@
-# The checks every change has to pass: the same as `npm run validate`, split in steps so that the
-# one that fails is the first thing the run page shows. It is also called by the workflow that
-# builds for the stores (a tag is built only if it passes), and it is the gate of EAS Update.
+# The checks every change has to pass: the same as `npm run validate`, split in two jobs that run in
+# parallel (the boundaries of the architecture, and everything else) and in steps, so that the one
+# that fails is the first thing the run page shows. It is also called by the workflow that builds the
+# app (a tag is built only if both jobs pass), and it is the gate of EAS Update.
 name: CI
 
 on:
@@ -26,10 +27,15 @@ env:
   EXPO_NO_TELEMETRY: '1'
 
 jobs:
-  validate:
-    name: Lint, types, format, tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  # Pinned to ubuntu-24.04: GitHub began moving ubuntu-latest to Ubuntu 26 on 19 October 2026.
+
+  # The boundaries between the layers, and the packages each layer may import, are rules of ESLint.
+  # This job runs them alone on the code of the app, beside the job below, so that a broken boundary
+  # fails a check of its own that is named after it. The full lint below runs the same rules again.
+  architecture:
+    name: Architecture boundaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Check out the code
         uses: actions/checkout@v7
@@ -43,11 +49,25 @@ jobs:
       - name: Install the dependencies
         run: npm ci
 
-      # The boundaries between the layers, and the packages each layer may import, are rules of
-      # ESLint. This step runs them alone on the code of the app, so that a broken boundary is named
-      # here and not hidden in the full lint below.
-      - name: Architecture boundaries (ESLint on app/ and src/)
+      - name: Check the boundaries (ESLint on app/ and src/)
         run: npm run lint:architecture
+
+  validate:
+    name: Lint, types, format, tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install the dependencies
+        run: npm ci
 
       - name: Lint
         run: npm run lint
