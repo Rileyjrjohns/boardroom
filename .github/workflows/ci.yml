@@ -58,10 +58,18 @@ jobs:
       - name: Format check
         run: npm run format:check
 
-      # The tests of the four Jest projects, and the 90 percent gate on the domain and application
-      # layers: Jest fails the step when a layer falls under it.
+      # The tests of the four Jest projects, with the coverage of all of src/ and its two gates:
+      # 90 percent for each of the domain and application layers, 70 percent for the rest. Jest
+      # fails the step when one is not met.
       - name: Tests with the coverage gate
         run: npm run test:coverage -- --ci
+
+      # The coverage as a table on the page of the run (infrastructure, presentation and di
+      # included), read from the json-summary report of the step above. It is written even when the
+      # tests fail, which is when the figures are wanted.
+      - name: Show the coverage in the run summary
+        if: ${{ !cancelled() }}
+        run: node tooling/printCoverageTable.mjs >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the coverage report
         if: ${{ !cancelled() }}

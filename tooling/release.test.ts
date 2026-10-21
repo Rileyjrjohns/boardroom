@@ -152,6 +152,19 @@ describe('the workflows', () => {
       }
     });
 
+    it('appends the coverage table to the run summary after the tests, even when they fail', () => {
+      expect(ci).toMatch(
+        /if: \$\{\{ !cancelled\(\) \}\}\n\s+run: node tooling\/printCoverageTable\.mjs >> "\$GITHUB_STEP_SUMMARY"/,
+      );
+      const positions = [
+        'npm run test:coverage',
+        'node tooling/printCoverageTable.mjs',
+        'actions/upload-artifact',
+      ].map((text) => ci.indexOf(text));
+      expect(positions).not.toContain(-1);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    });
+
     it('uploads the coverage report even when the tests fail', () => {
       expect(ci).toMatch(/if: \$\{\{ !cancelled\(\) \}\}\n\s+uses: actions\/upload-artifact@v\d+/);
       expect(ci).toMatch(/path: coverage\//);
