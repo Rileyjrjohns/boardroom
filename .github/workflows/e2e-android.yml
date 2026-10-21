@@ -26,7 +26,8 @@ env:
 jobs:
   e2e:
     name: Maestro flows
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04: GitHub began moving ubuntu-latest to Ubuntu 26 on 19 October 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out the code
