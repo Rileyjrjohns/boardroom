@@ -15,7 +15,7 @@ A local config plugin, `plugins/withSceneLifecycle.js`, declared in `app.config.
 - `AppDelegate.swift` conforms to `ExpoReactNativeFactoryProvider` and no longer creates the window nor starts React Native;
 - `Info.plist` declares `UIApplicationSceneManifest`: one window scene, no multiple scenes, whose delegate is `$(PRODUCT_MODULE_NAME).SceneDelegate`.
 
-The plugin is idempotent (a second prebuild, or the SDK 58 template, gives the same files) and fails loudly: an `AppDelegate.swift` that is not the SDK 57 template, or an `Info.plist` with a different scene manifest, stops the prebuild with `UnexpectedProjectShapeError`. A silent no-op would give an app that builds and then closes at launch. It is written to be deleted: the README lists the files to remove with SDK 58.
+The plugin is idempotent (a second prebuild, or the SDK 58 template, gives the same files) and fails loudly: an `AppDelegate.swift` that is not the SDK 57 template, or an `Info.plist` with a different scene manifest, stops the prebuild with `UnexpectedProjectShapeError`. A silent no-op would give an app that builds and then closes at launch. It is written to be deleted: [the build setup document](../build-setup.md#ios-scene-life-cycle) lists the files to remove with SDK 58.
 
 ## Consequences
 

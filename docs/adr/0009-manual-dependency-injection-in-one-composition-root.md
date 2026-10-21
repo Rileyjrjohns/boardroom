@@ -24,7 +24,7 @@ The use cases depend on ports. Something has to build the real adapters, wire th
 - Tests build the real container in both configurations (`createContainer.http.test.ts` runs sign-in, offline voting and sync over Node's SQLite and MSW).
 - Adding a port means touching `Ports.ts` and both wirings. That is deliberate friction.
 - There is no lazy construction or scoping by request; the container is built once per app instance, which is all this app needs.
-- The mock configuration ships in every build, release included (it is a configuration of the app, and the README documents what that puts in the binary, and the build-time flag that would remove it).
+- The mock configuration ships in every build, release included (it is a configuration of the app, and [the security document](../security.md#what-is-in-the-release-bundle) documents what that puts in the binary, and the build-time flag that would remove it).
 
 ## Alternatives considered
 

@@ -20,9 +20,9 @@ Every user-facing text goes through i18n from the first screen, in English and F
 
 ## Consequences
 
-- Adding a language is a short list of steps in the README, and the typecheck asks for the ones that are forgotten.
+- Adding a language is a short list of steps in [the conventions](../conventions.md#adding-a-language), and the typecheck asks for the ones that are forgotten.
 - A screen cannot ship a hardcoded sentence without the lint failing, and a translation cannot drift from the English shape.
-- The rules have limits that a selector cannot see (a text held in a variable, a prop with an unusual name, numbers), which the README lists and leaves to review.
+- The rules have limits that a selector cannot see (a text held in a variable, a prop with an unusual name, numbers), which [the conventions](../conventions.md#what-it-cannot-catch) list and leave to review.
 - More ceremony for the first screen, and a lint configuration that has its own tests. The price is paid once.
 - Plurals on Hermes are a maintained piece of code of our own. `intl-pluralrules` is the better answer if more languages or ordinals are needed.
 
