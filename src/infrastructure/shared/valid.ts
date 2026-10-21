@@ -3,8 +3,9 @@ import type { Result } from '@domain/shared/Result';
 /**
  * A value that is valid by construction turned out not to be: a constant, a seed, a clamped
  * reading. It is a programming error found by the first test that runs the code, never a runtime
- * condition, so it is thrown instead of returned. It stops at the edge of the function that
- * catches it (see `buildSeed`) or at the first import of the module (a configuration constant).
+ * condition, so it is thrown instead of returned. It stops at the first import of the module (a
+ * configuration constant), or at the edge of the function that catches it. Data that comes from
+ * outside, such as the fixtures, is never read with it: that is an error `Result` to return.
  */
 export class InvalidStaticValueError extends Error {
   constructor(readonly detail: string) {

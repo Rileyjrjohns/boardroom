@@ -12,8 +12,19 @@ import { NOW, aDuration } from '@domain/testing/builders';
 import { parseInstant } from '@domain/value-objects/Instant';
 import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
 
-import { DEMO_PASSWORD, PAST_MEETING_COUNT, UPCOMING_MEETING_COUNT, buildSeed } from './seed';
+import { referenceDateOnDisk } from '../testing/fixtureFiles';
+
+import { FIXTURE_ERROR_CODE, FIXTURE_FILE } from './fixtures/loadFixtures';
+import { DEMO_PASSWORD, buildSeed } from './seed';
 import type { SeedData } from './seed';
+
+// The seed of the simulated server is the fixtures of docs/spec/fixtures, shifted to the clock. What
+// matters to the app is what the shifted data looks like at any instant the app may start at: the
+// invariants below hold at each of the instants listed, not only at the reference date of the files.
+
+/** How many meetings of each period the fixtures hold: several pages of each at the page sizes of the app. */
+const UPCOMING_MEETING_COUNT = 24;
+const PAST_MEETING_COUNT = 42;
 
 function seedAt(now = NOW): SeedData {
   const seed = buildSeed(now);
@@ -22,23 +33,32 @@ function seedAt(now = NOW): SeedData {
 }
 
 const MILLIS_PER_DAY = 24 * 3_600_000;
+const REFERENCE = referenceDateOnDisk();
+
+/** The instants the app may start at: the reference date of the files, around it, and far from it. */
+const START_INSTANTS = [
+  ['the instant of the tests', NOW],
+  ['a millisecond later', NOW + 1],
+  ['the reference date of the files', REFERENCE],
+  ['a millisecond before the reference date', REFERENCE - 1],
+  ['a month before the reference date', REFERENCE - 30 * MILLIS_PER_DAY],
+  ['the start of a day', Math.floor(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY],
+  ['the last millisecond of a day', Math.ceil(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY - 1],
+  ['half a year later', NOW + 183 * MILLIS_PER_DAY],
+  ['the year 2096', 4_000_000_000_000],
+] as const;
 
 const resolutionsOf = (meeting: Meeting): Resolution[] =>
   meeting.agenda.flatMap((item) => (item.resolution === undefined ? [] : [item.resolution]));
 
-describe('the seed of the simulated server', () => {
+describe('the seed of the simulated server, read from the fixtures', () => {
   const { content, accounts, demoUser } = seedAt();
   const upcoming = content.meetings.filter((meeting) => meeting.scheduledAt > NOW);
   const past = content.meetings.filter((meeting) => meeting.scheduledAt <= NOW);
   const alice = demoUser;
   const bruno = accounts[1]?.user;
 
-  it.each([
-    ['the instant of the tests', NOW],
-    ['a millisecond later', NOW + 1],
-    ['half a year later', NOW + 183 * 24 * 3_600_000],
-    ['the year 2096', 4_000_000_000_000],
-  ])(
+  it.each(START_INSTANTS)(
     'has the same upcoming and past meetings at %s, built through the domain factories',
     (_name, millis) => {
       const now = parseNow(millis);
@@ -58,7 +78,13 @@ describe('the seed of the simulated server', () => {
     const seed = buildSeed(aEarlyInstant());
 
     expect(seed.ok).toBe(false);
-    if (!seed.ok) expect(seed.error.detail).toEqual(expect.any(String));
+    if (!seed.ok) {
+      expect(seed.error).toEqual({
+        code: FIXTURE_ERROR_CODE.InvalidValue,
+        file: FIXTURE_FILE.Meetings,
+        detail: expect.stringContaining('meetings.json: meetings.'),
+      });
+    }
   });
 
   it('is built from the clock alone: the same instant gives the same data', () => {
@@ -179,14 +205,7 @@ describe('the seed of the simulated server', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  describe.each([
-    ['the instant of the tests', NOW],
-    ['a millisecond later', NOW + 1],
-    ['the start of a day', Math.floor(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY],
-    ['the last millisecond of a day', Math.ceil(NOW / MILLIS_PER_DAY) * MILLIS_PER_DAY - 1],
-    ['half a year later', NOW + 183 * MILLIS_PER_DAY],
-    ['the year 2096', 4_000_000_000_000],
-  ])('the resolutions at %s', (_name, millis) => {
+  describe.each(START_INSTANTS)('the resolutions at %s', (_name, millis) => {
     const now = parseNow(millis);
     const seed = seedAt(now);
     const meetings = seed.content.meetings;
