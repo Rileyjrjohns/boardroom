@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 
-import { isSessionEndingCode } from '../query/createQueryClient';
+import { isSessionEndingCode } from '@application/shared/sessionPolicy';
+
 import { useAppServices } from '../services/AppServices';
 import { ACCESS, useUiStoreApi } from '../state/uiStore';
 

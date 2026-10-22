@@ -1,8 +1,9 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
+import { isRetryableCode } from '@application/shared/retryableCodes';
+
 import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
 import type { MeetingsErrorCode } from '../i18n/translationKeys';
-import { isRetryableCode } from '../query/retryPolicy';
 import { renderScreen } from '../testing/renderScreen';
 
 import { ErrorState } from './ErrorState';

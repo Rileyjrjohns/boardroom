@@ -1,11 +1,10 @@
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
-import { SCREEN_PROTECTION_ERROR_CODE } from '@domain/errors/ScreenProtectionError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@domain/errors/ValidationError';
 
 import { QueryFailure } from './QueryFailure';
-import { MAX_QUERY_RETRIES, isRetryableCode, retryDelay, shouldRetry } from './retryPolicy';
+import { MAX_QUERY_RETRIES, retryDelay, shouldRetry } from './retryPolicy';
 
 const RETRYABLE = [
   REPOSITORY_ERROR_CODE.NetworkUnavailable,
@@ -35,12 +34,6 @@ describe('the retry policy', () => {
 
   it.each(NOT_RETRYABLE)('never tries %s again: asking again cannot change it', (code) => {
     expect(shouldRetry(0, new QueryFailure({ code }))).toBe(false);
-    expect(isRetryableCode(code)).toBe(false);
-  });
-
-  it('offers a retry for a screen protection that failed, and not for a platform that has none', () => {
-    expect(isRetryableCode(SCREEN_PROTECTION_ERROR_CODE.Failed)).toBe(true);
-    expect(isRetryableCode(SCREEN_PROTECTION_ERROR_CODE.Unsupported)).toBe(false);
   });
 
   it('reads a rejection that is not the failure of a use case as unexpected, and tries it again', () => {
@@ -50,9 +43,8 @@ describe('the retry policy', () => {
     expect(shouldRetry(MAX_QUERY_RETRIES, new Error('boom'))).toBe(false);
   });
 
-  it('does not try again a failure whose code is not one of the app', () => {
+  it('reads a code that is not one of the app as unexpected, and tries it again', () => {
     expect(shouldRetry(0, new QueryFailure({ code: 'unheardOf' }))).toBe(true);
-    expect(isRetryableCode('unheardOf')).toBe(false);
   });
 
   it('waits twice as long before each retry, up to a limit', () => {

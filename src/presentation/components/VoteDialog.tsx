@@ -6,10 +6,10 @@ import type { UnexpectedError } from '@domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@domain/errors/StorageError';
 import type { VoteChoice } from '@domain/value-objects/VoteChoice';
 import type { CastVoteError } from '@application/use-cases/votes/CastVote';
+import { isRetryableCode } from '@application/shared/retryableCodes';
 
 import { castVoteErrorText } from '../i18n/voteMessages';
 import { VOTE_CHOICE_KEYS } from '../i18n/translationKeys';
-import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights } from '../theme/tokens';
 

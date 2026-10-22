@@ -9,10 +9,9 @@ import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { ConnectivityStatus } from '@application/ports/Connectivity';
+import type { SessionEndingCode } from '@application/shared/sessionPolicy';
 import { SESSION_RESTORE } from '@application/use-cases/auth/RestoreSession';
 import type { RestoredSession } from '@application/use-cases/auth/RestoreSession';
-
-import type { SessionEndingCode } from '../query/createQueryClient';
 
 /**
  * Where the user stands, which decides the screens they can reach (see `AppNavigator`). The

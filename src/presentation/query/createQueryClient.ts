@@ -1,8 +1,9 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import type { Query } from '@tanstack/react-query';
 
-import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
+import { isSessionEndingCode } from '@application/shared/sessionPolicy';
+import type { SessionEndingCode } from '@application/shared/sessionPolicy';
 
 import { errorCodeOf } from './errorCode';
 import { isQueryFailure } from './QueryFailure';
@@ -34,21 +35,6 @@ export const QUERY_STALE_TIME_MILLIS = 60_000;
 export const QUERY_GC_TIME_MILLIS = 300_000;
 
 /**
- * The failures that say the session of the user is over, whatever the screen was doing: the server
- * refused the session, there is none, it has expired or is another one, or the app is locked. They
- * end the session for every screen, and the cache is emptied (see `createQueryClient`).
- */
-const SESSION_ENDING_CODES = [
-  REPOSITORY_ERROR_CODE.Unauthorized,
-  AUTHENTICATION_ERROR_CODE.NotAuthenticated,
-  AUTHENTICATION_ERROR_CODE.SessionExpired,
-  AUTHENTICATION_ERROR_CODE.SessionChanged,
-  AUTHENTICATION_ERROR_CODE.AppLocked,
-] as const;
-
-export type SessionEndingCode = (typeof SESSION_ENDING_CODES)[number];
-
-/**
  * The failures that say the user may not have this item, or that it is not there: the screen of
  * the item stops showing it, and so does the memory (see `forgetRefusedItem`).
  */
@@ -68,13 +54,6 @@ const ITEM_REFUSAL_CODES: ReadonlySet<string> = new Set([
 function forgetRefusedItem(error: unknown, query: Query<unknown, unknown, unknown>): void {
   if (!isQueryFailure(error) || !ITEM_REFUSAL_CODES.has(errorCodeOf(error))) return;
   query.setState({ data: undefined, dataUpdatedAt: 0 });
-}
-
-const SESSION_ENDING_SET: ReadonlySet<string> = new Set(SESSION_ENDING_CODES);
-
-/** Any code, not only those of the meetings: a synchronisation and an action meet them too. */
-export function isSessionEndingCode(code: string): code is SessionEndingCode {
-  return SESSION_ENDING_SET.has(code);
 }
 
 export interface QueryClientOptions {
@@ -116,8 +95,9 @@ export function discardSessionData(client: QueryClient): void {
  *   state in this app, and the screens refresh on demand (pull to refresh, "Try again");
  * - `networkMode: 'always'` runs every query, because whether the server is reachable is for the
  *   adapters to say, with a `networkUnavailable` error, and not for the library to guess;
- * - a failure that ends the session empties the whole cache from here, whichever query or
- *   mutation it came from, so that nothing of the previous session stays in memory;
+ * - a failure that ends the session (see `isSessionEndingCode`) empties the whole cache from here,
+ *   whichever query or mutation it came from, so that nothing of the previous session stays in
+ *   memory;
  * - a query that fails because the item is refused or gone (`forbidden`, `notFound`) loses its
  *   data, while any other failure keeps the data of the last success next to its error;
  * - mutations are never retried (see `useResultMutation`): they act (sign in, vote, acknowledge),

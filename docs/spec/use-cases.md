@@ -57,6 +57,14 @@ The session is never returned in a failure. Until the biometric unlock succeeds,
 
 The error set of the guard, called `SessionRequiredError` in this file, is `notAuthenticated`, `sessionExpired`, `appLocked`, `storageReadFailed`. With `requireSameUser` it also includes `sessionChanged`.
 
+### The session policy
+
+Three rules decide what a failure, or the passing of time, means for the session. They are rules of the application layer: a screen applies them and never defines them, and a client of another kind follows the same ones.
+
+- **The failures that end the session.** A failure that carries one of the codes of [`SESSION_ENDING_CODES`](#session_ending_codes), whichever operation met it (a read, an action of the user, a synchronisation of the votes), says that the session of the user is over. Whoever meets one ends the session for the whole app and drops everything of the previous session that it holds in memory. Four of them come out of the session guard (`notAuthenticated`, `sessionExpired`, `appLocked`, and `sessionChanged` for `requireSameUser`); `unauthorized` is the refusal of the server, which the application layer has already ended on the device (see [ending a refused session](#ending-a-refused-session)). What the screens do about each (where the user goes, which notice is shown) is in [screens.md](screens.md#session-ending-codes).
+- **The failures a second try can fix.** A failure that carries one of the codes of [`RETRYABLE_CODES`](#retryable_codes) may not come again: the connection is back, a fault of the server has passed, a store is readable again, the platform manages to protect the screen. Any other code says something that asking again will not change, and is final for whoever met it. A screen offers a retry, and a client tries a read again by itself, only for these codes. How many times and after how long is the tuning of the client, not part of this rule (see [Freshness, retries and refresh](screens.md#freshness-retries-and-refresh-presentation-memory)).
+- **How long the data of an expired session may stay on screen.** An app that stays open and in the foreground checks its session every `SESSION_CHECK_INTERVAL_MILLIS` (see [Constants](#constants)), through `GetCurrentUser`, so the data of an idle app does not stay on the screen until a request happens to find out. The longest it can stay after the session expired is this interval plus the time of one check. The timer, and when it runs, are for the screens (see [Session life of the open app](screens.md#session-life-of-the-open-app)).
+
 ### The app lock
 
 The app lock is an in-memory flag, shared by the whole app, that the session guard reads. It **starts locked**, and its state dies with the process, so a cold start is always locked.
@@ -370,7 +378,7 @@ The user asks to be rid of the entries of their outbox that can no longer be rea
 
 ## Enumerations
 
-Each table lists the exact values of a constant of the application layer. The conformance test compares each table with the constant it is named after.
+Each table lists the exact values of a constant of the application layer (an object, a list or a set of stable strings). The conformance test compares each table with the constant it is named after.
 
 ### `SESSION_RESTORE`
 
@@ -411,6 +419,29 @@ What is being cached, for the logs.
 | `meeting`     | A meeting with its detail                   |
 | `document`    | A document with the location of its content |
 
+### `SESSION_ENDING_CODES`
+
+The failures that end the session (see [the session policy](#the-session-policy)).
+
+| Value              | Meaning                                                     |
+| ------------------ | ----------------------------------------------------------- |
+| `unauthorized`     | The server refused the session                              |
+| `notAuthenticated` | Nobody is signed in                                         |
+| `sessionExpired`   | The expiry of the session has passed                        |
+| `sessionChanged`   | Somebody else is signed in now                              |
+| `appLocked`        | The session is good, but the app is locked until the unlock |
+
+### `RETRYABLE_CODES`
+
+The failures that asking again can fix (see [the session policy](#the-session-policy)).
+
+| Value                    | Meaning                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `networkUnavailable`     | The connection may be back                                  |
+| `unexpected`             | A fault of the server may have passed                       |
+| `storageReadFailed`      | A store may be readable again                               |
+| `screenProtectionFailed` | The platform may manage to protect the screen the next time |
+
 ## Settings
 
 Configuration is set once by the composition root and passed to the use cases. The values below are the defaults of the app (`src/di/config.ts`); the conformance test compares each value and unit with the code. Durations are in milliseconds.
@@ -427,3 +458,11 @@ Configuration is set once by the composition root and passed to the use cases. T
 | `MAX_HTTP_REQUEST_TIMEOUT`       | 60000     | The largest request timeout the configuration accepts                                                                        |
 | `ALLOW_DEVICE_PASSCODE_FALLBACK` | false     | Whether the passcode of the device is accepted when the biometrics do not recognise the user. No: a vote is secret and final |
 | `MOCK_SESSION_LIFETIME`          | 28800000  | Mock configuration only: the lifetime of a simulated session, eight hours                                                    |
+
+## Constants
+
+A fixed number of the application layer, which no configuration changes. The conformance test compares each value with the exported constant of that name in `src/application/shared`. Durations are in milliseconds.
+
+| Constant                        | Value | Meaning                                                                                                                                                                                           |
+| ------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SESSION_CHECK_INTERVAL_MILLIS` | 30000 | How often an app that stays open and in the foreground checks its session: thirty seconds. The check is local (the guard reads the stored session and the clock), so a short period costs nothing |

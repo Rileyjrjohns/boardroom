@@ -1,9 +1,9 @@
 import { useCallback, useRef } from 'react';
 
 import { SYNC_OUTCOME } from '@application/use-cases/votes/SyncPendingVotes';
+import { isSessionEndingCode } from '@application/shared/sessionPolicy';
 
 import { useRefreshQueries } from '../hooks/useRefreshQueries';
-import { isSessionEndingCode } from '../query/createQueryClient';
 import { useAppServices } from '../services/AppServices';
 import { ACCESS, useUiStoreApi } from '../state/uiStore';
 

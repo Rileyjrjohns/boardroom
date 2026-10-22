@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
+import { isRetryableCode } from '@application/shared/retryableCodes';
+
 import { DOCUMENT_ERROR_KEYS } from '../i18n/translationKeys';
 import type { DocumentErrorCode } from '../i18n/translationKeys';
-import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, spacing } from '../theme/tokens';
 
