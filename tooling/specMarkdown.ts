@@ -14,6 +14,7 @@ export const TABLE_KIND = {
   Limit: 'Limit',
   UseCase: 'Use case',
   Setting: 'Setting',
+  Constant: 'Constant',
   Port: 'Port',
   Operation: 'Operation',
   Route: 'Route',

@@ -12,7 +12,6 @@ import {
   QUERY_STALE_TIME_MILLIS,
   createQueryClient,
   discardSessionData,
-  isSessionEndingCode,
 } from './createQueryClient';
 import { trackClient } from '../testing/queryClients';
 
@@ -108,14 +107,6 @@ async function failWith(code: MeetingsErrorCode, endings: MeetingsErrorCode[]) {
 }
 
 describe('a failure that ends the session', () => {
-  it.each(SESSION_ENDING)('is recognised for %s', (code) => {
-    expect(isSessionEndingCode(code)).toBe(true);
-  });
-
-  it.each(OTHERS)('is not recognised for %s: it concerns one request, not the session', (code) => {
-    expect(isSessionEndingCode(code)).toBe(false);
-  });
-
   it.each(SESSION_ENDING)('empties the whole cache, whichever query failed: %s', async (code) => {
     const endings: MeetingsErrorCode[] = [];
 
@@ -342,11 +333,5 @@ describe('createQueryClient, mutations', () => {
       .catch(() => undefined);
 
     expect(ended).toEqual([]);
-  });
-
-  it('knows a code that ends the session whatever the screen, and the ones that do not', () => {
-    expect(isSessionEndingCode('unauthorized')).toBe(true);
-    expect(isSessionEndingCode('storageWriteFailed')).toBe(false);
-    expect(isSessionEndingCode('anything')).toBe(false);
   });
 });

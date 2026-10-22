@@ -9,6 +9,7 @@ import type { DocumentId, MeetingId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import { FRESHNESS } from '@application/shared/Loaded';
+import { isRetryableCode } from '@application/shared/retryableCodes';
 
 import { AgendaItemView } from '../components/AgendaItemView';
 import { DocumentRow } from '../components/DocumentRow';
@@ -26,7 +27,6 @@ import { useMeeting } from '../hooks/useMeeting';
 import { VOTES_STATUS, useResolutionVotes } from '../hooks/useResolutionVotes';
 import type { MeetingsErrorCode } from '../i18n/translationKeys';
 import { errorCodeOf } from '../query/errorCode';
-import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights, spacing } from '../theme/tokens';
 

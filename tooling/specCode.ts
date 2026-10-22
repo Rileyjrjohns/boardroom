@@ -44,27 +44,45 @@ export interface Enumeration {
   readonly values: readonly string[];
 }
 
-function isEnumerationObject(value: unknown): value is Record<string, string> {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).length > 0 &&
-    Object.values(value).every((member) => typeof member === 'string')
-  );
+/**
+ * The stable strings a constant holds, when it is only that: a const object of strings, a list of
+ * strings or a set of strings. Anything else is not an enumeration.
+ */
+function stableStringsOf(value: unknown): string[] | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const members: unknown[] =
+    value instanceof Set ? [...value] : Array.isArray(value) ? value : Object.values(value);
+  return isNonEmptyStrings(members) ? members : undefined;
+}
+
+function isNonEmptyStrings(members: readonly unknown[]): members is string[] {
+  return members.length > 0 && members.every((member) => typeof member === 'string');
 }
 
 /**
- * The exported constants of the files that are a const object of strings, named in upper case
- * (`VOTE_CHOICE`, `VOTING_ERROR_CODE`). Anything else the files export (functions, numbers, types,
- * a const object of other things) is not an enumeration.
+ * The exported constants of the files that hold stable strings, named in upper case: a const
+ * object of strings (`VOTE_CHOICE`, `VOTING_ERROR_CODE`), a list or a set of them
+ * (`SESSION_ENDING_CODES`). Anything else the files export (functions, numbers, types, a const
+ * object of other things) is not an enumeration.
  */
 export function enumerationsIn(files: readonly string[]): Enumeration[] {
   return files.flatMap((file) =>
-    Object.entries(loadModule(file)).flatMap(([name, value]) =>
-      CONSTANT_NAME.test(name) && isEnumerationObject(value)
-        ? [{ name, file: path.relative(ROOT, file), values: Object.values(value) }]
-        : [],
+    Object.entries(loadModule(file)).flatMap(([name, value]) => {
+      const values = stableStringsOf(value);
+      return CONSTANT_NAME.test(name) && values !== undefined
+        ? [{ name, file: path.relative(ROOT, file), values }]
+        : [];
+    }),
+  );
+}
+
+/** The exported constants of the files that are a number, named in upper case, by name. */
+export function numericConstantsIn(files: readonly string[]): Record<string, number> {
+  return Object.fromEntries(
+    files.flatMap((file) =>
+      Object.entries(loadModule(file)).flatMap(([name, value]) =>
+        CONSTANT_NAME.test(name) && typeof value === 'number' ? [[name, value] as const] : [],
+      ),
     ),
   );
 }

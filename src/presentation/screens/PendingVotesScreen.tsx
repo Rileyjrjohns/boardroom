@@ -4,6 +4,7 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { MeetingId } from '@domain/value-objects/ids';
+import { isRetryableCode } from '@application/shared/retryableCodes';
 
 import { useAnnounce } from '../accessibility/useAnnounce';
 import { DemoOfflineSwitch } from '../components/DemoControls';
@@ -17,7 +18,6 @@ import { StatusBanner } from '../components/StatusBanner';
 import { UnreadableVotesNotice } from '../components/UnreadableVotesNotice';
 import { usePendingVotes } from '../hooks/usePendingVotes';
 import { errorCodeOf } from '../query/errorCode';
-import { isRetryableCode } from '../query/retryPolicy';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes, spacing } from '../theme/tokens';
 

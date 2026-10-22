@@ -2,6 +2,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
+import { SESSION_CHECK_INTERVAL_MILLIS } from '@application/shared/sessionPolicy';
 import { createFakes } from '@application/testing/createFakes';
 import { AUTHENTICATION_ERROR_CODE } from '@domain/errors/AuthenticationError';
 import { storageReadFailed, storageWriteFailed } from '@domain/errors/StorageError';
@@ -16,7 +17,6 @@ import { renderScreen } from '../testing/renderScreen';
 import type { RenderScreenOptions } from '../testing/renderScreen';
 
 import { SessionController } from './SessionController';
-import { SESSION_CHECK_INTERVAL_MILLIS } from './useSessionWatch';
 import { APP_STATE } from './appState';
 
 // The session controller, without the navigator: how the app starts, what it follows (the

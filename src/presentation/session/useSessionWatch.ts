@@ -1,17 +1,10 @@
 import { useEffect, useRef } from 'react';
 
+import { SESSION_CHECK_INTERVAL_MILLIS } from '@application/shared/sessionPolicy';
+
 import { ACCESS, useUiStore, useUiStoreApi } from '../state/uiStore';
 
 import { useSessionCheck } from './useSessionCheck';
-
-/**
- * How often an app that stays open and in the foreground asks whether its session is still good,
- * in milliseconds. A session that expires while the user looks at the screen must not leave the
- * data on it until the next request happens to find out: the longest it can stay is this, plus the
- * time of a check. The check is local (the session guard reads the stored session and the clock),
- * so a short period costs nothing; it is long enough not to be a loop.
- */
-export const SESSION_CHECK_INTERVAL_MILLIS = 30_000;
 
 /**
  * Checks the session on a timer (`SESSION_CHECK_INTERVAL_MILLIS`), while the app is open and in the

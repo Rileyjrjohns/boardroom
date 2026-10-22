@@ -30,6 +30,7 @@ import {
   ROOT,
   enumerationsIn,
   loadModule,
+  numericConstantsIn,
   parametersOfRoute,
   portsIn,
   routesOfApp,
@@ -157,6 +158,7 @@ describe('the files of the specification', () => {
       [TABLE_KIND.Limit]: ['domain.md'],
       [TABLE_KIND.UseCase]: ['use-cases.md'],
       [TABLE_KIND.Setting]: ['use-cases.md'],
+      [TABLE_KIND.Constant]: ['use-cases.md'],
       [TABLE_KIND.Port]: ['ports.md'],
       [TABLE_KIND.Operation]: ['ports.md'],
       [TABLE_KIND.Route]: ['screens.md'],
@@ -529,7 +531,7 @@ describe('the test id builders', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
-// Limits and settings
+// Limits, settings and constants
 // ---------------------------------------------------------------------------------------------
 
 const text = (length: number): string => 'a'.repeat(length);
@@ -661,5 +663,25 @@ describe('the settings', () => {
 
     expect(value).toBeDefined();
     expect(String(value)).toBe((valueCell ?? '').replaceAll('`', '').trim());
+  });
+});
+
+describe('the constants of the application', () => {
+  const inCode = numericConstantsIn(sourceFilesUnder('src/application/shared'));
+  const tables = tablesOfKind(spec.useCases, TABLE_KIND.Constant);
+  const rows = rowsOf(tables);
+
+  it('are the numeric constants of src/application/shared, no more, no fewer', () => {
+    expect(tables).toHaveLength(1);
+    expectSameSet(
+      Object.keys(inCode),
+      rows.map((row) => firstCode(row[0] ?? '') ?? ''),
+    );
+  });
+
+  it.each(rows)('has the value of %s in the code', (nameCell, valueCell) => {
+    const name = firstCode(nameCell) ?? '';
+
+    expect(String(inCode[name])).toBe((valueCell ?? '').replaceAll('`', '').trim());
   });
 });

@@ -3,10 +3,10 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
 import type { DocumentId } from '@domain/value-objects/ids';
 import type { OpenedDocument } from '@application/use-cases/documents/OpenDocument';
+import { isSessionEndingCode } from '@application/shared/sessionPolicy';
 
 import type { DocumentErrorCode } from '../i18n/translationKeys';
 import { useIsScreenFocused } from '../navigation/useIsScreenFocused';
-import { isSessionEndingCode } from '../query/createQueryClient';
 import { useAppServices } from '../services/AppServices';
 import type { UseCases } from '../services/AppServices';
 import { useUiStoreApi } from '../state/uiStore';

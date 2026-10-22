@@ -122,7 +122,7 @@ flowchart TD
 
 ### Session-ending codes
 
-A failure that carries one of these codes, from a query, a mutation or a synchronisation, ends the session for the whole app, whichever screen was showing it.
+A failure that carries one of these codes, from a query, a mutation or a synchronisation, ends the session for the whole app, whichever screen was showing it. The codes are the ones of the application layer ([`SESSION_ENDING_CODES`](use-cases.md#session_ending_codes), see [the session policy](use-cases.md#the-session-policy)); the table says what the screens do with each.
 
 | Error code         | Goes to    | Notice shown there        |
 | ------------------ | ---------- | ------------------------- |
@@ -150,7 +150,7 @@ Every error shown by a list, a meeting or the outbox comes from one set of codes
 | `sessionChanged`     | `errors.sessionChanged`     | no           | ends the session                                            |
 | `appLocked`          | `errors.appLocked`          | no           | ends the session (to the lock screen)                       |
 
-**The retry rule.** A retry button is shown only for the codes that asking again can fix: `networkUnavailable`, `unexpected`, `storageReadFailed`, and, for the document screen only, `screenProtectionFailed`. Every other code is final for the screen.
+**The retry rule.** A retry button is shown only for the codes that asking again can fix, the ones of the application layer ([`RETRYABLE_CODES`](use-cases.md#retryable_codes)): `networkUnavailable`, `unexpected`, `storageReadFailed`, and, for the document screen only, `screenProtectionFailed`. Every other code is final for the screen.
 
 **Final versus inline.** An error with content already on screen:
 
@@ -162,7 +162,7 @@ Every error shown by a list, a meeting or the outbox comes from one set of codes
 These are the behaviours of the query layer in front of the use cases. They are tuning, not business rules, but a Flutter version that wants the same feel mirrors them.
 
 - Data read by a screen counts as current for 60 seconds: a screen opened again inside the window shows what it has and asks nothing; after it, the screen shows what it has and revalidates in the background. Unused data is dropped from memory after 5 minutes.
-- A failed read is tried again at most twice, only for the retryable codes, after 0.5 s then 1 s (doubling, capped at 4 s). A mutation (sign in, vote, acknowledge, discard, sign out) is never retried.
+- A failed read is tried again at most twice, only for the retryable codes ([a rule of the application layer](use-cases.md#the-session-policy)), after 0.5 s then 1 s (doubling, capped at 4 s). A mutation (sign in, vote, acknowledge, discard, sign out) is never retried.
 - There is no refetch on focus or on reconnection: screens refresh on demand (pull to refresh, "Try again").
 - A pull to refresh on the list restarts from the first page (the pages loaded beyond it are dropped and asked again as the user scrolls); on a meeting or the outbox it reads again. While refreshing, the screen announces `states.refreshing`.
 - The whole memory cache is emptied whenever the user leaves `unlocked`, and when a failure ends the session.
@@ -171,12 +171,12 @@ These are the behaviours of the query layer in front of the use cases. They are 
 
 Four mechanisms in the shell, mounted once above the navigator, keep the access true:
 
-| Mechanism             | Trigger                                                 | Effect                                                                                                                                                                                    |
-| --------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Restore at start      | access is `starting`                                    | Calls `RestoreSession` once. On failure shows the restore failure (see below) and can ask again.                                                                                          |
-| Connectivity          | from app start, needs no session                        | Calls `ObserveConnectivity`; stores the status (default `online`); each change to `online` asks for a vote synchronisation.                                                               |
-| Background and return | app state `inactive` or `background`, then `active`     | Privacy cover up at once; remembers the instant of going to `background` (not of going `inactive`: the system biometric prompt makes the app inactive); on return runs `EvaluateAppLock`. |
-| Session watch         | every 30 seconds while `unlocked` and the cover is down | Calls `GetCurrentUser` as a check of the session. A session-ending failure ends the session; any other failure (the stored session cannot be read) locks the app: it fails closed.        |
+| Mechanism             | Trigger                                                                                                                                              | Effect                                                                                                                                                                                    |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Restore at start      | access is `starting`                                                                                                                                 | Calls `RestoreSession` once. On failure shows the restore failure (see below) and can ask again.                                                                                          |
+| Connectivity          | from app start, needs no session                                                                                                                     | Calls `ObserveConnectivity`; stores the status (default `online`); each change to `online` asks for a vote synchronisation.                                                               |
+| Background and return | app state `inactive` or `background`, then `active`                                                                                                  | Privacy cover up at once; remembers the instant of going to `background` (not of going `inactive`: the system biometric prompt makes the app inactive); on return runs `EvaluateAppLock`. |
+| Session watch         | every `SESSION_CHECK_INTERVAL_MILLIS` (30 seconds, see [the session policy](use-cases.md#the-session-policy)) while `unlocked` and the cover is down | Calls `GetCurrentUser` as a check of the session. A session-ending failure ends the session; any other failure (the stored session cannot be read) locks the app: it fails closed.        |
 
 On return from the background (only when the access is `unlocked`): `EvaluateAppLock` with the recorded instant; if the unlock is required, or the answer failed, the access becomes `locked`; otherwise the session is checked as above. The cover stays up until that is settled, then comes down, and a vote synchronisation is requested if the app is still open. A return from `inactive` that never went to `background` (a prompt closing, a pulled-down control centre) only lowers the cover.
 

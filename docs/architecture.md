@@ -213,7 +213,7 @@ locales/                  fr.json: the Info.plist strings of the iOS project in 
 src/
   domain/                 entities, value-objects, policies, errors, shared (Result, Brand)
     testing/                builders of fixtures for the tests (test support)
-  application/            ports, use-cases (by feature), shared (offline policy, session)
+  application/            ports, use-cases (by feature), shared (offline policy, session, the codes that end a session or that a retry can fix)
     testing/                fakes of the ports, and the contract suites in contracts/ (test support)
   infrastructure/
     in-memory/            the simulated server, the in-memory caches, outbox, auth, biometrics, screen protection, the seed (fixtures/ loads the files of docs/spec/fixtures and shifts their dates to the clock)
@@ -235,7 +235,7 @@ src/
   presentation/           screens, components, hooks
     i18n/                 translations, language detection, provider, maps from codes to translation keys
     theme/                design tokens (colours, spacing, font sizes, touch target)
-    query/                query client and its session handling, query keys, the Result to query convention, retry policy, error codes
+    query/                query client and its session handling, query keys, the Result to query convention, the tuning of retries, error codes
     services/             the use cases and settings the screens need (context), the providers of the app, the gate that starts it
     session/              the controller of the session and of the life of the app: restoring it, the lock and the check of the session on the way back and on a timer, the privacy cover, the connection, the synchronisation of the votes
     state/                the interface store (Zustand)

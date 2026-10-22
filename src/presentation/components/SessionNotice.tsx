@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet } from 'react-native';
 
+import type { SessionEndingCode } from '@application/shared/sessionPolicy';
+
 import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
-import type { SessionEndingCode } from '../query/createQueryClient';
 import { TEST_IDS } from '../testIds';
 import { colors, fontSizes } from '../theme/tokens';
 
