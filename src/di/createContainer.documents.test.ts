@@ -389,4 +389,25 @@ describe('createContainer, http configuration, documents', () => {
     expect(await names(device.fileStore)).toEqual([device.fileStore.nameOf(opened.location)]);
     expect(restarted.kind).toBe(ADAPTERS.Http);
   });
+
+  it('starts, and tells the monitoring once, when a file no entry points at cannot be deleted', async () => {
+    const { start, device, monitoring } = aWorld();
+    valueOf(await device.fileStore.write('stray.pdf', Uint8Array.from([1])));
+    const failing: FileStore = {
+      ...device.fileStore,
+      delete: () => Promise.resolve({ ok: false, error: { cause: 'EBUSY' } }),
+    };
+
+    const started = await start({ fileStore: failing });
+
+    expect(started.kind).toBe(ADAPTERS.Http);
+    expect(monitoring.errors).toEqual([
+      expect.objectContaining({
+        event: 'orphanFileNotDeleted',
+        error: { code: 'storageWriteFailed', cause: 'EBUSY' },
+        attributes: { resource: 'document' },
+      }),
+    ]);
+    expect(await names(device.fileStore)).toEqual(['stray.pdf']);
+  });
 });

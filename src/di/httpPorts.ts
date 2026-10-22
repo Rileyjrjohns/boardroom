@@ -88,11 +88,11 @@ export async function createHttpPorts(
   const files = runtime.fileStore ?? createExpoFileStore();
   const documentCache = new SqliteDocumentCache({ database: database.value, files, monitoring });
   // The files that no entry points at (a download whose entry was never saved, a file that was
-  // being written when the app stopped) are deleted before anything can be downloaded. A file that
-  // cannot be deleted is reported by the cache, and left for the next start.
+  // being written when the app stopped) are deleted before anything can be downloaded. A sweep that
+  // fails is reported once, as in the mock configuration, and what it left waits for the next start.
   const swept = await documentCache.sweepOrphans();
   if (!swept.ok) {
-    monitoring.captureError(MONITORING_EVENT.CacheRemoveFailed, swept.error, {
+    monitoring.captureError(MONITORING_EVENT.OrphanFileNotDeleted, swept.error, {
       [LOG_ATTRIBUTE.Resource]: DOCUMENTS_RESOURCE,
     });
   }
