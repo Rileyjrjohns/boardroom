@@ -7,7 +7,7 @@ import type { MeetingId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import type { Page } from '@domain/value-objects/Page';
 
-import type { CacheEntry } from '../ports/CacheEntry';
+import type { CacheEntry } from '../ports/types/CacheEntry';
 import type { MeetingCache, MeetingPageKey } from '../ports/MeetingCache';
 
 import { copyPlain } from './copyPlain';

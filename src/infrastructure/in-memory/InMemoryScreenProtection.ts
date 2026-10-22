@@ -1,11 +1,8 @@
 import type { ScreenProtectionError } from '@domain/errors/ScreenProtectionError';
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
-import type {
-  ScreenCaptureEvent,
-  ScreenProtection,
-  Unsubscribe,
-} from '@application/ports/ScreenProtection';
+import type { ScreenCaptureEvent, ScreenProtection } from '@application/ports/ScreenProtection';
+import type { Unsubscribe } from '@application/ports/types/Unsubscribe';
 
 /**
  * The screen protection of the mock configuration. It blocks nothing: it records whether it was

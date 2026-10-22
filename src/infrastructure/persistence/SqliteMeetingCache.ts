@@ -10,7 +10,7 @@ import type { Instant } from '@domain/value-objects/Instant';
 import type { Page } from '@domain/value-objects/Page';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { LogAttributes, Monitoring } from '@application/ports/Monitoring';
-import type { CacheEntry } from '@application/ports/CacheEntry';
+import type { CacheEntry } from '@application/ports/types/CacheEntry';
 import type { MeetingCache, MeetingPageKey } from '@application/ports/MeetingCache';
 
 import { issuePathsOf } from '../shared/issuePaths';

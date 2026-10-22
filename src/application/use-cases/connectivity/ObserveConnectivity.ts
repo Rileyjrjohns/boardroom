@@ -1,5 +1,5 @@
 import type { Connectivity, ConnectivityStatus } from '../../ports/Connectivity';
-import type { Unsubscribe } from '../../ports/ScreenProtection';
+import type { Unsubscribe } from '../../ports/types/Unsubscribe';
 
 export interface ObserveConnectivityDeps {
   readonly connectivity: Connectivity;

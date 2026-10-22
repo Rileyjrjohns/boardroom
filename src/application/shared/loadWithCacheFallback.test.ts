@@ -22,7 +22,7 @@ import {
 } from '@domain/testing/builders';
 import type { Instant } from '@domain/value-objects/Instant';
 
-import type { CacheEntry } from '../ports/CacheEntry';
+import type { CacheEntry } from '../ports/types/CacheEntry';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../ports/Monitoring';
 import { createFakes } from '../testing/createFakes';
 

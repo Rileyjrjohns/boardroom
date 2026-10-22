@@ -5,7 +5,7 @@ import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 import type { DocumentId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
-import type { CacheEntry } from './CacheEntry';
+import type { CacheEntry } from './types/CacheEntry';
 
 /** A document that can be shown: its metadata and where its content is. */
 export interface ViewableDocument {

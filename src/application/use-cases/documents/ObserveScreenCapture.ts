@@ -4,11 +4,8 @@ import type { DocumentId } from '@domain/value-objects/ids';
 
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../../ports/Monitoring';
 import type { LogAttributes } from '../../ports/Monitoring';
-import type {
-  ScreenCaptureEvent,
-  ScreenProtection,
-  Unsubscribe,
-} from '../../ports/ScreenProtection';
+import type { ScreenCaptureEvent, ScreenProtection } from '../../ports/ScreenProtection';
+import type { Unsubscribe } from '../../ports/types/Unsubscribe';
 import { requireSession } from '../../shared/requireSession';
 import type { RequireSessionDeps, SessionRequiredError } from '../../shared/requireSession';
 

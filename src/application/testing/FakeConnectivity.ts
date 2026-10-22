@@ -1,6 +1,6 @@
 import { CONNECTIVITY_STATUS } from '../ports/Connectivity';
 import type { Connectivity, ConnectivityStatus } from '../ports/Connectivity';
-import type { Unsubscribe } from '../ports/ScreenProtection';
+import type { Unsubscribe } from '../ports/types/Unsubscribe';
 
 /** A device that is online until the test says otherwise. */
 export class FakeConnectivity implements Connectivity {

@@ -2,7 +2,8 @@ import type { ScreenProtectionError } from '@domain/errors/ScreenProtectionError
 import { err, ok } from '@domain/shared/Result';
 import type { Result } from '@domain/shared/Result';
 
-import type { ScreenCaptureEvent, ScreenProtection, Unsubscribe } from '../ports/ScreenProtection';
+import type { ScreenCaptureEvent, ScreenProtection } from '../ports/ScreenProtection';
+import type { Unsubscribe } from '../ports/types/Unsubscribe';
 
 /** A platform that supports screen protection, until the test says otherwise. */
 export class FakeScreenProtection implements ScreenProtection {

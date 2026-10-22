@@ -5,7 +5,7 @@ import type { Result } from '@domain/shared/Result';
 import type { DocumentLocation } from '@domain/value-objects/DocumentLocation';
 import type { DocumentId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
-import type { CacheEntry } from '@application/ports/CacheEntry';
+import type { CacheEntry } from '@application/ports/types/CacheEntry';
 import type { DocumentCache, ViewableDocument } from '@application/ports/DocumentCache';
 
 import { contentExists, deleteContent } from '../documents/documentContent';

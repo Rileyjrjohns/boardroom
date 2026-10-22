@@ -8,11 +8,8 @@ import type { Result } from '@domain/shared/Result';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { Monitoring } from '@application/ports/Monitoring';
 import { SCREEN_CAPTURE_KIND } from '@application/ports/ScreenProtection';
-import type {
-  ScreenCaptureEvent,
-  ScreenProtection,
-  Unsubscribe,
-} from '@application/ports/ScreenProtection';
+import type { ScreenCaptureEvent, ScreenProtection } from '@application/ports/ScreenProtection';
+import type { Unsubscribe } from '@application/ports/types/Unsubscribe';
 
 import { attempt, describeFailure } from '../shared/attempt';
 import { createSerialQueue } from '../shared/serialQueue';
