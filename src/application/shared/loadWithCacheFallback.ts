@@ -14,7 +14,7 @@ import type { Duration } from '@domain/value-objects/Duration';
 import type { UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
-import type { CacheEntry } from '../ports/CacheEntry';
+import type { CacheEntry } from '../ports/types/CacheEntry';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../ports/Monitoring';
 import type { LogAttributes } from '../ports/Monitoring';
 

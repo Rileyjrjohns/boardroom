@@ -2,6 +2,8 @@ import type { ValueOf } from '@domain/shared/constants';
 import type { ScreenProtectionError } from '@domain/errors/ScreenProtectionError';
 import type { Result } from '@domain/shared/Result';
 
+import type { Unsubscribe } from './types/Unsubscribe';
+
 /** What the system reports about the screen being captured. */
 export const SCREEN_CAPTURE_KIND = {
   ScreenshotTaken: 'screenshotTaken',
@@ -14,9 +16,6 @@ export type ScreenCaptureKind = ValueOf<typeof SCREEN_CAPTURE_KIND>;
 export interface ScreenCaptureEvent {
   readonly kind: ScreenCaptureKind;
 }
-
-/** Stops a subscription. Calling it again does nothing. */
-export type Unsubscribe = () => void;
 
 /**
  * Blocks screenshots and screen recording while a confidential screen is shown, and reports

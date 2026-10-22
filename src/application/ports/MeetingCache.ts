@@ -8,7 +8,7 @@ import type { MeetingPeriod } from '@domain/value-objects/MeetingPeriod';
 import type { Page } from '@domain/value-objects/Page';
 import type { PageCursor } from '@domain/value-objects/PageCursor';
 
-import type { CacheEntry } from './CacheEntry';
+import type { CacheEntry } from './types/CacheEntry';
 
 /**
  * Identifies a cached page of a list: the period, where the page starts (the first page has no

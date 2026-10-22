@@ -1,6 +1,6 @@
 import { CONNECTIVITY_STATUS } from '../../ports/Connectivity';
 import type { Connectivity, ConnectivityStatus } from '../../ports/Connectivity';
-import type { Unsubscribe } from '../../ports/ScreenProtection';
+import type { Unsubscribe } from '../../ports/types/Unsubscribe';
 import { createFakes } from '../../testing/createFakes';
 
 import { ObserveConnectivity } from './ObserveConnectivity';

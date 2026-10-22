@@ -1,6 +1,6 @@
 import type { ValueOf } from '@domain/shared/constants';
 
-import type { Unsubscribe } from './ScreenProtection';
+import type { Unsubscribe } from './types/Unsubscribe';
 
 /** Whether the device has a connection, as far as the platform can tell. */
 export const CONNECTIVITY_STATUS = {

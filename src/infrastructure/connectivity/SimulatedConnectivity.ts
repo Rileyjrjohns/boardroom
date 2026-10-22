@@ -1,6 +1,6 @@
 import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { Connectivity, ConnectivityStatus } from '@application/ports/Connectivity';
-import type { Unsubscribe } from '@application/ports/ScreenProtection';
+import type { Unsubscribe } from '@application/ports/types/Unsubscribe';
 
 import type { NetworkControl } from '../in-memory/SimulatedNetwork';
 

@@ -6,7 +6,7 @@ import type { Result } from '@domain/shared/Result';
 import type { MeetingId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 import type { Page } from '@domain/value-objects/Page';
-import type { CacheEntry } from '@application/ports/CacheEntry';
+import type { CacheEntry } from '@application/ports/types/CacheEntry';
 import type { MeetingCache, MeetingPageKey } from '@application/ports/MeetingCache';
 
 import { clonePlain } from '../shared/clonePlain';

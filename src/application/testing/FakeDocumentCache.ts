@@ -4,7 +4,7 @@ import type { Result } from '@domain/shared/Result';
 import type { DocumentId, UserId } from '@domain/value-objects/ids';
 import type { Instant } from '@domain/value-objects/Instant';
 
-import type { CacheEntry } from '../ports/CacheEntry';
+import type { CacheEntry } from '../ports/types/CacheEntry';
 import type { DocumentCache, ViewableDocument } from '../ports/DocumentCache';
 
 import { copyPlain } from './copyPlain';

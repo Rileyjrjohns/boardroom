@@ -3,7 +3,7 @@ import { CONNECTIVITY_STATUS } from '@application/ports/Connectivity';
 import type { Connectivity, ConnectivityStatus } from '@application/ports/Connectivity';
 import { MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { Monitoring } from '@application/ports/Monitoring';
-import type { Unsubscribe } from '@application/ports/ScreenProtection';
+import type { Unsubscribe } from '@application/ports/types/Unsubscribe';
 
 import { attempt, describeFailure } from '../shared/attempt';
 import { createSubscribers } from '../shared/subscribers';

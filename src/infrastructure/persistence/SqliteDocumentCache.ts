@@ -6,7 +6,7 @@ import { parseDocumentLocation } from '@domain/value-objects/DocumentLocation';
 import type { DocumentId, UserId } from '@domain/value-objects/ids';
 import { parseInstant } from '@domain/value-objects/Instant';
 import type { Instant } from '@domain/value-objects/Instant';
-import type { CacheEntry } from '@application/ports/CacheEntry';
+import type { CacheEntry } from '@application/ports/types/CacheEntry';
 import type { DocumentCache, ViewableDocument } from '@application/ports/DocumentCache';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@application/ports/Monitoring';
 import type { LogAttributes, Monitoring } from '@application/ports/Monitoring';
