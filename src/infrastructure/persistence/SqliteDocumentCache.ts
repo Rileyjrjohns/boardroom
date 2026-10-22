@@ -130,9 +130,9 @@ export class SqliteDocumentCache implements DocumentCache {
    * Deletes the files of the documents that no entry points at: what a download left when its
    * entry was never saved, what a deletion that was interrupted left, a file that was being written
    * when the app stopped. It runs when the cache starts, before any download, so no file it finds
-   * can be one that is about to be saved. A file that cannot be deleted is reported and left for
-   * the next start; the others are still deleted. Fails when the files or the database cannot be
-   * read, or a file is left.
+   * can be one that is about to be saved. A file that cannot be deleted is left for the next start;
+   * the others are still deleted. Fails when the files or the database cannot be read, or a file is
+   * left: the caller reports the failure, once, whatever its cause.
    */
   sweepOrphans(): Promise<Result<void, StorageWriteFailedError>> {
     return this.inOrder(() => this.write(() => this.sweep()));
@@ -219,7 +219,7 @@ export class SqliteDocumentCache implements DocumentCache {
   }
 
   private async sweep(): Promise<Step<void>> {
-    const { database, files, monitoring } = this.options;
+    const { database, files } = this.options;
     const listed = await files.list();
     if (!listed.ok) return listed;
 
@@ -233,14 +233,7 @@ export class SqliteDocumentCache implements DocumentCache {
     for (const name of listed.value) {
       if (referenced.has(name)) continue;
       const deleted = await files.delete(name);
-      if (!deleted.ok) {
-        monitoring.captureError(
-          MONITORING_EVENT.OrphanFileNotDeleted,
-          storageWriteFailed(deleted.error.cause),
-          { [LOG_ATTRIBUTE.Resource]: RESOURCE },
-        );
-        failure ??= deleted.error;
-      }
+      if (!deleted.ok) failure ??= deleted.error;
     }
     return failure === undefined ? ok(undefined) : err(failure);
   }

@@ -413,7 +413,7 @@ Every event the application reports. A call site names one of these, never a fre
 | `signOutFailed`                  | The session could not be forgotten while it was being ended                                                                                                              |
 | `cacheReadFailed`                | A local cache could not be read; the read is treated as a miss                                                                                                           |
 | `cacheWriteFailed`               | A local cache could not be written; the fresh data is returned all the same                                                                                              |
-| `cacheRemoveFailed`              | An entry (or a stray file) could not be removed from a cache                                                                                                             |
+| `cacheRemoveFailed`              | An entry could not be removed from a cache                                                                                                                               |
 | `cachePurgeFailed`               | A cache could not be emptied                                                                                                                                             |
 | `cacheEntryDiscarded`            | A cached entry was too old, or dated in the future, and counted as a miss                                                                                                |
 | `servedFromCache`                | The server was unreachable and a saved copy was served as stale data                                                                                                     |
@@ -430,7 +430,7 @@ Every event the application reports. A call site names one of these, never a fre
 | `outboxReadFailed`               | The outbox could not be read when counting the votes that remain                                                                                                         |
 | `storedRowDiscarded`             | A row of the local database no longer reads back as what was stored: it is dropped                                                                                       |
 | `documentContentNotStored`       | The content of a document was downloaded and could not be written to the files of the device; the document is not shown                                                  |
-| `orphanFileNotDeleted`           | A file of the documents that no entry points at could not be deleted when the cache started                                                                              |
+| `orphanFileNotDeleted`           | Files of the documents that no entry points at could not all be deleted at start, reported once                                                                          |
 | `storedRowQuarantined`           | An entry of the outbox no longer reads back as a vote: it is kept, out of the queue, until the user discards it                                                          |
 | `responseInvalid`                | The server answered something that does not have the shape of the API                                                                                                    |
 | `databaseRecreated`              | The local database could not be opened with its key: the file was set aside unread and an empty one was created; votes that waited in the old one are not in the new one |

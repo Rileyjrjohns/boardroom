@@ -39,7 +39,10 @@ export const MONITORING_EVENT = {
    * The document is not shown.
    */
   DocumentContentNotStored: 'documentContentNotStored',
-  /** A file of the documents that no entry points at could not be deleted when the cache started. */
+  /**
+   * The files of the documents that no entry points at could not all be deleted when the app
+   * started. What is left waits for the next start. Reported once per start, without file names.
+   */
   OrphanFileNotDeleted: 'orphanFileNotDeleted',
   /**
    * An entry of the outbox of votes no longer reads back as a vote: it is kept, out of the queue,

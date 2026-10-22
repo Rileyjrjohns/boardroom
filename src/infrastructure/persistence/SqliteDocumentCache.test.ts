@@ -344,7 +344,7 @@ describe('SqliteDocumentCache, the files that no entry points at', () => {
     expect(await cache.sweepOrphans()).toStrictEqual(ok(undefined));
   });
 
-  it('reports a file it cannot delete without its name, goes on with the others, and fails', async () => {
+  it('goes on with the other files when one cannot be deleted, and fails without reporting it', async () => {
     const { device, monitoring, cache } = await openCache();
     await device.files.put(aDocumentLocation('file:///documents/a.pdf'));
     await device.files.put(aDocumentLocation('file:///documents/b.pdf'));
@@ -357,8 +357,8 @@ describe('SqliteDocumentCache, the files that no entry points at', () => {
     const failed = await cache.sweepOrphans();
 
     expect(!failed.ok && failed.error.code).toBe(STORAGE_ERROR_CODE.WriteFailed);
-    expect(monitoring.capturedEvents()).toEqual([MONITORING_EVENT.OrphanFileNotDeleted]);
-    expect(JSON.stringify(monitoring.errors)).not.toContain('a.pdf');
+    // The composition root reports the failure of the sweep, once: the cache does not.
+    expect(monitoring.capturedEvents()).toEqual([]);
     expect(await filesLeft(device)).toEqual(['a.pdf']);
   });
 
