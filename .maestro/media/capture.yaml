@@ -1,0 +1,171 @@
+# CAPTURE FLOW, NOT A TEST: it produces the images of the README (docs/media), and asserts nothing
+# beyond what it needs to wait for. It lives in a sub-folder on purpose, so that
+# `maestro test .maestro` never runs it.
+#
+# Run it with `npm run media:ios`, which also records the video of the simulator, converts the
+# result to docs/media/demo.gif and the four PNG screenshots, and puts the status bar of the
+# simulator at 9:41. To run the flow alone, from the root of the repository:
+#
+#   maestro --device <simulator UDID> test -e APP_ID=com.boardroom.demo \
+#     --test-output-dir <folder> .maestro/media/capture.yaml
+#
+# The raw screenshots are written to <folder>/takeScreenshot/ (Maestro writes a screenshot nowhere
+# else), at the full resolution of the simulator.
+#
+# What it needs:
+#   - a RELEASE build of the app made with the mock adapters, installed on the simulator, so that no
+#     developer menu or floating button is on the screen:
+#       EXPO_PUBLIC_BOARDROOM_ADAPTERS=mock npx expo run:ios --device <UDID> --configuration Release
+#   - the simulator set to English (the README is in English), with a clean status bar.
+#
+# APP_ID is the bundle identifier of the installed build: `com.boardroom.demo` for a build of the
+# committed configuration. A build signed with a personal team carries another one, which
+# capture.sh takes from MEDIA_APP_ID.
+#
+# The scenario: sign in with the demo account, the meetings list, a meeting, a vote cast while
+# offline (the demo switch) and waiting to be sent, back online and the vote sent, then a
+# confidential document with its watermark and its "Protected screen" badge. Only ids are used.
+# Of the four screenshots, only two are Maestro's (the meeting, and the offline vote): its screenshots
+# leave out the secure content of iOS, which is the password field of the sign-in screen and the pages
+# of a protected document. capture.sh takes those two with simctl: the sign-in one when the flow has
+# passed the `takeScreenshot: sign-in` step below, the one of the document when the flow ends.
+#
+# The pauses (`waitForAnimationToEnd`, and the `pause` helper, which waits a given number of
+# milliseconds) let a screen settle before it is photographed, and give the viewer of the GIF time
+# to read it.
+appId: ${APP_ID}
+---
+- launchApp:
+    stopApp: true
+    clearState: true
+
+# 1. Sign in with the demo account.
+- extendedWaitUntil:
+    visible:
+      id: sign-in-screen
+    timeout: 60000
+- waitForAnimationToEnd
+- tapOn:
+    id: demo-account-alice.martin@boardroom.example
+- waitForAnimationToEnd
+# Maestro's own screenshot has no password in it (a secure field): this step is the cue for the
+# screenshot that capture.sh takes with simctl, and the screen stays still for the pause that follows.
+- takeScreenshot: sign-in
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 1000
+- tapOn:
+    id: sign-in-submit
+
+# 2. The meetings list.
+- extendedWaitUntil:
+    visible:
+      id: meeting-row-meeting-002
+    timeout: 30000
+- waitForAnimationToEnd
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 1200
+
+# 3. A meeting, with a resolution to vote on.
+- tapOn:
+    id: meeting-row-meeting-002
+- extendedWaitUntil:
+    visible:
+      id: meeting-detail
+    timeout: 30000
+- waitForAnimationToEnd
+- takeScreenshot: meeting
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 1000
+
+# 4. Offline: cut the simulated network, then vote. The vote is saved on the device and waits to
+# be sent.
+- tapOn:
+    id: demo-offline-switch
+- extendedWaitUntil:
+    visible:
+      id: offline-banner
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      id: vote-choice-meeting-002-resolution-subject-for
+    timeout: 30000
+- waitForAnimationToEnd
+- tapOn:
+    id: vote-choice-meeting-002-resolution-subject-for
+- extendedWaitUntil:
+    visible:
+      id: vote-dialog
+    timeout: 10000
+- waitForAnimationToEnd
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 800
+- tapOn:
+    id: vote-confirm
+- extendedWaitUntil:
+    visible:
+      id: vote-outcome-meeting-002-resolution-subject
+    timeout: 30000
+- waitForAnimationToEnd
+- takeScreenshot: offline-vote
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 1200
+
+# 5. Back online: the vote is sent, and the app says so.
+- scrollUntilVisible:
+    element:
+      id: demo-offline-switch
+    direction: UP
+    timeout: 30000
+- tapOn:
+    id: demo-offline-switch
+- extendedWaitUntil:
+    notVisible:
+      id: offline-banner
+    timeout: 15000
+- extendedWaitUntil:
+    visible:
+      id: sync-summary
+    timeout: 60000
+- waitForAnimationToEnd
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 1200
+- tapOn:
+    id: sync-summary-dismiss
+
+# 6. A confidential document of the same meeting, with its "Protected screen" badge and the
+# watermark over the PDF. The page indicator shows once the PDF is drawn.
+- scrollUntilVisible:
+    element:
+      id: document-meeting-002-document-2
+    timeout: 30000
+- tapOn:
+    id: document-meeting-002-document-2
+- extendedWaitUntil:
+    visible:
+      id: document-protected-badge
+    timeout: 60000
+- extendedWaitUntil:
+    visible:
+      id: document-page-indicator
+    timeout: 60000
+- waitForAnimationToEnd
+# No takeScreenshot here, on purpose: the pages and the watermark of a protected document are in a
+# secure container, which iOS leaves out of the screenshots of XCTest (what Maestro uses), so the
+# PDF would be blank. A screenshot of `simctl` shows them, and capture.sh takes it as soon as the
+# flow ends, which leaves the app on this screen.
+- runFlow:
+    file: pause.yaml
+    env:
+      PAUSE_MS: 2500

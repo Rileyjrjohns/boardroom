@@ -23,6 +23,7 @@
     "e2e": "npm run e2e:android",
     "e2e:android": "maestro --platform android ${E2E_ANDROID_DEVICE:+--device $E2E_ANDROID_DEVICE} test -e METRO_URL=${METRO_URL-http://localhost:8081} .maestro",
     "e2e:ios": "maestro --platform ios ${E2E_IOS_DEVICE:+--device $E2E_IOS_DEVICE} test -e METRO_URL=${METRO_URL-http://localhost:8081} .maestro",
+    "media:ios": "bash .maestro/media/capture.sh",
     "prepare": "husky || true"
   },
   "lint-staged": {

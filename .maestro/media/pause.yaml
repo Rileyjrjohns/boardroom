@@ -1,0 +1,10 @@
+# Waits for PAUSE_MS milliseconds. Maestro has no plain sleep: waiting for an element that never
+# shows up, and not minding that it does not, does the job. Used by capture.yaml, which says why it
+# pauses; it is not a flow on its own.
+appId: ${APP_ID}
+---
+- extendedWaitUntil:
+    visible:
+      id: pause-never-on-screen
+    timeout: ${PAUSE_MS}
+    optional: true
