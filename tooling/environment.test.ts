@@ -56,12 +56,19 @@ describe('the environment', () => {
     expect(
       filesReadingEnvironment({
         [ROOT_LAYOUT]: read,
-        'src/di/zzz.ts': read,
-        'src/di/yyy.ts': read,
+        'src/composition/container/zzz.ts': read,
+        'src/composition/container/yyy.ts': read,
       }),
-    ).toEqual([ROOT_LAYOUT, 'src/di/zzz.ts', 'src/di/yyy.ts']);
+    ).toEqual([
+      ROOT_LAYOUT,
+      'src/composition/container/zzz.ts',
+      'src/composition/container/yyy.ts',
+    ]);
     expect(
-      filesReadingEnvironment({ [ROOT_LAYOUT]: read, 'src/di/zzz.ts': 'export const a = 1;' }),
+      filesReadingEnvironment({
+        [ROOT_LAYOUT]: read,
+        'src/composition/container/zzz.ts': 'export const a = 1;',
+      }),
     ).toEqual([ROOT_LAYOUT]);
   });
 

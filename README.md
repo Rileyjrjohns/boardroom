@@ -14,12 +14,12 @@ The server is simulated and the data is fictional (a generic board, invented peo
 
 ## Ports and adapters
 
-The use cases are the centre and know only ports, which are interfaces owned by the application layer. An arrow from a port to an adapter reads "is implemented by", and each port has one per configuration (`mock` or `http`); the composition root is the one place that chooses them.
+The use cases are the centre and know only ports, which are interfaces owned by the application layer of their feature (or of the shared kernel). An arrow from a port to an adapter reads "is implemented by", and each port has one per configuration (`mock` or `http`); the composition root is the one place that chooses them.
 
 ```mermaid
 flowchart LR
     screens["<b>Screens and hooks</b><br/>presentation, expo-router<br/>(driving side)"]
-    root["<b>Composition root</b> (src/di)<br/>builds the adapters of one configuration,<br/>wires the use cases"]
+    root["<b>Composition root</b> (src/composition)<br/>builds the adapters of one configuration,<br/>wires the use cases"]
 
     subgraph core["Application layer"]
         usecases{{"<b>Use cases</b><br/>SignIn, ListMeetings, CastVote,<br/>SyncPendingVotes, OpenDocument, ..."}}
@@ -38,7 +38,7 @@ flowchart LR
         end
     end
 
-    subgraph adapters["Adapters (src/infrastructure)"]
+    subgraph adapters["Adapters (the infrastructure folders)"]
         MEM["<b>In-memory</b><br/>simulated server, stores, outbox,<br/>biometrics, connectivity"]
         HTTP["<b>HTTP + zod</b><br/>one HttpClient over fetch"]
         SQL["<b>SQLite / SQLCipher</b><br/>expo-sqlite"]
@@ -109,7 +109,7 @@ A development client is needed once: the app contains native code that Expo Go d
 | Repository checks (`tooling`)   | Node                            | The lint rules, the configuration, the shared spec against the code, the links of the documents             |
 | End to end                      | Android emulator, iOS simulator | Six [Maestro](https://maestro.dev) flows on the built app, through its accessibility tree                   |
 
-`npm run validate` (lint, typecheck, format check, tests with coverage) is the gate. Coverage is measured on all of `src/` and has two gates: **90 percent** on `src/domain` and on `src/application`, each on its own, and **70 percent** globally for the rest. The CI shows the figures of every layer in the summary of the run. Two Maestro flows are the reference scenarios and always run first: `biometric-login-list-document` (biometric login, the list, a confidential document) and `offline-vote-resync` (an offline vote, the network back, the outbox synchronised). More in [Testing strategy](docs/testing.md), and what was run on a device, and what was not, in [What is not verified](docs/not-verified.md).
+`npm run validate` (lint, typecheck, format check, tests with coverage) is the gate. Coverage is measured on all of `src/` and has two gates: **90 percent** on each `domain` and `application` folder (of `src/core` and of every feature), each on its own, and **70 percent** globally for the rest. The CI shows the figures of every layer in the summary of the run. Two Maestro flows are the reference scenarios and always run first: `biometric-login-list-document` (biometric login, the list, a confidential document) and `offline-vote-resync` (an offline vote, the network back, the outbox synchronised). More in [Testing strategy](docs/testing.md), and what was run on a device, and what was not, in [What is not verified](docs/not-verified.md).
 
 ## Migration strategy
 

@@ -6,27 +6,34 @@ import prettierConfig from 'eslint-config-prettier/flat';
 import boundaries from 'eslint-plugin-boundaries';
 
 /**
- * Architecture, enforced by eslint-plugin-boundaries (v7 settings and rules):
+ * Architecture, enforced by eslint-plugin-boundaries (v7 settings and rules).
  *
- *   app             -> presentation, di, assets
+ * The code is organised feature first (src/core, src/features/<feature>, src/composition) and,
+ * inside each of them, by layer. The layers are the elements of the rules below, wherever they are:
+ * the folder `domain` of the core and of every feature is the element `domain`, and so on. The
+ * folders of src/composition stand for the layer whose rules they follow (see `ELEMENTS`).
+ *
+ *   app             -> presentation, container, assets
  *   domain          -> domain
  *   application     -> domain, application
  *   infrastructure  -> domain, application, infrastructure, the spec fixtures
  *   presentation    -> domain, application, presentation, assets
- *   di              -> domain, application, infrastructure, di
+ *   container       -> domain, application, infrastructure, container
  *
- * domain, application and di import no external module at all. app, infrastructure and
+ * domain, application and container import no external module at all. app, infrastructure and
  * presentation may import external modules, except `zod` and the native modules of the device
  * (SQLite, secure storage, secure random numbers, biometrics, network), which only infrastructure
  * may use, and TanStack Query and Zustand, which only presentation may use. The local native
- * module ScreenProtection (`modules/screen-protection`) is imported by `src/infrastructure/native`
- * alone, with one exception: its secure view, a native *view* that no port can carry, which the
- * presentation component `SecureContent` alone imports (see `SECURE_CONTENT_FILE`). `fetch` is used by one module only, the HTTP client.
+ * module ScreenProtection (`modules/screen-protection`) is imported by
+ * `src/features/documents/infrastructure/native` alone, with one exception: its secure view, a
+ * native *view* that no port can carry, which the presentation component `SecureContent` alone
+ * imports (see `SECURE_CONTENT_FILE`). `fetch` is used by one module only, the HTTP client.
  * Paths are resolved through tsconfig by eslint-import-resolver-typescript, so the
- * `@domain/*`-style aliases are classified like relative imports.
+ * `@core/*`-style aliases are classified like relative imports.
  *
  * The spec fixtures (`docs/spec/fixtures`, JSON files shared with the other clients of the domain)
- * sit outside app/ and src/, and are imported by src/infrastructure alone (see `SPEC_FIXTURES_ELEMENT`).
+ * sit outside app/ and src/, and are imported by the infrastructure folders alone (see
+ * `SPEC_FIXTURES_ELEMENT`).
  *
  * Every file of the repository is visible to the plugin (see `boundaries/include` below). A file
  * that is neither an app, a layer nor an asset (a script, a config, `package.json`, a test
@@ -34,8 +41,9 @@ import boundaries from 'eslint-plugin-boundaries';
  *
  * Known limit, not detectable by a lint rule: an aliased `require` (`const r = require; r('x')`).
  *
- * No hardcoded user-facing text and no magic value, enforced under app/ and src/presentation (see
- * "UI code" below): text is translated, colours are theme tokens, test IDs are constants.
+ * No hardcoded user-facing text and no magic value, enforced under app/ and in the presentation
+ * folders (see "UI code" below): text is translated, colours are theme tokens, test IDs are
+ * constants.
  *
  * In every TypeScript file, the type system stays on: no `any`, no `@ts-ignore`, no `@ts-nocheck`,
  * and a `@ts-expect-error` only with a description.
@@ -46,7 +54,45 @@ import boundaries from 'eslint-plugin-boundaries';
  * by other test support only.
  */
 
-const LAYERS = ['domain', 'application', 'infrastructure', 'presentation', 'di'];
+/** The aliases of tsconfig.json: the roots under which every file of src/ is imported. */
+const ALIAS_ROOTS = ['core', 'features', 'composition', 'testing'];
+
+/**
+ * The elements of the architecture, by the folders they stand for. A layer is a folder of the core
+ * and a folder of every feature (`*` is the feature). The test support that serves a whole layer
+ * (src/testing) and the folders of src/composition that follow the rules of a layer are part of it:
+ *
+ * - `dev`, `device` and `persistence` are adapters of the device and of the simulated server, so
+ *   they are `infrastructure`;
+ * - `shell` is the interface of the app (navigation, providers, root state), so it is
+ *   `presentation`;
+ * - `glue` holds the tests that need every feature and no framework, so it is `application`;
+ * - `container` builds the adapters, the use cases and the configuration, and is its own element.
+ */
+const ELEMENTS = {
+  domain: ['src/core/domain', 'src/features/*/domain', 'src/testing/domain'],
+  application: [
+    'src/core/application',
+    'src/features/*/application',
+    'src/testing/application',
+    'src/composition/glue',
+  ],
+  infrastructure: [
+    'src/core/infrastructure',
+    'src/features/*/infrastructure',
+    'src/testing/infrastructure',
+    'src/composition/dev',
+    'src/composition/device',
+    'src/composition/persistence',
+  ],
+  presentation: [
+    'src/core/presentation',
+    'src/features/*/presentation',
+    'src/testing/presentation',
+    'src/composition/shell',
+  ],
+  container: ['src/composition/container'],
+};
 
 const SOURCE_EXTENSIONS = 'js,jsx,mjs,cjs,ts,tsx,mts,cts';
 const TYPESCRIPT_EXTENSIONS = 'ts,tsx,mts,cts';
@@ -55,15 +101,18 @@ const TYPESCRIPT_EXTENSIONS = 'ts,tsx,mts,cts';
 const APPLICATION_CODE = [`app/**/*.{${SOURCE_EXTENSIONS}}`, `src/**/*.{${SOURCE_EXTENSIONS}}`];
 
 /** UI code: the route files and the presentation layer, where text is rendered. */
-const UI_CODE = [`app/**/*.{${SOURCE_EXTENSIONS}}`, `src/presentation/**/*.{${SOURCE_EXTENSIONS}}`];
+const UI_CODE = [
+  `app/**/*.{${SOURCE_EXTENSIONS}}`,
+  ...ELEMENTS.presentation.map((folder) => `${folder}/**/*.{${SOURCE_EXTENSIONS}}`),
+];
 
 /**
  * Where raw colours are allowed: the design tokens, which define them, and the translation
  * resources, which are free text (a key may well be called `color`).
  */
 const COLOR_EXEMPT_FILES = [
-  `src/presentation/theme/**/*.{${SOURCE_EXTENSIONS}}`,
-  `src/presentation/i18n/resources/**/*.{${SOURCE_EXTENSIONS}}`,
+  `src/core/presentation/theme/**/*.{${SOURCE_EXTENSIONS}}`,
+  `src/core/presentation/i18n/resources/**/*.{${SOURCE_EXTENSIONS}}`,
 ];
 
 /** Test files, which may use development dependencies. */
@@ -76,8 +125,8 @@ const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}', '**/__tests__/**'];
  */
 const TEST_SUPPORT_FILES = ['src/**/testing/**'];
 
-/** The two layers that hold the business rules and must stay pure. */
-const CORE_CODE = ['src/domain/**/*', 'src/application/**/*'];
+/** The two layers that hold the business rules and must stay pure, in the core and in every feature. */
+const CORE_CODE = [...ELEMENTS.domain, ...ELEMENTS.application].map((folder) => `${folder}/**/*`);
 
 /**
  * Element selector matching one or several architecture elements.
@@ -115,26 +164,27 @@ const DEVICE_PACKAGES = [
 
 /**
  * The one file that imports the Sentry SDK: the adapter of the Monitoring port. The dependency policy
- * keeps the package inside src/infrastructure; this keeps it to the adapter, so that the SDK can be
+ * keeps the package inside the infrastructure folders; this keeps it to the adapter, so that the SDK can be
  * replaced by changing one file, and its stand-in in the tests is the one place that has to know it.
  */
-const SENTRY_FILE = 'src/infrastructure/monitoring/SentryMonitoring.ts';
+const SENTRY_FILE = 'src/core/infrastructure/monitoring/SentryMonitoring.ts';
 const CRASH_REPORTER_PACKAGES = ['@sentry/**'];
 
 /**
- * The local native module ScreenProtection. Only `src/infrastructure/native` imports it, to build
- * the adapter of the `ScreenProtection` port over it; every other layer, and every other folder of
- * the infrastructure, reaches the screen protection through the port.
+ * The local native module ScreenProtection. Only `src/features/documents/infrastructure/native`
+ * imports it, to build the adapter of the `ScreenProtection` port over it; every other layer, and
+ * every other folder of the infrastructure, reaches the screen protection through the port.
  */
 const NATIVE_MODULE_ELEMENT = 'native-modules';
-const NATIVE_MODULE_FILES = ['src/infrastructure/native/**'];
+const NATIVE_MODULE_FOLDER = 'src/features/documents/infrastructure/native';
+const NATIVE_MODULE_FILES = [`${NATIVE_MODULE_FOLDER}/**`];
 
 /**
  * The fixtures of the specification: the JSON files of `docs/spec/fixtures`, which the in-memory
  * adapters load as the content of the simulated server and which other clients of the same domain
  * read as they are. They are data, not code, and they sit outside app/ and src/, which the
- * dependency rule would reject as unknown files. Only `src/infrastructure` may import them, and
- * only that folder: nothing else of `docs/` is visible to the code.
+ * dependency rule would reject as unknown files. Only the infrastructure folders may import them,
+ * and only that folder of `docs/`: nothing else of `docs/` is visible to the code.
  */
 const SPEC_FIXTURES_ELEMENT = 'spec-fixtures';
 const SPEC_FIXTURES_FOLDER = 'docs/spec/fixtures';
@@ -147,15 +197,15 @@ const SPEC_FIXTURES_FOLDER = 'docs/spec/fixtures';
  * `no-restricted-imports` lets it import the entry point only, and neither its default export (the
  * native module, whose functions and events stay behind the port) nor a file inside it.
  */
-const SECURE_CONTENT_FILE = 'src/presentation/components/SecureContent.tsx';
+const SECURE_CONTENT_FILE = 'src/features/documents/presentation/components/SecureContent.tsx';
 
 /** The one module allowed to call `fetch`: everything that reaches the network goes through it. */
-const HTTP_CLIENT_FILE = 'src/infrastructure/http/HttpClient.ts';
+const HTTP_CLIENT_FILE = 'src/core/infrastructure/http/HttpClient.ts';
 
 const dependencyPolicies = [
   {
     from: element('app'),
-    allow: { to: [element('app', 'presentation', 'di', 'assets'), externalModule] },
+    allow: { to: [element('app', 'presentation', 'container', 'assets'), externalModule] },
   },
   {
     from: element('domain'),
@@ -174,41 +224,40 @@ const dependencyPolicies = [
     allow: { to: [element('domain', 'application', 'presentation', 'assets'), externalModule] },
   },
   {
-    from: element('di'),
-    allow: { to: element('domain', 'application', 'infrastructure', 'di') },
+    from: element('container'),
+    allow: { to: element('domain', 'application', 'infrastructure', 'container') },
   },
   // Later policies win over earlier ones. `zod` is reserved to the infrastructure layer.
   {
-    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    from: element('app', 'domain', 'application', 'presentation', 'container'),
     disallow: { to: { module: { origin: 'external', source: 'zod' } } },
-    message: 'The "zod" package may only be imported from src/infrastructure.',
+    message: 'The "zod" package may only be imported from an infrastructure folder.',
   },
   // The native modules of the device belong to the adapters of the infrastructure layer: the other
   // layers reach the device through a port.
   {
-    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    from: element('app', 'domain', 'application', 'presentation', 'container'),
     disallow: { to: { module: { origin: 'external', source: DEVICE_PACKAGES } } },
     message:
-      'The native modules of the device (expo-sqlite, expo-secure-store, expo-crypto, expo-file-system, expo-local-authentication, expo-network, expo-updates) may only be imported from src/infrastructure: the other layers reach the device through a port.',
+      'The native modules of the device (expo-sqlite, expo-secure-store, expo-crypto, expo-file-system, expo-local-authentication, expo-network, expo-updates) may only be imported from an infrastructure folder: the other layers reach the device through a port.',
   },
   // The crash reporter is a tool behind the Monitoring port: no layer but the infrastructure knows
   // it exists, and `no-restricted-imports` below keeps that to its adapter.
   {
-    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    from: element('app', 'domain', 'application', 'presentation', 'container'),
     disallow: { to: { module: { origin: 'external', source: CRASH_REPORTER_PACKAGES } } },
     message: `The Sentry SDK (@sentry/*) may only be imported from ${SENTRY_FILE}: every other layer reports through the Monitoring port.`,
   },
   // The local native module of the app is the same kind of thing, and narrower: the infrastructure
-  // layer may import it, and `no-restricted-imports` below keeps that to src/infrastructure/native.
+  // layer may import it, and `no-restricted-imports` below keeps that to ${NATIVE_MODULE_FOLDER}.
   {
     from: element('infrastructure'),
     allow: { to: element(NATIVE_MODULE_ELEMENT) },
   },
   {
-    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    from: element('app', 'domain', 'application', 'presentation', 'container'),
     disallow: { to: element(NATIVE_MODULE_ELEMENT) },
-    message:
-      'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: the other layers reach it through the ScreenProtection port.',
+    message: `The native module ScreenProtection (modules/screen-protection) may only be imported from ${NATIVE_MODULE_FOLDER}: the other layers reach it through the ScreenProtection port.`,
   },
   // The fixtures of the specification are data that the in-memory adapters of the infrastructure
   // layer load: no other layer reads them, it gets the content through the ports.
@@ -217,9 +266,9 @@ const dependencyPolicies = [
     allow: { to: element(SPEC_FIXTURES_ELEMENT) },
   },
   {
-    from: element('app', 'domain', 'application', 'presentation', 'di'),
+    from: element('app', 'domain', 'application', 'presentation', 'container'),
     disallow: { to: element(SPEC_FIXTURES_ELEMENT) },
-    message: `The fixtures of the specification (${SPEC_FIXTURES_FOLDER}) may only be imported from src/infrastructure: the other layers get the content through the ports.`,
+    message: `The fixtures of the specification (${SPEC_FIXTURES_FOLDER}) may only be imported from an infrastructure folder: the other layers get the content through the ports.`,
   },
   // The exception to the rule above: the one component that mounts the secure view of the module.
   {
@@ -229,10 +278,10 @@ const dependencyPolicies = [
   // Server state (TanStack Query) and interface state (Zustand) are presentation concerns: the
   // other layers hold no framework state, and a route file only mounts what the presentation gives it.
   {
-    from: element('app', 'domain', 'application', 'infrastructure', 'di'),
+    from: element('app', 'domain', 'application', 'infrastructure', 'container'),
     disallow: { to: { module: { origin: 'external', source: STATE_LIBRARIES } } },
     message:
-      'TanStack Query and Zustand may only be imported from src/presentation: server state and UI state belong to it.',
+      'TanStack Query and Zustand may only be imported from a presentation folder: server state and UI state belong to it.',
   },
   // A layer alias that fails to resolve would be classified as an external module and slip through
   // the external-module allowances above. Never accept that.
@@ -241,7 +290,7 @@ const dependencyPolicies = [
       to: {
         module: {
           origin: 'external',
-          source: LAYERS.map((layer) => `@${layer}/**`),
+          source: ALIAS_ROOTS.map((root) => `@${root}/**`),
         },
       },
     },
@@ -332,9 +381,12 @@ const NODE_MODULES_IMPORT_PATTERN = {
   message: 'Import a package by its name, not by a path inside node_modules.',
 };
 
-/** Pattern of `no-restricted-imports` that forbids the content of a `testing` folder. */
+/**
+ * Pattern of `no-restricted-imports` that forbids the content of a `testing` folder, and the alias
+ * `@testing/*` of the test support that serves several scopes (src/testing).
+ */
 const TESTING_IMPORT_PATTERN = {
-  group: ['**/testing', '**/testing/**'],
+  group: ['**/testing', '**/testing/**', '@testing/**'],
   message:
     'A testing folder holds test support (fakes, fixtures). Only tests and other test support may import it.',
 };
@@ -342,8 +394,7 @@ const TESTING_IMPORT_PATTERN = {
 /** Pattern of `no-restricted-imports` that keeps the local native module inside its adapter's folder. */
 const NATIVE_MODULE_IMPORT_PATTERN = {
   group: ['**/modules/screen-protection', '**/modules/screen-protection/**'],
-  message:
-    'The native module ScreenProtection (modules/screen-protection) may only be imported from src/infrastructure/native: everything else reaches it through the ScreenProtection port.',
+  message: `The native module ScreenProtection (modules/screen-protection) may only be imported from ${NATIVE_MODULE_FOLDER}: everything else reaches it through the ScreenProtection port.`,
 };
 
 /**
@@ -364,11 +415,11 @@ const SECURE_VIEW_ONLY_IMPORT_PATTERNS = [
 
 /**
  * The one file that imports `expo-file-system`: the volume of a device under the file store. The
- * dependency policy above keeps the package inside src/infrastructure; this keeps it to one file,
+ * dependency policy above keeps the package inside the infrastructure folders; this keeps it to one file,
  * so that the rest of the infrastructure reaches the files through the `FileStore` seam, and what
  * has logic in it is tested in Node.
  */
-const FILE_SYSTEM_FILE = 'src/infrastructure/files/ExpoFileVolume.ts';
+const FILE_SYSTEM_FILE = 'src/core/infrastructure/files/ExpoFileVolume.ts';
 const FILE_SYSTEM_IMPORT_PATTERN = {
   group: ['expo-file-system', 'expo-file-system/**'],
   message: `expo-file-system may only be imported from ${FILE_SYSTEM_FILE}: everything else reaches the files through the FileStore seam.`,
@@ -378,7 +429,7 @@ const FILE_SYSTEM_IMPORT_PATTERN = {
  * The one file that imports `react-native-pdf`: the small component that draws a PDF. Every other
  * file shows a document through it, and Jest replaces the package with a light stub for it alone.
  */
-const PDF_VIEWER_FILE = 'src/presentation/components/PdfViewer.tsx';
+const PDF_VIEWER_FILE = 'src/features/documents/presentation/components/PdfViewer.tsx';
 const PDF_VIEWER_IMPORT_PATTERN = {
   group: ['react-native-pdf', 'react-native-pdf/**'],
   message: `react-native-pdf may only be imported from ${PDF_VIEWER_FILE}: everything else shows a document through that component.`,
@@ -665,7 +716,7 @@ const testIdRestrictions = restrict(
 
 const HEX_COLOR = '/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i';
 const COLOR_FUNCTION = '/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\\(/i';
-const COLOR_MESSAGE = 'Raw colour. Use a token from src/presentation/theme/tokens.ts.';
+const COLOR_MESSAGE = 'Raw colour. Use a token from src/core/presentation/theme/tokens.ts.';
 
 /**
  * Style properties that hold a colour: `color`, `backgroundColor`, `borderTopColor`, ...
@@ -835,9 +886,9 @@ export default defineConfig([
         { type: 'assets', pattern: 'assets', partialMatch: false },
         { type: NATIVE_MODULE_ELEMENT, pattern: 'modules', partialMatch: false },
         { type: SPEC_FIXTURES_ELEMENT, pattern: SPEC_FIXTURES_FOLDER, partialMatch: false },
-        ...LAYERS.map((layer) => ({
-          type: layer,
-          pattern: `src/${layer}`,
+        ...Object.entries(ELEMENTS).map(([type, patterns]) => ({
+          type,
+          pattern: patterns,
           partialMatch: false,
         })),
       ],
@@ -1051,7 +1102,7 @@ export default defineConfig([
         'error',
         ...AMBIENT_GLOBALS.map((name) => ({
           name,
-          message: `"${name}" gives access to the runtime environment. Business code reaches it through a port implemented in src/infrastructure.`,
+          message: `"${name}" gives access to the runtime environment. Business code reaches it through a port implemented in an infrastructure folder.`,
         })),
       ],
     },

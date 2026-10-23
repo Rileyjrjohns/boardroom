@@ -4,7 +4,7 @@ The conventions that the toolchain enforces on the code: every text is translate
 
 ## Internationalisation
 
-Every user-facing text is translated, from the first screen. The app ships English and French. English is the fallback language and the source of truth for the set of keys. The code lives in `src/presentation/i18n`, because i18n is a presentation concern; `app/_layout.tsx` only mounts its provider.
+Every user-facing text is translated, from the first screen. The app ships English and French. English is the fallback language and the source of truth for the set of keys. The code lives in `src/core/presentation/i18n`, because i18n is a presentation concern shared by every feature; `app/_layout.tsx` only mounts its provider.
 
 | File                                 | Role                                                                                                |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------- |
@@ -95,17 +95,17 @@ Known limits, on purpose:
 
 A string literal is acceptable only when the type system verifies it: a member of a union type (`accessibilityRole="header"`, `fontWeight: '700'`), a typed translation key (`t('navigation.meetings')`), a typed route. Anything else is a named constant with a single definition.
 
-| Kind of value                                           | Where it lives                                                                                      |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| User-facing text                                        | `src/presentation/i18n/resources`, read with `t('...')`                                             |
-| Languages and the namespace                             | `src/presentation/i18n/constants.ts`                                                                |
-| Colours, spacing, font sizes                            | `src/presentation/theme/tokens.ts`, only the tokens in use                                          |
-| Test IDs                                                | A constants module, referenced from the component and from its test                                 |
-| Codes, roles, statuses, choices, event names (business) | `UPPER_SNAKE` const objects in `src/domain` and `src/application`, the union type derived from them |
+| Kind of value                                           | Where it lives                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| User-facing text                                        | `src/core/presentation/i18n/resources`, read with `t('...')`                                            |
+| Languages and the namespace                             | `src/core/presentation/i18n/constants.ts`                                                               |
+| Colours, spacing, font sizes                            | `src/core/presentation/theme/tokens.ts`, only the tokens in use                                         |
+| Test IDs                                                | A constants module, referenced from the component and from its test                                     |
+| Codes, roles, statuses, choices, event names (business) | `UPPER_SNAKE` const objects in the `domain` and `application` folders, the union type derived from them |
 
 ### What the linter enforces
 
-In `app/` and `src/presentation`, `npm run lint` fails on:
+In `app/` and in the presentation folders (`src/core/presentation`, `src/features/*/presentation`, `src/composition/shell`), `npm run lint` fails on:
 
 - a string literal as a JSX child: JSX text, `{'text'}`, a template literal, and text reached through a conditional, a logical expression, an array or a type assertion (`{ok ? 'Yes' : 'No'}`, `{ok && 'Yes'}`, `{['a', 'b']}`, `{'Yes' as string}`, `{'Yes'!}`), at any nesting up to eight levels. `react/jsx-no-literals` covers the first three, and `no-restricted-syntax` selectors complete it, because the rule does not see the others;
 - a string literal in a prop that reads like a text, written `prop="text"`, `prop={'text'}`, as a template literal, a concatenation, a conditional or a type assertion. Props are recognised by name, not from a list: `title`, `label`, `hint`, `description`, `subtitle`, `message`, `text`, `caption`, `placeholder`, `badge`, `alt`, any camelCase name that ends with one of them (`accessibilityLabel`, `headerBackTitle`, `tabBarBadge`, `emptyText`), and the `aria-*` props that hold a text. `react/jsx-no-literals` can only flag all props or none, so `accessibilityRole="header"`, `resizeMode="cover"`, `keyboardType="numeric"` and `aria-live="polite"` stay free;
@@ -113,7 +113,7 @@ In `app/` and `src/presentation`, `npm run lint` fails on:
 - text passed to `Alert` (title, message and button `text`), `ToastAndroid` and `AccessibilityInfo.announceForAccessibility`, by position, so that a typed argument such as the `'plain-text'` input type of `Alert.prompt` stays free; text given to `Share.share(...)` and `navigation.setOptions(...)`;
 - a default text in a call of `t`: `t('key', 'Some text')` and `t('key', { defaultValue: 'Some text' })`. The types reject an unknown key even then (see [Typed keys](#typed-keys)), but a text next to a valid key is still a text that lives outside the resources;
 - a raw `testID` or `nativeID` literal, or a prop that ends with `TestID`;
-- a raw colour: a hex string or an `rgb(...)` style function anywhere, and any string given to a colour property (`color`, `backgroundColor`, `borderTopColor`, ...) of a style. A style is the `style` prop (and any `*Style` prop), the argument of `StyleSheet.create`, `flatten` and `compose`, and a value typed or `satisfies`-checked as `ViewStyle`, `TextStyle`, `ImageStyle` or `StyleProp`. `src/presentation/theme` is where colours are written; the translation resources, which are free text, are exempt from the colour rules too.
+- a raw colour: a hex string or an `rgb(...)` style function anywhere, and any string given to a colour property (`color`, `backgroundColor`, `borderTopColor`, ...) of a style. A style is the `style` prop (and any `*Style` prop), the argument of `StyleSheet.create`, `flatten` and `compose`, and a value typed or `satisfies`-checked as `ViewStyle`, `TextStyle`, `ImageStyle` or `StyleProp`. `src/core/presentation/theme` is where colours are written; the translation resources, which are free text, are exempt from the colour rules too.
 
 Colour props of a component (`<Badge color="primary" />`) are deliberately **not** checked by name: such a prop may take a union of token names, which the type system verifies, and a rule cannot tell it from `<ActivityIndicator color="red" />`. A hex or `rgb(...)` value is still rejected there, by its value.
 

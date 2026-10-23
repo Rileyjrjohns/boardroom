@@ -1,41 +1,44 @@
-import { createAgendaItem } from '@domain/entities/AgendaItem';
-import type { AgendaItem } from '@domain/entities/AgendaItem';
-import { CONFIDENTIALITY_LEVEL, createDocument } from '@domain/entities/Document';
-import type { ConfidentialityLevel, Document } from '@domain/entities/Document';
-import { createMeeting } from '@domain/entities/Meeting';
-import type { Meeting } from '@domain/entities/Meeting';
-import { createMeetingSummary } from '@domain/entities/MeetingSummary';
-import { PARTICIPANT_ROLE, createParticipant, hasVotingRights } from '@domain/entities/Participant';
-import type { Participant, ParticipantRole } from '@domain/entities/Participant';
-import { RESOLUTION_STATUS, createResolution } from '@domain/entities/Resolution';
-import type { Resolution, ResolutionStatus } from '@domain/entities/Resolution';
-import { createUser } from '@domain/entities/User';
-import type { User } from '@domain/entities/User';
-import { createVote } from '@domain/entities/Vote';
-import type { Vote } from '@domain/entities/Vote';
-import { err, ok } from '@domain/shared/Result';
-import type { Result } from '@domain/shared/Result';
-import { parseEmailAddress } from '@domain/value-objects/EmailAddress';
+import type { DemoAccount } from '@composition/dev/in-memory/InMemoryAuthSession';
+import type { ServerContent } from '@composition/dev/in-memory/InMemoryBackend';
+import { err, ok } from '@core/domain/shared/Result';
+import type { Result } from '@core/domain/shared/Result';
+import { parseInstant } from '@core/domain/value-objects/Instant';
+import type { Instant } from '@core/domain/value-objects/Instant';
 import {
   parseAgendaItemId,
   parseDocumentId,
   parseMeetingId,
   parseResolutionId,
   parseUserId,
-} from '@domain/value-objects/ids';
-import { parseInstant } from '@domain/value-objects/Instant';
-import type { Instant } from '@domain/value-objects/Instant';
-import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
-import type { VoteChoice } from '@domain/value-objects/VoteChoice';
-
-import type { DemoAccount } from '@infrastructure/in-memory/InMemoryAuthSession';
-import type { ServerContent } from '@infrastructure/in-memory/InMemoryBackend';
-import { InvalidStaticValueError, valid } from '@infrastructure/shared/valid';
+} from '@core/domain/value-objects/ids';
+import { InvalidStaticValueError, valid } from '@core/infrastructure/shared/valid';
+import { createUser } from '@features/auth/domain/entities/User';
+import type { User } from '@features/auth/domain/entities/User';
+import { parseEmailAddress } from '@features/auth/domain/value-objects/EmailAddress';
+import { createAgendaItem } from '@features/meetings/domain/entities/AgendaItem';
+import type { AgendaItem } from '@features/meetings/domain/entities/AgendaItem';
+import { CONFIDENTIALITY_LEVEL, createDocument } from '@features/meetings/domain/entities/Document';
+import type { ConfidentialityLevel, Document } from '@features/meetings/domain/entities/Document';
+import { createMeeting } from '@features/meetings/domain/entities/Meeting';
+import type { Meeting } from '@features/meetings/domain/entities/Meeting';
+import { createMeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
+import {
+  PARTICIPANT_ROLE,
+  createParticipant,
+  hasVotingRights,
+} from '@features/meetings/domain/entities/Participant';
+import type { Participant, ParticipantRole } from '@features/meetings/domain/entities/Participant';
+import { RESOLUTION_STATUS, createResolution } from '@features/meetings/domain/entities/Resolution';
+import type { Resolution, ResolutionStatus } from '@features/meetings/domain/entities/Resolution';
+import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
+import type { VoteChoice } from '@features/meetings/domain/value-objects/VoteChoice';
+import { createVote } from '@features/votes/domain/entities/Vote';
+import type { Vote } from '@features/votes/domain/entities/Vote';
 
 // How the fixtures of docs/spec/fixtures were made. This is the generator that used to be the seed
 // of the simulated server: it builds the content relative to an instant, through the domain
 // factories, and `main.ts` writes it once at the reference date of the fixtures. The app no longer
-// runs it (it reads the fixtures, see src/infrastructure/in-memory/fixtures), and the fixtures are
+// runs it (it reads the fixtures, see src/composition/dev/in-memory/fixtures), and the fixtures are
 // the source of truth: running the generator again overwrites them, hand edits included.
 
 /**

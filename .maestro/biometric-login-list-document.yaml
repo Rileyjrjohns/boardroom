@@ -19,7 +19,8 @@ appId: com.boardroom.demo
     id: meetings-list
 - pressKey: Home
 # Maestro has no "sleep": wait for something that never shows up, and let the wait run out. 35
-# seconds, longer than the grace period (APP_LOCK_GRACE_PERIOD in src/di/config.ts, 30 seconds).
+# seconds, longer than the grace period (APP_LOCK_GRACE_PERIOD in
+# src/composition/container/config.ts, 30 seconds).
 - extendedWaitUntil:
     visible:
       id: never-shown-wait-for-the-grace-period

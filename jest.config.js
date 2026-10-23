@@ -2,20 +2,25 @@
 // `*.spec.ts(x)` and live under the root of one of them, otherwise nothing runs it (the
 // "tooling" project checks this):
 //
-// - "core"    : src/domain and src/application, in a plain node environment with no React Native
-//               or Expo setup at all. If either layer ever reaches for a framework API, its tests
-//               fail here, which keeps both layers framework free.
-// - "infra"   : src/infrastructure and src/di, in a plain node environment (see `infraTransform`
-//               below). The HTTP adapters are tested against MSW, which needs the `fetch`,
-//               `Request` and `Response` of Node, and the SQLite adapters against `node:sqlite`,
-//               which only Node has: the jest-expo preset replaces the first with the native
-//               ones of Expo, which do not run in Jest. The native modules of Expo that the
-//               device adapters wrap (`NATIVE_MODULES`) are empty modules here: the platform
-//               factory and the composition root import them like the app does, and nothing native
-//               is loaded; `react-native` is a stub that knows the platform. The tests of the
-//               thin wrappers replace each module with a stand-in, each with a comment that says
-//               why.
-// - "ui"      : src/presentation, on the jest-expo preset with React Native Testing Library.
+// - "core"    : every domain and application folder (src/core and src/features/<feature>), in a
+//               plain node environment with no React Native or Expo setup at all. If either layer
+//               ever reaches for a framework API, its tests fail here, which keeps both layers
+//               framework free. The pure test support of those layers (src/testing/domain and
+//               src/testing/application) and the tests that need every feature at once
+//               (src/composition/glue) run here too.
+// - "infra"   : every infrastructure folder, and the part of the composition that is not a user
+//               interface (src/composition/container, persistence, device and dev), in a plain node
+//               environment (see `infraTransform` below). The HTTP adapters are tested against
+//               MSW, which needs the `fetch`, `Request` and `Response` of Node, and the SQLite
+//               adapters against `node:sqlite`, which only Node has: the jest-expo preset replaces
+//               the first with the native ones of Expo, which do not run in Jest. The native
+//               modules of Expo that the device adapters wrap (`NATIVE_MODULES`) are empty modules
+//               here: the platform factory and the composition root import them like the app
+//               does, and nothing native is loaded; `react-native` is a stub that knows the
+//               platform. The tests of the thin wrappers replace each module with a stand-in, each
+//               with a comment that says why.
+// - "ui"      : every presentation folder, and the app shell (src/composition/shell), on the
+//               jest-expo preset with React Native Testing Library.
 // - "tooling" : tooling/, in a plain node environment. Checks of the repository configuration.
 //
 // Never put test files under app/: expo-router would treat them as routes.
@@ -28,7 +33,53 @@ const path = require('node:path');
 // JSON, so it must not contain comments.
 const { paths } = require('./tsconfig.json').compilerOptions;
 
-const CORE_LAYERS = ['src/domain', 'src/application'];
+const SOURCE_ROOT = 'src';
+
+/**
+ * The scopes of `src/`: the shared kernel, then one folder per feature (read from the disk, so that
+ * a new feature is picked up without touching this file). Each of them has the layers `domain`,
+ * `application`, `infrastructure` and `presentation`, or some of them.
+ */
+const SCOPES = [
+  `${SOURCE_ROOT}/core`,
+  ...fs
+    .readdirSync(path.join(__dirname, SOURCE_ROOT, 'features'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `${SOURCE_ROOT}/features/${entry.name}`)
+    .sort(),
+];
+
+/**
+ * The folders of one layer, in the core and in every feature.
+ * @param {string} layer
+ * @returns {string[]}
+ */
+const layerFolders = (layer) =>
+  SCOPES.map((scope) => `${scope}/${layer}`).filter((dir) =>
+    fs.existsSync(path.join(__dirname, dir)),
+  );
+
+/** The folders that hold the business rules, each gated on its own (see `coverageThreshold`). */
+const CORE_LAYERS = [...layerFolders('domain'), ...layerFolders('application')];
+
+/**
+ * The composition (`src/composition`) is not a layer: its folders are tested where their code runs.
+ * `shell` is the user interface of the app (the "ui" project), `glue` holds the tests that need
+ * every feature and no framework (the "core" project), the others are adapters and wiring (the
+ * "infra" project).
+ */
+const COMPOSITION = `${SOURCE_ROOT}/composition`;
+const COMPOSITION_UI = [`${COMPOSITION}/shell`];
+const COMPOSITION_PURE = [`${COMPOSITION}/glue`];
+const COMPOSITION_NODE = ['container', 'persistence', 'device', 'dev'].map(
+  (folder) => `${COMPOSITION}/${folder}`,
+);
+
+/**
+ * The test support that is not tied to one scope (`src/testing`: the builders, the fakes assembled
+ * for the use cases, the HTTP world, the render helpers), by the project that runs it.
+ */
+const SHARED_SUPPORT = `${SOURCE_ROOT}/testing`;
 
 /**
  * Time a test may take. The screen tests of the "ui" project render whole screens, some of them the
@@ -44,7 +95,7 @@ const GLOBAL_COVERAGE_GATE = 70;
 
 /**
  * Jest module name mapper derived from the tsconfig paths:
- * `"@domain/*": ["./src/domain/*"]` becomes `'^@domain/(.*)$': '<rootDir>/src/domain/$1'`.
+ * `"@core/*": ["./src/core/*"]` becomes `'^@core/(.*)$': '<rootDir>/src/core/$1'`.
  * @type {Record<string, string>}
  */
 const moduleNameMapper = Object.fromEntries(
@@ -81,7 +132,7 @@ const NATIVE_MODULES = [
  */
 const nativeModuleStubs = Object.fromEntries(
   [...NATIVE_MODULES.map((name) => `^${name}$`), '^(?:\\.\\./)+modules/screen-protection$'].map(
-    (pattern) => [pattern, '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts'],
+    (pattern) => [pattern, `<rootDir>/${SHARED_SUPPORT}/infrastructure/nativeModuleStub.ts`],
   ),
 );
 
@@ -92,7 +143,7 @@ const nativeModuleStubs = Object.fromEntries(
  * @type {Record<string, string>}
  */
 const reactNativeStub = {
-  '^react-native$': '<rootDir>/src/infrastructure/testing/reactNativeStub.ts',
+  '^react-native$': `<rootDir>/${SHARED_SUPPORT}/infrastructure/reactNativeStub.ts`,
 };
 
 /**
@@ -103,7 +154,8 @@ const reactNativeStub = {
  * @type {Record<string, string>}
  */
 const pdfViewerStub = {
-  '^react-native-pdf$': '<rootDir>/src/presentation/testing/reactNativePdfStub.tsx',
+  '^react-native-pdf$':
+    '<rootDir>/src/features/documents/presentation/testing/reactNativePdfStub.tsx',
 };
 
 /**
@@ -114,7 +166,7 @@ const pdfViewerStub = {
  */
 const secureViewStub = {
   '^(?:\\.\\./)+modules/screen-protection$':
-    '<rootDir>/src/presentation/testing/screenProtectionSecureViewStub.tsx',
+    '<rootDir>/src/features/documents/presentation/testing/screenProtectionSecureViewStub.tsx',
 };
 
 /**
@@ -124,7 +176,7 @@ const secureViewStub = {
  * @type {Record<string, string>}
  */
 const sentryStub = {
-  '^@sentry/react-native$': '<rootDir>/src/infrastructure/testing/nativeModuleStub.ts',
+  '^@sentry/react-native$': `<rootDir>/${SHARED_SUPPORT}/infrastructure/nativeModuleStub.ts`,
 };
 
 const TEST_FILES = ['**/*.{test,spec}.{ts,tsx}'];
@@ -161,12 +213,14 @@ const gate = (percent) => ({
 
 // Two gates, on all of `src/` (see `collectCoverageFrom` below):
 //
-// - 90 percent for each of the two layers that hold the rules, `src/domain` and `src/application`,
-//   each on its own. It is registered as soon as the layer contains source code: while a layer is
-//   still empty, Jest would fail with "coverage data not found" for its path, so it is skipped.
+// - 90 percent for each folder of the two layers that hold the rules, `domain` and `application`,
+//   of the core and of every feature, each on its own (one entry per folder: a glob would be applied
+//   to each file instead). It is registered as soon as the folder contains source code: while a
+//   layer is still empty, Jest would fail with "coverage data not found" for its path, so it is
+//   skipped.
 // - 70 percent in `global`, for everything else. Jest takes the files that have a threshold of
-//   their own out of the global figure and applies it to the rest: it is the bar for
-//   `src/infrastructure`, `src/presentation` and `src/di` together. Since both parts are above
+//   their own out of the global figure and applies it to the rest: it is the bar for the
+//   infrastructure, the presentation and the composition together. Since both parts are above
 //   70 percent, so is the whole of `src/` (the "Total" row of the table in the CI summary).
 const coverageThreshold = {
   global: gate(GLOBAL_COVERAGE_GATE),
@@ -248,7 +302,12 @@ const config = {
     {
       displayName: 'core',
       testEnvironment: 'node',
-      roots: CORE_LAYERS.map((dir) => `<rootDir>/${dir}`),
+      roots: [
+        ...CORE_LAYERS,
+        `${SHARED_SUPPORT}/domain`,
+        `${SHARED_SUPPORT}/application`,
+        ...COMPOSITION_PURE,
+      ].map((dir) => `<rootDir>/${dir}`),
       testMatch: TEST_FILES,
       moduleNameMapper,
       transform: nodeTransform,
@@ -256,7 +315,11 @@ const config = {
     {
       displayName: 'infra',
       testEnvironment: 'node',
-      roots: ['<rootDir>/src/infrastructure', '<rootDir>/src/di'],
+      roots: [
+        ...layerFolders('infrastructure'),
+        ...COMPOSITION_NODE,
+        `${SHARED_SUPPORT}/infrastructure`,
+      ].map((dir) => `<rootDir>/${dir}`),
       testMatch: TEST_FILES,
       moduleNameMapper: { ...nativeModuleStubs, ...reactNativeStub, ...moduleNameMapper },
       transform: infraTransform,
@@ -265,7 +328,11 @@ const config = {
     {
       displayName: 'ui',
       preset: 'jest-expo',
-      roots: ['<rootDir>/src/presentation'],
+      roots: [
+        ...layerFolders('presentation'),
+        ...COMPOSITION_UI,
+        `${SHARED_SUPPORT}/presentation`,
+      ].map((dir) => `<rootDir>/${dir}`),
       testMatch: TEST_FILES,
       moduleNameMapper: { ...pdfViewerStub, ...secureViewStub, ...sentryStub, ...moduleNameMapper },
     },

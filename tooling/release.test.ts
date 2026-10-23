@@ -4,8 +4,8 @@ import path from 'node:path';
 
 import type { ExpoConfig } from 'expo/config';
 
-import { ADAPTERS } from '../src/di/adapters';
-import { parseApiBaseUrl } from '../src/infrastructure/http/apiBaseUrl';
+import { ADAPTERS } from '../src/composition/container/adapters';
+import { parseApiBaseUrl } from '../src/core/infrastructure/http/apiBaseUrl';
 
 // The files that build, test and ship the app: eas.json, the workflows of GitHub Actions and the
 // Fastlane setup. None of them runs here, so these checks keep them in step with the code they

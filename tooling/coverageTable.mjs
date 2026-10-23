@@ -21,24 +21,44 @@
  */
 
 /**
- * The gate of a row, in percent, applied to each of the four measures, or `null` for no gate.
- * @typedef {{ label: string, folder: string | null, gate: number | null }} Scope
+ * The gate of a row, in percent, applied to each of the four measures, or `null` for no gate. The
+ * row covers `folders` (`*` is one folder name: every feature), or the whole of `src/` when
+ * `folders` is `null`.
+ * @typedef {{ label: string, folders: readonly string[] | null, gate: number | null }} Scope
  */
 
 /**
- * The rows of the table, in order: the whole of `src/`, then the layers. The gates are the ones of
- * jest.config.js (`coverageThreshold`): a test checks that the two agree. The 70 of the total is
- * what Jest asks of the files that have no gate of their own (infrastructure, presentation and di);
- * the whole of `src/` is therefore above it too.
+ * The rows of the table, in order: the whole of `src/`, then the four layers of the core and of the
+ * features put together, then the composition. The gates are the ones of jest.config.js
+ * (`coverageThreshold`), which holds each domain and application folder to 90 on its own: a test
+ * checks that the two agree. The 70 of the total is what Jest asks of the files that have no gate of
+ * their own (infrastructure, presentation and the composition); the whole of `src/` is therefore
+ * above it too.
  * @type {readonly Scope[]}
  */
 export const SCOPES = [
-  { label: 'Total (src)', folder: null, gate: 70 },
-  { label: 'src/domain', folder: 'src/domain', gate: 90 },
-  { label: 'src/application', folder: 'src/application', gate: 90 },
-  { label: 'src/infrastructure', folder: 'src/infrastructure', gate: null },
-  { label: 'src/presentation', folder: 'src/presentation', gate: null },
-  { label: 'src/di', folder: 'src/di', gate: null },
+  { label: 'Total (src)', folders: null, gate: 70 },
+  {
+    label: 'src/{core,features/*}/domain',
+    folders: ['src/core/domain', 'src/features/*/domain'],
+    gate: 90,
+  },
+  {
+    label: 'src/{core,features/*}/application',
+    folders: ['src/core/application', 'src/features/*/application'],
+    gate: 90,
+  },
+  {
+    label: 'src/{core,features/*}/infrastructure',
+    folders: ['src/core/infrastructure', 'src/features/*/infrastructure'],
+    gate: null,
+  },
+  {
+    label: 'src/{core,features/*}/presentation',
+    folders: ['src/core/presentation', 'src/features/*/presentation'],
+    gate: null,
+  },
+  { label: 'src/composition', folders: ['src/composition'], gate: null },
 ];
 
 /** The measures of the table, in the order of its columns. */
@@ -59,14 +79,19 @@ const SCALE = 10 ** DECIMALS;
 const formatPercent = (percent) => `${percent.toFixed(DECIMALS)} %`;
 
 /**
- * Whether the file is under the folder (`src/domain`). Windows separators are accepted, and
- * `src/domain` does not match `src/domainish/`.
+ * Whether the file is under the folder (`src/core/domain`). A `*` in the folder stands for any one
+ * folder name, which is how the folders of the features are written. Windows separators are
+ * accepted, and `src/core/domain` does not match `src/core/domainish/`.
  * @param {string} file
  * @param {string} folder
  */
 function isUnder(file, folder) {
   const normalised = file.replaceAll('\\', '/');
-  return normalised.includes(`/${folder}/`) || normalised.startsWith(`${folder}/`);
+  const pattern = folder
+    .split('*')
+    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+    .join('[^/]+');
+  return new RegExp(`(?:^|/)${pattern}/`).test(normalised);
 }
 
 /**
@@ -115,16 +140,18 @@ export function buildCoverageTable(summary) {
   }
   const files = Object.entries(byFile);
 
-  const rows = SCOPES.map(({ label, folder, gate }) => {
+  const rows = SCOPES.map(({ label, folders, gate }) => {
     const percents = MEASURES.map((measure) => {
-      if (folder === null) return percentOfTotal(total, measure);
+      if (folders === null) return percentOfTotal(total, measure);
       return percentOf(
-        files.filter(([file]) => isUnder(file, folder)).map(([, measures]) => measures),
+        files
+          .filter(([file]) => folders.some((folder) => isUnder(file, folder)))
+          .map(([, measures]) => measures),
         measure,
       );
     });
     return toRow([
-      folder === null ? label : `\`${label}\``,
+      folders === null ? label : `\`${label}\``,
       ...percents.map((percent) => (percent === null ? NO_VALUE : formatPercent(percent))),
       gate === null ? NO_GATE : `${gate} %`,
     ]);

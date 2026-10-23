@@ -3,7 +3,7 @@
 // `[{ "filePath": "...", "messages": [{ "ruleId": "...", "message": "..." }] }]`.
 //
 // Used by tooling/lint-rules.test.ts, which checks what the configuration accepts and rejects. The
-// file paths decide which rules apply (app/, src/presentation/, and so on); they need not exist.
+// file paths decide which rules apply (app/, the presentation folders, and so on); they need not exist.
 
 import path from 'node:path';
 

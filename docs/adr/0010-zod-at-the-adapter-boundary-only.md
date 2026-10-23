@@ -9,9 +9,9 @@ TypeScript types disappear at run time. Whatever enters the app from outside is 
 
 ## Decision
 
-`zod` validates shapes where data crosses into the app, and nowhere else. A lint policy lets only `src/infrastructure` import it.
+`zod` validates shapes where data crosses into the app, and nowhere else. A lint policy lets only the infrastructure folders import it.
 
-- Wire data: one schema per resource and a mapper to and from the domain (`infrastructure/http/dto`).
+- Wire data: one schema per resource and a mapper to and from the domain (the `dto` folders of the infrastructure).
 - Stored data: the cache keeps its own format (`storedMeeting.ts`, `storedDocument.ts`), not the DTOs of the API, so a change of the API cannot make the rows on the devices unreadable; the outbox rows and the session item of the secure storage are checked the same way.
 - The schema checks the shape (a field is there, with the type of the API, unknown fields ignored). The values are checked by the factories of the domain (`createMeeting`, `parseMeetingId`, `createCredentials`), which exist with or without zod. A status nobody knows, a blank title or a duplicate id is as invalid as a missing field.
 - A failure is `unexpected` for the use cases, and the monitoring gets the paths of the fields that failed (`agenda.0.status`), never their values.

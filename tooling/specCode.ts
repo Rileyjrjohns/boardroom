@@ -31,6 +31,51 @@ export function sourceFilesUnder(folder: string): string[] {
     .map((file) => path.join(ROOT, folder, file));
 }
 
+/** The scopes of `src/`: the shared kernel, then each feature (read from the disk). */
+function scopes(): string[] {
+  const features = fs
+    .readdirSync(path.join(ROOT, 'src', 'features'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `src/features/${entry.name}`)
+    .sort();
+  return ['src/core', ...features];
+}
+
+/**
+ * The folders of one layer (`domain`, `application`, `infrastructure`, `presentation`): the one of
+ * the core and the one of every feature that has it.
+ */
+export function layerFolders(layer: string): string[] {
+  return scopes()
+    .map((scope) => `${scope}/${layer}`)
+    .filter((folder) => fs.existsSync(path.join(ROOT, folder)));
+}
+
+/**
+ * The source files of a layer in every scope, tests and test support left out. With `subfolder`,
+ * only those under that folder of the layer (`ports`, `use-cases`, `errors`).
+ */
+export function sourceFilesOfLayer(layer: string, subfolder?: string): string[] {
+  return layerFolders(layer)
+    .map((folder) => (subfolder === undefined ? folder : `${folder}/${subfolder}`))
+    .filter((folder) => fs.existsSync(path.join(ROOT, folder)))
+    .flatMap(sourceFilesUnder);
+}
+
+/**
+ * The source files of the application layer in every scope that are neither a port nor a use case:
+ * the rules and the helpers that the use cases share (the session guards, the offline policy...).
+ */
+export function sharedApplicationFiles(): string[] {
+  const apart = ['ports', 'use-cases'];
+  return layerFolders('application').flatMap((folder) =>
+    sourceFilesUnder(folder).filter((file) => {
+      const [first] = path.relative(path.join(ROOT, folder), file).split(path.sep);
+      return first === undefined || !apart.includes(first);
+    }),
+  );
+}
+
 /** The module at a path, loaded as the code itself would load it. */
 export function loadModule(file: string): Record<string, unknown> {
   return jest.requireActual<Record<string, unknown>>(file);

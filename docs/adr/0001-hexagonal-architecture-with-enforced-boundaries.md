@@ -20,9 +20,9 @@ The code is split in five layers, plus the route files of `app/`, and the allowe
 | `di`             | `infrastructure`, `application`, `domain` |
 | `app/` (routes)  | `presentation`, `di`                      |
 
-`eslint-plugin-boundaries` enforces it in `eslint.config.mjs`: every file under `app/` and `src/` must belong to a layer (`boundaries/no-unknown-files`), a layer may not import a file that is not part of a layer (`boundaries/no-unknown-dependencies`), and the allowed edges are listed in `boundaries/dependencies`. The same configuration keeps external packages where they belong: `domain`, `application` and `di` import no package at all, `zod` and the native modules of the device only `src/infrastructure`, TanStack Query and Zustand only `src/presentation`, and `fetch` is called by one module. `tooling/lint-rules.test.ts` lints snippets with the real configuration, so a rule that stops working fails a test. ESLint runs with zero warnings allowed in `npm run validate` and, on the staged files, in the pre-commit hook.
+`eslint-plugin-boundaries` enforces it in `eslint.config.mjs`: every file under `app/` and `src/` must belong to a layer (`boundaries/no-unknown-files`), a layer may not import a file that is not part of a layer (`boundaries/no-unknown-dependencies`), and the allowed edges are listed in `boundaries/dependencies`. The same configuration keeps external packages where they belong: `domain`, `application` and `container` import no package at all, `zod` and the native modules of the device only the infrastructure folders, TanStack Query and Zustand only the presentation folders, and `fetch` is called by one module. `tooling/lint-rules.test.ts` lints snippets with the real configuration, so a rule that stops working fails a test. ESLint runs with zero warnings allowed in `npm run validate` and, on the staged files, in the pre-commit hook.
 
-Features are the second axis, not the first: inside a layer the code is grouped by feature (`application/use-cases/votes`, `meetings`, `documents`, `auth`).
+The code is grouped by feature first and by layer inside each feature (`src/features/votes`, `meetings`, `documents`, `auth`, over a shared kernel, `src/core`).
 
 ## Consequences
 

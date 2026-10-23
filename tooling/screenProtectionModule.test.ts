@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { NATIVE_EVENT } from '../src/infrastructure/native/ScreenProtectionModuleApi';
+import { NATIVE_EVENT } from '../src/features/documents/infrastructure/native/ScreenProtectionModuleApi';
 
 // The native module ScreenProtection cannot run in Jest, and the adapter over it is tested against a
 // stand-in written in JavaScript. What keeps the stand-in honest is checked here, on the text of the

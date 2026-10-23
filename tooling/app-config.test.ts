@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import type { ExpoConfig } from 'expo/config';
 
-import { FALLBACK_LANGUAGE, SUPPORTED_LANGUAGES } from '../src/presentation/i18n/constants';
+import { FALLBACK_LANGUAGE, SUPPORTED_LANGUAGES } from '../src/core/presentation/i18n/constants';
 
 // app.config.ts is loaded by Expo with plain Node.js module resolution, so it cannot import the
 // supported languages from src/. This test keeps its copy of the list in step with the source of

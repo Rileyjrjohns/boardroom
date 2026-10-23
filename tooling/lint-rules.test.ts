@@ -12,24 +12,26 @@ import path from 'node:path';
 
 const SCRIPT = path.resolve(__dirname, 'lint-snippets.mjs');
 
-const SCREEN = 'src/presentation/screens/Sample.tsx';
+// The architecture is the same in the core (src/core) and in every feature (src/features/<feature>):
+// the snippets stand in the feature `meetings`, the shared files in the core.
+const SCREEN = 'src/features/meetings/presentation/screens/Sample.tsx';
 const ROUTE = 'app/sample.tsx';
-const THEME = 'src/presentation/theme/sample.ts';
-const RESOURCES = 'src/presentation/i18n/resources/sample.ts';
+const THEME = 'src/core/presentation/theme/sample.ts';
+const RESOURCES = 'src/core/presentation/i18n/resources/sample.ts';
 
-const DOMAIN = 'src/domain/entities/Sample.ts';
-const APPLICATION = 'src/application/use-cases/Sample.ts';
-const DOMAIN_TEST = 'src/domain/entities/Sample.test.ts';
-const APPLICATION_TEST = 'src/application/use-cases/Sample.test.ts';
-const TEST_SUPPORT = 'src/application/testing/FakeSample.ts';
-const INFRASTRUCTURE = 'src/infrastructure/http/sample.ts';
-const PERSISTENCE = 'src/infrastructure/persistence/Sample.ts';
-const HTTP_CLIENT = 'src/infrastructure/http/HttpClient.ts';
-const INFRASTRUCTURE_TEST = 'src/infrastructure/http/Sample.test.ts';
-const INFRASTRUCTURE_TEST_SUPPORT = 'src/infrastructure/testing/sample.ts';
+const DOMAIN = 'src/features/meetings/domain/entities/Sample.ts';
+const APPLICATION = 'src/features/meetings/application/use-cases/Sample.ts';
+const DOMAIN_TEST = 'src/features/meetings/domain/entities/Sample.test.ts';
+const APPLICATION_TEST = 'src/features/meetings/application/use-cases/Sample.test.ts';
+const TEST_SUPPORT = 'src/features/meetings/application/testing/FakeSample.ts';
+const INFRASTRUCTURE = 'src/core/infrastructure/http/sample.ts';
+const PERSISTENCE = 'src/core/infrastructure/persistence/Sample.ts';
+const HTTP_CLIENT = 'src/core/infrastructure/http/HttpClient.ts';
+const INFRASTRUCTURE_TEST = 'src/core/infrastructure/http/Sample.test.ts';
+const INFRASTRUCTURE_TEST_SUPPORT = 'src/core/infrastructure/testing/sample.ts';
 
-const DI = 'src/di/sample.ts';
-const PRESENTATION_HOOK = 'src/presentation/hooks/useSample.ts';
+const DI = 'src/composition/container/sample.ts';
+const PRESENTATION_HOOK = 'src/features/meetings/presentation/hooks/useSample.ts';
 
 /** The rule of the dependency policies of the architecture (the layers, the reserved packages). */
 const BOUNDARY_RULES = new Set(['boundaries/dependencies']);
@@ -296,11 +298,11 @@ const elsewhere = {
     code: "export const sample = { settings: { color: 'Couleur', borderColor: 'Bordure' } };",
   },
   'a hex colour outside the UI code': {
-    filePath: 'src/infrastructure/http/sample.ts',
+    filePath: INFRASTRUCTURE,
     code: "export const accent = '#ffffff';",
   },
   'a text in a title property outside the UI code': {
-    filePath: 'src/infrastructure/http/sample.ts',
+    filePath: INFRASTRUCTURE,
     code: "export const request = { title: 'Hello', message: 'Hello' };",
   },
 } as const;
@@ -367,10 +369,10 @@ const rejectedTestingImports = {
   'a relative import': "import { aMeeting } from '../testing/builders';",
   'a relative import of the folder': "import { aMeeting } from '../testing';",
   'a sibling import': "import { aMeeting } from './testing/builders';",
-  'an aliased import': "import { aMeeting } from '@domain/testing/builders';",
+  'an aliased import': "import { aMeeting } from '@testing/domain/builders';",
   'an aliased import of another layer':
-    "import { createFakes } from '@application/testing/createFakes';",
-  'a type import': "import type { Fakes } from '@application/testing/createFakes';",
+    "import { createFakes } from '@testing/application/createFakes';",
+  'a type import': "import type { Fakes } from '@testing/application/createFakes';",
   'a default import': "import fakes from '../../testing/fakes';",
   'a side effect import': "import '../testing/setup';",
   'a re-export': "export { aMeeting } from '../testing/builders';",
@@ -425,20 +427,20 @@ const elsewhereCore = {
     code: "import { aMeeting } from '../testing/builders';\nexport const meeting = aMeeting;",
   },
   'a presentation test importing test support': {
-    filePath: 'src/presentation/screens/Sample.test.tsx',
+    filePath: 'src/features/meetings/presentation/screens/Sample.test.tsx',
     code: "import { setDeviceLanguages } from '../i18n/testing/setDeviceLanguages';\nexport const set = setDeviceLanguages;",
   },
   'test support importing test support': {
     filePath: TEST_SUPPORT,
-    code: "import { aMeeting } from '@domain/testing/builders';\nimport { FakeClock } from './FakeClock';\nexport const both = [aMeeting, FakeClock];",
+    code: "import { aMeeting } from '@testing/domain/builders';\nimport { FakeClock } from './FakeClock';\nexport const both = [aMeeting, FakeClock];",
   },
   'test support in a folder importing from its parent': {
-    filePath: 'src/domain/testing/builders.ts',
-    code: "import { createFakes } from '../../application/testing/createFakes';\nexport const fakes = createFakes;",
+    filePath: 'src/testing/domain/builders.ts',
+    code: "import { createFakes } from '../application/createFakes';\nexport const fakes = createFakes;",
   },
   'a tooling file importing test support': {
     filePath: 'tooling/sample.ts',
-    code: "import { aMeeting } from '../src/domain/testing/builders';\nexport const meeting = aMeeting;",
+    code: "import { aMeeting } from '../src/testing/domain/builders';\nexport const meeting = aMeeting;",
   },
 } as const;
 
@@ -461,7 +463,7 @@ const keptEverywhere = Object.entries({
   'a route': ROUTE,
   'the design tokens': THEME,
   'the translation resources': RESOURCES,
-  'production code in a testing folder': 'src/application/testing/FakeSample.ts',
+  'production code in a testing folder': TEST_SUPPORT,
   'a domain test': DOMAIN_TEST,
 }).map(
   ([name, filePath]) =>
@@ -599,8 +601,8 @@ const acceptedDevicePackages = Object.fromEntries(
   ]),
 );
 
-const NATIVE_ADAPTER = 'src/infrastructure/native/Sample.ts';
-const NATIVE_ADAPTER_TEST = 'src/infrastructure/native/Sample.test.ts';
+const NATIVE_ADAPTER = 'src/features/documents/infrastructure/native/Sample.ts';
+const NATIVE_ADAPTER_TEST = 'src/features/documents/infrastructure/native/Sample.test.ts';
 
 /**
  * Imports of the local native module ScreenProtection, written as they would be from `filePath`:
@@ -630,8 +632,8 @@ const nativeModuleRejectedFiles = {
 } as const;
 
 /** The one component of the presentation that may import the secure view of the native module. */
-const SECURE_CONTENT = 'src/presentation/components/SecureContent.tsx';
-const OTHER_COMPONENT = 'src/presentation/components/Sample.tsx';
+const SECURE_CONTENT = 'src/features/documents/presentation/components/SecureContent.tsx';
+const OTHER_COMPONENT = 'src/features/documents/presentation/components/Sample.tsx';
 
 /** The import of the secure view only, by the entry point of the native module. */
 function secureViewImport(filePath: string): Record<string, string> {
@@ -678,7 +680,8 @@ const rejectedSecureViewElsewhere = Object.fromEntries(
     'a screen': SCREEN,
     'a hook of the presentation': PRESENTATION_HOOK,
     'a route': ROUTE,
-    'a test of SecureContent': 'src/presentation/components/SecureContent.test.tsx',
+    'a test of SecureContent':
+      'src/features/documents/presentation/components/SecureContent.test.tsx',
   }).map(([where, filePath]) => [
     where,
     registerAll(secureViewImport(filePath), asWritten, filePath),
@@ -721,7 +724,7 @@ const fixtureRejectedFiles = {
 const fixtureAcceptedFiles = {
   'an HTTP adapter': INFRASTRUCTURE,
   'a persistence adapter': PERSISTENCE,
-  'an in-memory adapter': 'src/infrastructure/in-memory/sample.ts',
+  'an in-memory adapter': 'src/composition/dev/in-memory/sample.ts',
   'a test of the infrastructure': INFRASTRUCTURE_TEST,
   'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
 } as const;
@@ -795,8 +798,8 @@ const rejectedFetchMembers = Object.fromEntries(
 );
 
 /** The files that are the one importer of a package (see `FILE_SYSTEM_FILE` and `PDF_VIEWER_FILE`). */
-const FILE_SYSTEM_VOLUME = 'src/infrastructure/files/ExpoFileVolume.ts';
-const PDF_VIEWER = 'src/presentation/components/PdfViewer.tsx';
+const FILE_SYSTEM_VOLUME = 'src/core/infrastructure/files/ExpoFileVolume.ts';
+const PDF_VIEWER = 'src/features/documents/presentation/components/PdfViewer.tsx';
 
 const fileSystemImports = {
   'expo-file-system':
@@ -816,7 +819,7 @@ const pdfImports = {
 } as const;
 
 const fileSystemRejectedFiles = {
-  'an adapter of the files that is not the volume': 'src/infrastructure/files/FileStore.ts',
+  'an adapter of the files that is not the volume': 'src/core/infrastructure/files/FileStore.ts',
   'an HTTP adapter': INFRASTRUCTURE,
   'a persistence adapter': PERSISTENCE,
   'a test of the infrastructure': INFRASTRUCTURE_TEST,
@@ -831,11 +834,12 @@ const rejectedFileSystem = Object.fromEntries(
 const acceptedFileSystem = registerAll(fileSystemImports, asWritten, FILE_SYSTEM_VOLUME);
 
 const pdfRejectedFiles = {
-  'another component of the presentation': 'src/presentation/components/Sample.tsx',
+  'another component of the presentation':
+    'src/features/documents/presentation/components/Sample.tsx',
   'a screen': SCREEN,
   'a hook of the presentation': PRESENTATION_HOOK,
-  'test support of the presentation': 'src/presentation/testing/sample.tsx',
-  'a test of the presentation': 'src/presentation/components/PdfViewer.test.tsx',
+  'test support of the presentation': 'src/features/documents/presentation/testing/sample.tsx',
+  'a test of the presentation': 'src/features/documents/presentation/components/PdfViewer.test.tsx',
   'a route': ROUTE,
   'an adapter': INFRASTRUCTURE,
 } as const;
@@ -847,7 +851,7 @@ const rejectedPdf = Object.fromEntries(
 );
 const acceptedPdf = registerAll(pdfImports, asWritten, PDF_VIEWER);
 
-const SENTRY_ADAPTER = 'src/infrastructure/monitoring/SentryMonitoring.ts';
+const SENTRY_ADAPTER = 'src/core/infrastructure/monitoring/SentryMonitoring.ts';
 
 const sentryImports = {
   '@sentry/react-native':
@@ -869,9 +873,9 @@ const sentryRejectedFiles = {
   'a route': ROUTE,
   'a screen': SCREEN,
   'a hook of the presentation': PRESENTATION_HOOK,
-  'the console monitoring': 'src/infrastructure/monitoring/ConsoleMonitoring.ts',
+  'the console monitoring': 'src/core/infrastructure/monitoring/ConsoleMonitoring.ts',
   'an HTTP adapter': INFRASTRUCTURE,
-  'a test of the Sentry adapter': 'src/infrastructure/monitoring/SentryMonitoring.test.ts',
+  'a test of the Sentry adapter': 'src/core/infrastructure/monitoring/SentryMonitoring.test.ts',
   'test support of the infrastructure': INFRASTRUCTURE_TEST_SUPPORT,
 } as const;
 const rejectedSentry = Object.fromEntries(
@@ -1208,7 +1212,7 @@ describe('State libraries lint rules', () => {
       const messages = reportedBoundaries(snippet).map(({ message }) => message);
 
       expect(messages).toContainEqual(
-        expect.stringContaining('only be imported from src/presentation'),
+        expect.stringContaining('only be imported from a presentation folder'),
       );
     });
   });
@@ -1226,7 +1230,7 @@ describe('Native modules of the device lint rules', () => {
       const messages = reportedBoundaries(snippet).map(({ message }) => message);
 
       expect(messages).toContainEqual(
-        expect.stringContaining('only be imported from src/infrastructure'),
+        expect.stringContaining('only be imported from an infrastructure folder'),
       );
     });
   });
@@ -1239,7 +1243,8 @@ describe('Native modules of the device lint rules', () => {
 });
 
 describe('The native module ScreenProtection lint rules', () => {
-  const NATIVE_MODULE_MESSAGE = 'may only be imported from src/infrastructure/native';
+  const NATIVE_MODULE_MESSAGE =
+    'may only be imported from src/features/documents/infrastructure/native';
 
   /** The findings of both rules that guard it: the dependency policies and the restricted imports. */
   const guarded = (snippet: Snippet): Finding[] => [
@@ -1300,7 +1305,7 @@ describe('The fixtures of the specification lint rules', () => {
       (_name, snippet) => {
         expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
           expect.stringContaining(
-            'fixtures of the specification (docs/spec/fixtures) may only be imported from src/infrastructure',
+            'fixtures of the specification (docs/spec/fixtures) may only be imported from an infrastructure folder',
           ),
         );
       },
@@ -1344,7 +1349,7 @@ describe('The fetch lint rules', () => {
     );
 
     expect(reportedGlobals(snippet).map(({ message }) => message)).toEqual([
-      expect.stringContaining('src/infrastructure/http/HttpClient.ts'),
+      expect.stringContaining('src/core/infrastructure/http/HttpClient.ts'),
     ]);
   });
 
@@ -1353,7 +1358,7 @@ describe('The fetch lint rules', () => {
     (_where, cases) => {
       it.each(cases)('rejects %s', (_name, snippet) => {
         expect(reported(snippet).map(({ message }) => message)).toContainEqual(
-          expect.stringContaining('src/infrastructure/http/HttpClient.ts'),
+          expect.stringContaining('src/core/infrastructure/http/HttpClient.ts'),
         );
       });
     },
