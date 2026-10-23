@@ -1,6 +1,8 @@
 # 0001. Hexagonal architecture with enforced boundaries
 
-- Status: Accepted
+> Superseded by [0015](0015-feature-first-hexagonal-architecture-with-links-inverted-through-the-composition.md): the layers below are still the layers of the code, now inside each feature, and the dependencies between features are a rule of their own.
+
+- Status: Superseded by [0015](0015-feature-first-hexagonal-architecture-with-links-inverted-through-the-composition.md)
 - Related: [0008](0008-result-type-instead-of-exceptions.md), [0009](0009-manual-dependency-injection-in-one-composition-root.md), [0010](0010-zod-at-the-adapter-boundary-only.md)
 
 ## Context
