@@ -1,8 +1,8 @@
 import { MIGRATIONS } from '@composition/persistence/migrations';
-import type { Migration } from '@composition/persistence/migrations';
 import { createSqlDatabase } from '@core/infrastructure/persistence/SqlDatabase';
 import type { SqlDatabase } from '@core/infrastructure/persistence/SqlDatabase';
 import { runMigrations } from '@core/infrastructure/persistence/migrate';
+import type { Migration } from '@core/infrastructure/persistence/migrate';
 import { FaultyConnection } from '@core/infrastructure/testing/FaultyConnection';
 import {
   NodeSqliteConnection,

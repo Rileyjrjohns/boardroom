@@ -1,12 +1,13 @@
 import { act, waitFor } from '@testing-library/react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { epochOf } from '@composition/shell/testing/accessEpoch';
 import { networkUnavailable, unauthorized, unexpected } from '@core/domain/errors/RepositoryError';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { err } from '@core/domain/shared/Result';
-import { queryKeys } from '@core/presentation/query/queryKeys';
+import { meetingsQueryKeys } from '@features/meetings/presentation/query/meetingsQueryKeys';
+import { votesQueryKeys } from '@features/votes/presentation/query/votesQueryKeys';
 import { createFakes } from '@testing/application/createFakes';
 import {
   aPendingVote,
@@ -106,7 +107,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 2, rejected: 0 });
+      expect(rendered.voteSyncStore.getState().syncSummary).toEqual({ synced: 2, rejected: 0 });
     });
 
     it('tells how many were rejected when the server refused some', async () => {
@@ -120,7 +121,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 1, rejected: 1 });
+      expect(rendered.voteSyncStore.getState().syncSummary).toEqual({ synced: 1, rejected: 1 });
     });
 
     it('says nothing when nothing waited, nothing was sent and nothing was rejected', async () => {
@@ -128,7 +129,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
     });
 
     it('says nothing when the network is down: the votes stay, and no attempt is counted', async () => {
@@ -139,10 +140,10 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
       expect(fakes.outbox.snapshot()).toHaveLength(1);
       expect(fakes.outbox.snapshot()[0]).toMatchObject({ attempts: 0 });
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
 
     it('says nothing when the server fails in a way that says nothing about the vote', async () => {
@@ -153,7 +154,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
       expect(fakes.outbox.snapshot()).toHaveLength(1);
     });
   });
@@ -163,27 +164,27 @@ describe('useVoteSync', () => {
       const fakes = createFakes();
       fakes.outbox.seed(aPendingVote(aVote({ resolutionId: R1 })));
       const rendered = renderSync({ fakes });
-      rendered.queryClient.setQueryData(queryKeys.votes.pending(), { pending: [1], rejected: [] });
-      rendered.queryClient.setQueryData(queryKeys.meetings.detail(aVote().meetingId), 'a meeting');
+      rendered.queryClient.setQueryData(votesQueryKeys.pending(), { pending: [1], rejected: [] });
+      rendered.queryClient.setQueryData(meetingsQueryKeys.detail(aVote().meetingId), 'a meeting');
 
       await sync(rendered);
 
-      expect(rendered.queryClient.getQueryState(queryKeys.votes.pending())?.isInvalidated).toBe(
+      expect(rendered.queryClient.getQueryState(votesQueryKeys.pending())?.isInvalidated).toBe(
         true,
       );
       expect(
-        rendered.queryClient.getQueryState(queryKeys.meetings.detail(aVote().meetingId))
+        rendered.queryClient.getQueryState(meetingsQueryKeys.detail(aVote().meetingId))
           ?.isInvalidated,
       ).toBe(true);
     });
 
     it('leaves the queries alone when nothing changed', async () => {
       const rendered = renderSync();
-      rendered.queryClient.setQueryData(queryKeys.votes.pending(), { pending: [], rejected: [] });
+      rendered.queryClient.setQueryData(votesQueryKeys.pending(), { pending: [], rejected: [] });
 
       await sync(rendered);
 
-      expect(rendered.queryClient.getQueryState(queryKeys.votes.pending())?.isInvalidated).toBe(
+      expect(rendered.queryClient.getQueryState(votesQueryKeys.pending())?.isInvalidated).toBe(
         false,
       );
     });
@@ -212,7 +213,7 @@ describe('useVoteSync', () => {
       expect(fakes.votes.received).toEqual([]);
 
       act(() => {
-        rendered.uiStore.getState().unlocked();
+        rendered.accessStore.getState().unlocked();
       });
       await sync(rendered);
 
@@ -269,7 +270,7 @@ describe('useVoteSync', () => {
       });
 
       act(() => {
-        rendered.uiStore.getState().locked(epochOf(rendered.uiStore));
+        rendered.accessStore.getState().locked(epochOf(rendered.accessStore));
       });
       await act(async () => {
         server.release();
@@ -291,9 +292,9 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.SignedOut);
-      expect(rendered.uiStore.getState().sessionEndedBy).toBe('unauthorized');
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(rendered.accessStore.getState().sessionEndedBy).toBe('unauthorized');
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
     });
 
     it('sends the user to the lock screen when the app is locked under it', async () => {
@@ -304,7 +305,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
       expect(fakes.votes.received).toEqual([]);
     });
 
@@ -321,9 +322,9 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.SignedOut);
-      expect(rendered.uiStore.getState().sessionEndedBy).toBe('unauthorized');
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(rendered.accessStore.getState().sessionEndedBy).toBe('unauthorized');
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
     });
 
     it('sends the user to the sign-in screen when nobody is signed in', async () => {
@@ -334,7 +335,7 @@ describe('useVoteSync', () => {
       await sync(rendered);
 
       await waitFor(() => {
-        expect(rendered.uiStore.getState().sessionEndedBy).toBe('notAuthenticated');
+        expect(rendered.accessStore.getState().sessionEndedBy).toBe('notAuthenticated');
       });
     });
 
@@ -346,7 +347,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
 
     it('does not end the session for an outbox that cannot be read: a fault of the device is not the end of it', async () => {
@@ -356,7 +357,7 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
   });
 
@@ -371,15 +372,15 @@ describe('useVoteSync', () => {
 
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 1, rejected: 1 });
+      expect(rendered.voteSyncStore.getState().syncSummary).toEqual({ synced: 1, rejected: 1 });
 
       act(() => {
-        rendered.uiStore.getState().dismissSyncSummary();
+        rendered.voteSyncStore.getState().dismissSyncSummary();
       });
       fakes.outbox.seed(aPendingVote(aVote({ resolutionId: aResolutionId('r3') })));
       await sync(rendered);
 
-      expect(rendered.uiStore.getState().syncSummary).toEqual({ synced: 1, rejected: 0 });
+      expect(rendered.voteSyncStore.getState().syncSummary).toEqual({ synced: 1, rejected: 0 });
     });
   });
 
@@ -387,8 +388,8 @@ describe('useVoteSync', () => {
     /** The user of the run leaves, and somebody else signs in, while the server is answering. */
     function swapUsers(rendered: ReturnType<typeof renderSync>): void {
       act(() => {
-        rendered.uiStore.getState().signedOut();
-        rendered.uiStore.getState().signedIn();
+        rendered.accessStore.getState().signedOut();
+        rendered.accessStore.getState().signedIn();
       });
     }
 
@@ -409,8 +410,8 @@ describe('useVoteSync', () => {
       await settle();
 
       expect(fakes.votes.received).toHaveLength(1);
-      expect(rendered.uiStore.getState().syncSummary).toBeUndefined();
-      expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(rendered.voteSyncStore.getState().syncSummary).toBeUndefined();
+      expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
 
     it.each([
@@ -445,8 +446,8 @@ describe('useVoteSync', () => {
         });
         await settle();
 
-        expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
-        expect(rendered.uiStore.getState().sessionEndedBy).toBeUndefined();
+        expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
+        expect(rendered.accessStore.getState().sessionEndedBy).toBeUndefined();
       },
     );
 

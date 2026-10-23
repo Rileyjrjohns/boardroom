@@ -2,7 +2,8 @@ import { renderRouter } from 'expo-router/testing-library';
 
 import { AppNavigator } from '@composition/shell/navigation/AppNavigator';
 import { SessionController } from '@composition/shell/session/SessionController';
-import { ACCESS } from '@composition/shell/state/uiStore';
+
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 
 import { createHarness } from './renderScreen';
 import type { RenderScreenOptions } from './renderScreen';

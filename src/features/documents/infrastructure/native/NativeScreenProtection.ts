@@ -4,8 +4,8 @@ import type { Unsubscribe } from '@core/application/ports/types/Unsubscribe';
 import {
   screenProtectionFailed,
   screenProtectionUnsupported,
-} from '@core/domain/errors/ScreenProtectionError';
-import type { ScreenProtectionError } from '@core/domain/errors/ScreenProtectionError';
+} from '@features/documents/domain/errors/ScreenProtectionError';
+import type { ScreenProtectionError } from '@features/documents/domain/errors/ScreenProtectionError';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { attempt, describeFailure } from '@core/infrastructure/shared/attempt';

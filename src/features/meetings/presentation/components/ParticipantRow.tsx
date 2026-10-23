@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { PARTICIPANT_ROLE_KEYS } from '@core/presentation/i18n/translationKeys';
-import { participantTestId } from '@core/presentation/testIds';
 import { borderWidths, colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
 import type { Participant } from '@features/meetings/domain/entities/Participant';
+import { PARTICIPANT_ROLE_KEYS } from '../i18n/meetingMessageKeys';
+import { participantTestId } from '../testIds';
 
 interface ParticipantRowProps {
   readonly participant: Participant;

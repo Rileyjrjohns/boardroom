@@ -5,8 +5,6 @@ import type { DocumentId } from '@core/domain/value-objects/ids';
 import { Badge } from '@core/presentation/components/Badge';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import { CONFIDENTIALITY_KEYS } from '@core/presentation/i18n/translationKeys';
-import { documentTestId } from '@core/presentation/testIds';
 import {
   borderWidths,
   colors,
@@ -19,6 +17,8 @@ import {
 import type { Document } from '@features/meetings/domain/entities/Document';
 
 import { CONFIDENTIALITY_TONES } from './badgeTones';
+import { CONFIDENTIALITY_KEYS } from '../i18n/meetingMessageKeys';
+import { documentTestId } from '../testIds';
 
 interface DocumentRowProps {
   readonly document: Document;

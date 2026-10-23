@@ -2,21 +2,22 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { DialogHost } from '@core/presentation/components/DialogHost';
 import { LoadingState } from '@core/presentation/components/LoadingState';
 import { PrivacyCover } from '@core/presentation/components/PrivacyCover';
-import { TEST_IDS } from '@core/presentation/testIds';
+import { useUiStore } from '@core/presentation/state/uiStore';
 import { RestoreFailure } from '@features/auth/presentation/components/RestoreFailure';
 import { useRestoreSession } from '@features/auth/presentation/session/useRestoreSession';
 import { useSessionWatch } from '@features/auth/presentation/session/useSessionWatch';
+import { ACCESS, useAccessStore } from '@features/auth/presentation/state/accessStore';
 import { useVoteSync } from '@features/votes/presentation/session/useVoteSync';
 
 import { useAppServices } from '../services/AppServices';
-import { ACCESS, useUiStore } from '../state/uiStore';
 
 import { useAppLifecycle } from './useAppLifecycle';
 import { useConnectivityStatus } from './useConnectivityStatus';
+import { SHELL_TEST_IDS } from '../testIds';
 
 interface SessionControllerProps {
   /** The navigator: what the user sees once the session is known. */
@@ -43,7 +44,7 @@ interface SessionControllerProps {
  */
 export function SessionController({ children }: SessionControllerProps) {
   const { t } = useTranslation();
-  const access = useUiStore((state) => state.access);
+  const access = useAccessStore((state) => state.access);
   const covered = useUiStore((state) => state.privacyCover);
   const restore = useRestoreSession();
   const requestSync = useVoteSync();
@@ -62,7 +63,10 @@ export function SessionController({ children }: SessionControllerProps) {
   if (access === ACCESS.Starting) {
     content =
       restore.failure === undefined ? (
-        <LoadingState accessibilityLabel={t('startup.loading')} testID={TEST_IDS.startupLoading} />
+        <LoadingState
+          accessibilityLabel={t('startup.loading')}
+          testID={SHELL_TEST_IDS.startupLoading}
+        />
       ) : (
         <RestoreFailure code={restore.failure.code} onRetry={restore.retry} />
       );
@@ -88,7 +92,7 @@ export function SessionController({ children }: SessionControllerProps) {
  */
 function useSignOutEndedSession(): void {
   const { useCases } = useAppServices();
-  const endedBy = useUiStore((state) => state.sessionEndedBy);
+  const endedBy = useAccessStore((state) => state.sessionEndedBy);
 
   useEffect(() => {
     if (endedBy === undefined || !FORGOTTEN_HERE.has(endedBy)) return;

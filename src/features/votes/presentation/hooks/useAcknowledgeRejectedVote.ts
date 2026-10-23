@@ -1,9 +1,10 @@
-import { useAppServices } from '@composition/shell/services/AppServices';
 import { useResultMutation } from '@core/presentation/query/useResultMutation';
 import type {
   AcknowledgeRejectedVoteError,
   AcknowledgeRejectedVoteInput,
 } from '@features/votes/application/use-cases/AcknowledgeRejectedVote';
+
+import { useVotesServices } from '../services/VotesServices';
 
 import { useRefreshQueries } from './useRefreshQueries';
 
@@ -12,11 +13,11 @@ import { useRefreshQueries } from './useRefreshQueries';
  * again, which lets the user vote again on the resolution when the rules still allow it.
  */
 export function useAcknowledgeRejectedVote() {
-  const { useCases } = useAppServices();
+  const { acknowledgeRejectedVote } = useVotesServices();
   const refresh = useRefreshQueries();
 
   return useResultMutation<AcknowledgeRejectedVoteInput, void, AcknowledgeRejectedVoteError>({
-    execute: (input) => useCases.acknowledgeRejectedVote.execute(input),
+    execute: (input) => acknowledgeRejectedVote.execute(input),
     onSuccess: async () => {
       await refresh.pendingVotes();
     },

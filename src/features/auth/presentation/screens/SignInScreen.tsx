@@ -4,7 +4,6 @@ import { Keyboard, KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } fr
 import type { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useUiStore } from '@composition/shell/state/uiStore';
 import { VALIDATION_ERROR_CODE, VALIDATION_FIELD } from '@core/domain/errors/ValidationError';
 import type { ValidationError } from '@core/domain/errors/ValidationError';
 import { isErr } from '@core/domain/shared/Result';
@@ -13,13 +12,7 @@ import { DemoAccounts, DemoOfflineSwitch } from '@core/presentation/components/D
 import { LiveText } from '@core/presentation/components/LiveText';
 import { ConnectionBanner } from '@core/presentation/components/StatusBanner';
 import { TextField } from '@core/presentation/components/TextField';
-import {
-  EMAIL_RULE_KEYS,
-  PASSWORD_RULE_KEYS,
-  SIGN_IN_ERROR_KEYS,
-} from '@core/presentation/i18n/translationKeys';
 import { isIos } from '@core/presentation/platform/devicePlatform';
-import { TEST_IDS } from '@core/presentation/testIds';
 import {
   colors,
   fontSizes,
@@ -29,8 +22,11 @@ import {
 } from '@core/presentation/theme/tokens';
 import { createCredentials } from '@features/auth/domain/value-objects/Credentials';
 
+import { EMAIL_RULE_KEYS, PASSWORD_RULE_KEYS, SIGN_IN_ERROR_KEYS } from '../i18n/authMessageKeys';
+import { useAccessStore } from '../state/accessStore';
 import { SessionNotice } from '../components/SessionNotice';
 import { useSignIn } from '../hooks/useSignIn';
+import { AUTH_TEST_IDS } from '../testIds';
 
 /** How the form makes room for the keyboard on iOS; Android resizes the window by itself. */
 const KEYBOARD_AVOIDING_BEHAVIOUR = 'padding';
@@ -55,7 +51,7 @@ const KEYBOARD_AVOIDING_BEHAVIOUR = 'padding';
 export function SignInScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const endedBy = useUiStore((state) => state.sessionEndedBy);
+  const endedBy = useAccessStore((state) => state.sessionEndedBy);
   const { signIn, isPending, failure } = useSignIn();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -108,7 +104,7 @@ export function SignInScreen() {
     <KeyboardAvoidingView
       behavior={isIos() ? KEYBOARD_AVOIDING_BEHAVIOUR : undefined}
       style={styles.screen}
-      testID={TEST_IDS.signInScreen}
+      testID={AUTH_TEST_IDS.signInScreen}
     >
       <ConnectionBanner />
       <DemoOfflineSwitch />
@@ -144,8 +140,8 @@ export function SignInScreen() {
             onSubmitEditing={() => {
               passwordInput.current?.focus();
             }}
-            testID={TEST_IDS.signInEmail}
-            errorTestID={TEST_IDS.signInEmailError}
+            testID={AUTH_TEST_IDS.signInEmail}
+            errorTestID={AUTH_TEST_IDS.signInEmailError}
           />
           <TextField
             label={t('signIn.password')}
@@ -165,17 +161,17 @@ export function SignInScreen() {
             spellCheck={false}
             textContentType="password"
             onSubmitEditing={submit}
-            testID={TEST_IDS.signInPassword}
-            errorTestID={TEST_IDS.signInPasswordError}
+            testID={AUTH_TEST_IDS.signInPassword}
+            errorTestID={AUTH_TEST_IDS.signInPasswordError}
           />
           {formError === undefined ? null : (
-            <LiveText message={formError} style={styles.error} testID={TEST_IDS.signInError} />
+            <LiveText message={formError} style={styles.error} testID={AUTH_TEST_IDS.signInError} />
           )}
           <Button
             title={isPending ? t('signIn.submitting') : t('signIn.submit')}
             busy={isPending}
             onPress={submit}
-            testID={TEST_IDS.signInSubmit}
+            testID={AUTH_TEST_IDS.signInSubmit}
           />
         </View>
         <DemoAccounts

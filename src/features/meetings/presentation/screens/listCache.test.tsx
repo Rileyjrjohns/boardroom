@@ -2,7 +2,6 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 
 import { unexpected } from '@core/domain/errors/RepositoryError';
 import { QUERY_STALE_TIME_MILLIS } from '@core/presentation/query/createQueryClient';
-import { TEST_IDS, meetingRowTestId } from '@core/presentation/testIds';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import { aMeetingId } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
@@ -14,6 +13,8 @@ import {
 } from '../testing/meetingFixtures';
 
 import { MeetingsListScreen } from './MeetingsListScreen';
+import { meetingRowTestId, MEETINGS_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The cache policy of the list as the user lives it: what a pull to refresh costs when several
 // pages are loaded, what coming back to a period costs, and what one period's refresh looks like
@@ -47,12 +48,12 @@ function shownIds(): string[] {
 
 async function reachEnd(): Promise<void> {
   await act(async () => {
-    fireEvent(screen.getByTestId(TEST_IDS.meetingsList), 'endReached');
+    fireEvent(screen.getByTestId(MEETINGS_TEST_IDS.meetingsList), 'endReached');
   });
 }
 
 function refreshControl() {
-  return screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props;
+  return screen.getByTestId(MEETINGS_TEST_IDS.meetingsList).props.refreshControl.props;
 }
 
 async function loadThreePages() {
@@ -103,14 +104,14 @@ describe('a pull to refresh with several pages loaded', () => {
     await act(async () => {
       refreshControl().onRefresh();
     });
-    const error = await screen.findByTestId(TEST_IDS.refreshError);
+    const error = await screen.findByTestId(CORE_TEST_IDS.refreshError);
     fakes.meetings.failure = undefined;
     const callsBefore = fakes.meetings.listCalls.length;
 
     fireEvent.press(screen.getByRole('button', { name: t('states.retry') }));
 
     await waitFor(() => {
-      expect(screen.queryByTestId(TEST_IDS.refreshError)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.refreshError)).toBeNull();
     });
     expect(error).toBeTruthy();
     expect(fakes.meetings.listCalls).toHaveLength(callsBefore + 1);

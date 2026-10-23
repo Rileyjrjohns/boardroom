@@ -1,6 +1,6 @@
 import type { Clock } from '@core/application/ports/Clock';
 import type { Monitoring } from '@core/application/ports/Monitoring';
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE, unexpected } from '@core/domain/errors/RepositoryError';
 import type {
   StorageReadFailedError,

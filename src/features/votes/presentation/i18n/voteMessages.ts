@@ -1,16 +1,12 @@
 import type { TFunction } from 'i18next';
 
-import { VOTE_DELIVERY_ERROR_CODE } from '@core/domain/errors/VoteDeliveryError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import {
-  ALREADY_VOTED_KEYS,
-  CAST_VOTE_ERROR_KEYS,
-  VOTING_REASON_KEYS,
-} from '@core/presentation/i18n/translationKeys';
 import type { CastVoteError } from '@features/votes/application/use-cases/CastVote';
+import { ALREADY_VOTED_KEYS, CAST_VOTE_ERROR_KEYS, VOTING_REASON_KEYS } from './voteMessageKeys';
 
 /**
  * Why a vote cannot be cast or was refused, in words. `alreadyVoted` depends on where the earlier

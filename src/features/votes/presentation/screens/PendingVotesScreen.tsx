@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { isRetryableCode } from '@core/application/retryableCodes';
 import type { MeetingId } from '@core/domain/value-objects/ids';
 import { useAnnounce } from '@core/presentation/accessibility/useAnnounce';
 import { DemoOfflineSwitch } from '@core/presentation/components/DemoControls';
@@ -13,13 +12,14 @@ import { LoadingState } from '@core/presentation/components/LoadingState';
 import { Message } from '@core/presentation/components/Message';
 import { Section } from '@core/presentation/components/Section';
 import { StatusBanner } from '@core/presentation/components/StatusBanner';
-import { errorCodeOf } from '@core/presentation/query/errorCode';
-import { TEST_IDS } from '@core/presentation/testIds';
+import { useErrorCatalog, useErrorCodeOf } from '@core/presentation/errors/ErrorCatalog';
 import { colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
 
 import { OutboxVoteRow } from '../components/OutboxVoteRow';
 import { UnreadableVotesNotice } from '../components/UnreadableVotesNotice';
 import { usePendingVotes } from '../hooks/usePendingVotes';
+import { VOTES_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 interface PendingVotesScreenProps {
   /** Opens a meeting. The route wires it to the navigation. */
@@ -39,6 +39,8 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
   const { data, error, isPending, isError, isRefetchError, refetch } = usePendingVotes();
   const [refreshing, setRefreshing] = useState(false);
   useAnnounce(refreshing ? t('states.refreshing') : undefined);
+  const errorCodeOf = useErrorCodeOf();
+  const { isRetryableCode } = useErrorCatalog();
   const errorCode = isError ? errorCodeOf(error) : undefined;
 
   const retry = useCallback(() => {
@@ -58,7 +60,7 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
       <View style={styles.screen}>
         <LoadingState
           accessibilityLabel={t('pendingVotes.loading')}
-          testID={TEST_IDS.pendingVotesLoading}
+          testID={VOTES_TEST_IDS.pendingVotesLoading}
         />
       </View>
     );
@@ -67,7 +69,7 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
   if (errorCode !== undefined && (data === undefined || !isRetryableCode(errorCode))) {
     return (
       <View style={styles.screen}>
-        <ErrorState code={errorCode} onRetry={retry} testID={TEST_IDS.pendingVotesError} />
+        <ErrorState code={errorCode} onRetry={retry} testID={VOTES_TEST_IDS.pendingVotesError} />
       </View>
     );
   }
@@ -79,20 +81,24 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
       style={styles.screen}
       contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
-      testID={TEST_IDS.pendingVotesScreen}
+      testID={VOTES_TEST_IDS.pendingVotesScreen}
     >
       <StatusBanner />
       <DemoOfflineSwitch />
       {isRefetchError && errorCode !== undefined ? (
-        <InlineError code={errorCode} onRetry={retry} testID={TEST_IDS.refreshError} />
+        <InlineError code={errorCode} onRetry={retry} testID={CORE_TEST_IDS.refreshError} />
       ) : null}
       <Text style={styles.explanation}>{t('pendingVotes.explanation')}</Text>
       {unreadable === 0 ? null : <UnreadableVotesNotice count={unreadable} />}
       {pending.length === 0 && rejected.length === 0 ? (
-        <Message centered message={t('pendingVotes.empty')} testID={TEST_IDS.pendingVotesEmpty} />
+        <Message
+          centered
+          message={t('pendingVotes.empty')}
+          testID={VOTES_TEST_IDS.pendingVotesEmpty}
+        />
       ) : null}
       {pending.length === 0 ? null : (
-        <Section title={t('pendingVotes.waiting')} testID={TEST_IDS.pendingVotesWaiting}>
+        <Section title={t('pendingVotes.waiting')} testID={VOTES_TEST_IDS.pendingVotesWaiting}>
           {pending.map((entry) => (
             <OutboxVoteRow
               key={entry.vote.idempotencyKey}
@@ -103,7 +109,7 @@ export function PendingVotesScreen({ onOpenMeeting }: PendingVotesScreenProps) {
         </Section>
       )}
       {rejected.length === 0 ? null : (
-        <Section title={t('pendingVotes.rejected')} testID={TEST_IDS.pendingVotesRejected}>
+        <Section title={t('pendingVotes.rejected')} testID={VOTES_TEST_IDS.pendingVotesRejected}>
           {rejected.map((entry) => (
             <OutboxVoteRow
               key={entry.vote.idempotencyKey}

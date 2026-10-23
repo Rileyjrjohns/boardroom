@@ -2,14 +2,15 @@ import { act, fireEvent, screen, within } from '@testing-library/react-native';
 
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { createFakes } from '@testing/application/createFakes';
 import { aPendingVote, aRejectedVote, aResolutionId, aVote } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
-import { ACCESS } from '../state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 
 import { HeaderActions } from './HeaderActions';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { VOTES_TEST_IDS } from '@features/votes/presentation/testIds';
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -42,7 +43,7 @@ describe('HeaderActions', () => {
     renderScreen(<HeaderActions />);
     await settle();
 
-    expect(screen.queryByTestId(TEST_IDS.pendingVotesBadge)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesBadge)).toBeNull();
   });
 
   it('counts the votes that wait and the ones that were rejected, in the badge and in the name of the button', async () => {
@@ -55,7 +56,9 @@ describe('HeaderActions', () => {
     const { t } = renderScreen(<HeaderActions />, { fakes });
     await settle();
 
-    expect(within(screen.getByTestId(TEST_IDS.pendingVotesBadge)).getByText('3')).toBeTruthy();
+    expect(
+      within(screen.getByTestId(VOTES_TEST_IDS.pendingVotesBadge)).getByText('3'),
+    ).toBeTruthy();
     expect(
       screen.getByRole('button', { name: t('pendingVotes.openWithCount', { number: '3' }) }),
     ).toBeTruthy();
@@ -72,41 +75,43 @@ describe('HeaderActions', () => {
     });
     await settle();
 
-    expect(within(screen.getByTestId(TEST_IDS.pendingVotesBadge)).getByText('1')).toBeTruthy();
+    expect(
+      within(screen.getByTestId(VOTES_TEST_IDS.pendingVotesBadge)).getByText('1'),
+    ).toBeTruthy();
   });
 
   it('asks for a confirmation before signing out, which says how many votes are kept', async () => {
     const fakes = createFakes();
     fakes.outbox.seed(aPendingVote(aVote({ resolutionId: aResolutionId('r1') })));
-    const { t, format, uiStore } = renderScreen(<HeaderActions />, { fakes });
+    const { t, format, accessStore } = renderScreen(<HeaderActions />, { fakes });
     await settle();
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutButton));
 
     expect(screen.getByRole('header', { name: t('signOut.title') })).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(
+    expect(screen.getByTestId(AUTH_TEST_IDS.signOutPending)).toHaveTextContent(
       translateCount(t, 'signOut.pending', 1, format.number),
     );
-    expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
   });
 
   it('signs out only when the user confirms, and closes the confirmation when they cancel', async () => {
-    const { fakes, uiStore } = renderScreen(<HeaderActions />);
+    const { fakes, accessStore } = renderScreen(<HeaderActions />);
     await settle();
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
-    fireEvent.press(screen.getByTestId(TEST_IDS.signOutCancel));
-    expect(screen.queryByTestId(TEST_IDS.signOutDialog)).toBeNull();
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutButton));
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutCancel));
+    expect(screen.queryByTestId(AUTH_TEST_IDS.signOutDialog)).toBeNull();
     expect(fakes.auth.signOutCalls).toBe(0);
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutButton));
     await act(async () => {
-      fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
     });
     await settle();
 
     expect(fakes.auth.signOutCalls).toBe(1);
-    expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
   });
 
   it.each(SUPPORTED_LANGUAGES)('is written in %s', async (language) => {

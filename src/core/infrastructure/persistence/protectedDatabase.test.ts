@@ -1,6 +1,3 @@
-import { MIGRATIONS } from '@composition/persistence/migrations';
-import type { Migration } from '@composition/persistence/migrations';
-import { TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
@@ -14,6 +11,7 @@ import { SECURE_STORAGE_KEY } from '../secure-storage/SecureStorage';
 
 import { databaseFileName, formatKeyState } from './databaseKey';
 import { RESET_REASON } from './localDataReset';
+import type { Migration } from './migrate';
 import { DATABASE_FAILURE, openProtectedDatabase } from './protectedDatabase';
 import type { ProtectedDatabaseOptions } from './protectedDatabase';
 import type { SqlDatabase } from './SqlDatabase';
@@ -21,6 +19,18 @@ import { unlockDatabase } from './unlockDatabase';
 
 const directory = databaseDirectory();
 const files = nodeFileSystem();
+
+/** The one table of the history the database is migrated with: the machinery knows no other. */
+const NOTES = 'notes';
+const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 1,
+    statements: [
+      `CREATE TABLE ${NOTES} (owner TEXT NOT NULL, id TEXT NOT NULL, cached_at INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (owner, id)) WITHOUT ROWID`,
+    ],
+  },
+];
+
 /** What the keychain holds for the database: the generation of the file, and the key. */
 const STATE_FORMAT = /^[0-9]+:[0-9a-f]{64}$/;
 const OTHER_KEY = 'c'.repeat(64);
@@ -88,12 +98,12 @@ const keyOf = (device: ReturnType<typeof aDevice>) =>
 
 const mark = async (database: SqlDatabase) => {
   await database.run(
-    `INSERT INTO ${TABLE.MeetingDetails} (owner, meeting_id, cached_at, payload) VALUES ('o', 'm', 1, '{}')`,
+    `INSERT INTO ${NOTES} (owner, id, cached_at, payload) VALUES ('o', 'm', 1, '{}')`,
   );
 };
 
 const rowsOf = async (database: SqlDatabase) =>
-  (await database.all(`SELECT count(*) AS total FROM ${TABLE.MeetingDetails}`))[0]?.total;
+  (await database.all(`SELECT count(*) AS total FROM ${NOTES}`))[0]?.total;
 
 describe('openProtectedDatabase', () => {
   describe('the first start', () => {
@@ -243,9 +253,9 @@ describe('openProtectedDatabase', () => {
         const unlocked = await unlockDatabase(old, originalKey);
         expect(unlocked.ok).toBe(readable);
         if (readable) {
-          expect(
-            await old.all(`SELECT count(*) AS total FROM ${TABLE.MeetingDetails}`, []),
-          ).toEqual([{ total: 1 }]);
+          expect(await old.all(`SELECT count(*) AS total FROM ${NOTES}`, [])).toEqual([
+            { total: 1 },
+          ]);
         }
       });
 

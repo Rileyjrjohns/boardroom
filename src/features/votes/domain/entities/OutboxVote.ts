@@ -1,6 +1,6 @@
 import type { ValidationError } from '@core/domain/errors/ValidationError';
 import { VALIDATION_FIELD } from '@core/domain/errors/ValidationError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
 import { map } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { requireIntegerInRange } from '@core/domain/shared/validation';

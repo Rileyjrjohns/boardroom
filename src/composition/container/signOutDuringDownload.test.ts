@@ -7,7 +7,7 @@ import { OpenDocument } from '@features/documents/application/use-cases/OpenDocu
 import { SqliteDocumentCache } from '@features/documents/infrastructure/persistence/SqliteDocumentCache';
 import { storeDocumentContent } from '@features/documents/infrastructure/storeDocumentContent';
 import { aDocumentDevice } from '@features/documents/infrastructure/testing/documentDevice';
-import { createFakes } from '@testing/application/createFakes';
+import { createFakes, withCaches } from '@testing/application/createFakes';
 import { aConfidentialDocument } from '@testing/domain/builders';
 import { databaseDirectory, openTestDatabase } from '@testing/infrastructure/testDatabase';
 
@@ -56,7 +56,7 @@ describe('a document that finishes downloading after the user signed out', () =>
         );
       },
     };
-    const deps = { ...fakes, documents, documentCache };
+    const deps = withCaches({ ...fakes, documents }, { documentCache });
 
     const opening = new OpenDocument(deps).execute({ documentId: document.id });
     await started;

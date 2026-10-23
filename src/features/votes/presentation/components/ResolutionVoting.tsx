@@ -2,26 +2,14 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { useUiStore } from '@composition/shell/state/uiStore';
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import type { MeetingId } from '@core/domain/value-objects/ids';
 import { Button } from '@core/presentation/components/Button';
 import { LiveText } from '@core/presentation/components/LiveText';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import {
-  CAST_OUTCOME_KEYS,
-  PARTICIPANT_ROLE_KEYS,
-  VOTE_CHOICE_KEYS,
-} from '@core/presentation/i18n/translationKeys';
-import {
-  TEST_IDS,
-  voteChoiceTestId,
-  voteChoicesTestId,
-  voteNoticeTestId,
-  voteOutcomeTestId,
-} from '@core/presentation/testIds';
 import { colors, fontSizes, fontWeights, spacing } from '@core/presentation/theme/tokens';
+import { useUiStore } from '@core/presentation/state/uiStore';
 import type { Resolution } from '@features/meetings/domain/entities/Resolution';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
 import type { VoteChoice } from '@features/meetings/domain/value-objects/VoteChoice';
@@ -34,6 +22,18 @@ import { rejectionReasonText, votingReasonText } from '../i18n/voteMessages';
 
 import { AcknowledgeButton } from './AcknowledgeButton';
 import { VoteDialog } from './VoteDialog';
+import {
+  PARTICIPANT_ROLE_KEYS,
+  VOTE_CHOICE_KEYS,
+} from '@features/meetings/presentation/i18n/meetingMessageKeys';
+import { CAST_OUTCOME_KEYS } from '../i18n/voteMessageKeys';
+import {
+  voteChoiceTestId,
+  voteChoicesTestId,
+  voteNoticeTestId,
+  voteOutcomeTestId,
+  VOTES_TEST_IDS,
+} from '../testIds';
 
 /** The choices, in the order they are offered. */
 const CHOICES: readonly VoteChoice[] = [VOTE_CHOICE.For, VOTE_CHOICE.Against, VOTE_CHOICE.Abstain];
@@ -135,7 +135,7 @@ function VoteState({ view, resolution, onChoose }: VoteStateProps) {
           accessibilityRole="progressbar"
           accessibilityLabel={t('voting.loading')}
           accessibilityState={{ busy: true }}
-          testID={TEST_IDS.votingLoading}
+          testID={VOTES_TEST_IDS.votingLoading}
         >
           <ActivityIndicator color={colors.primary} />
         </View>

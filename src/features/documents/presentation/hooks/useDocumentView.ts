@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import type { UseCases } from '@composition/shell/services/AppServices';
-import { useUiStoreApi } from '@composition/shell/state/uiStore';
-import type { UiStore } from '@composition/shell/state/uiStore';
-import { useSessionOpen } from '@composition/shell/state/useSessionOpen';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import type { DocumentId } from '@core/domain/value-objects/ids';
-import type { DocumentErrorCode } from '@core/presentation/i18n/translationKeys';
 import { useIsScreenFocused } from '@core/presentation/navigation/useIsScreenFocused';
 import { isSessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+import { useAccessStoreApi } from '@features/auth/presentation/state/accessStore';
+import type { AccessStore } from '@features/auth/presentation/state/accessStore';
+import { useSessionOpen } from '@features/auth/presentation/state/useSessionOpen';
 import type { OpenedDocument } from '@features/documents/application/use-cases/OpenDocument';
+
+import type { DocumentErrorCode } from '../i18n/documentMessageKeys';
+import { useDocumentsServices } from '../services/DocumentsServices';
+import type { DocumentsServices } from '../services/DocumentsServices';
 
 export const DOCUMENT_VIEW_STATUS = {
   /** The document is being opened: fetched, or read from the copy saved on the device. */
@@ -44,7 +45,7 @@ const LOADING: DocumentViewState = { status: DOCUMENT_VIEW_STATUS.Loading };
  * may be stopped before it answers. A document that opens for a viewing that has stopped is
  * released at once: the view it counted would otherwise stay counted, and the protection with it.
  *
- * A failure that ends the session ends it for the whole app, told to the interface store the way
+ * A failure that ends the session ends it for the whole app, told to the access store the way
  * the query cache tells it (`isSessionEndingCode`).
  */
 class DocumentViewing {
@@ -53,8 +54,8 @@ class DocumentViewing {
   private stopViewing: (() => void) | undefined;
 
   constructor(
-    private readonly useCases: Pick<UseCases, 'openDocument' | 'closeDocument'>,
-    private readonly store: UiStore,
+    private readonly useCases: Pick<DocumentsServices, 'openDocument' | 'closeDocument'>,
+    private readonly store: AccessStore,
     private readonly documentId: DocumentId,
   ) {}
 
@@ -143,8 +144,8 @@ class DocumentViewing {
  * stays mounted for a render.
  */
 export function useDocumentView(documentId: DocumentId): DocumentView {
-  const { useCases } = useAppServices();
-  const store = useUiStoreApi();
+  const useCases = useDocumentsServices();
+  const store = useAccessStoreApi();
   const sessionOpen = useSessionOpen();
   const focused = useIsScreenFocused();
   const shown = sessionOpen && focused;

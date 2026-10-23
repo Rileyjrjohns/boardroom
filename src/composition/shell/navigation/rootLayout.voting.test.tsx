@@ -4,18 +4,22 @@ import { renderRouter } from 'expo-router/testing-library';
 
 import { createI18n } from '@core/presentation/i18n/createI18n';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
+import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
+import { aMeetingId, aResolutionId } from '@testing/domain/builders';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
 import {
-  TEST_IDS,
-  demoAccountTestId,
   meetingRowTestId,
-  pendingVoteTestId,
   resolutionTestId,
+  MEETINGS_TEST_IDS,
+} from '@features/meetings/presentation/testIds';
+import {
+  pendingVoteTestId,
   voteChoiceTestId,
   voteNoticeTestId,
   voteOutcomeTestId,
-} from '@core/presentation/testIds';
-import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
-import { aMeetingId, aResolutionId } from '@testing/domain/builders';
+  VOTES_TEST_IDS,
+} from '@features/votes/presentation/testIds';
+import { demoAccountTestId, CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The vote, from the sign-in screen to the recorded outcome, through the real root layout, the real
 // route files and the real composition root in its mock configuration: the flow that the end-to-end
@@ -47,9 +51,9 @@ afterEach(() => {
 /** Signs in with the first demo account and opens the meeting, once its choices are shown. */
 async function signInAndOpenTheMeeting(): Promise<void> {
   fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
-  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+  fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
   fireEvent.press(await screen.findByTestId(meetingRowTestId(MEETING)));
-  await screen.findByTestId(TEST_IDS.meetingDetail);
+  await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
   await screen.findByTestId(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
 }
 
@@ -57,7 +61,7 @@ async function goBackToTheList(): Promise<void> {
   act(() => {
     router.back();
   });
-  await screen.findByTestId(TEST_IDS.meetingsList);
+  await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
 }
 
 describe('voting, with the real composition root', () => {
@@ -68,15 +72,15 @@ describe('voting, with the real composition root', () => {
     fireEvent.press(screen.getByTestId(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For)));
 
     // The confirmation states the choice and that the vote is final, and nothing of the offline.
-    const dialog = await screen.findByTestId(TEST_IDS.voteDialog);
-    expect(within(dialog).getByTestId(TEST_IDS.voteDialogChoice)).toHaveTextContent(
+    const dialog = await screen.findByTestId(VOTES_TEST_IDS.voteDialog);
+    expect(within(dialog).getByTestId(VOTES_TEST_IDS.voteDialogChoice)).toHaveTextContent(
       t('voteChoice.for'),
       { exact: false },
     );
-    expect(within(dialog).getByTestId(TEST_IDS.voteDialogFinal)).toBeTruthy();
-    expect(within(dialog).queryByTestId(TEST_IDS.voteDialogOffline)).toBeNull();
+    expect(within(dialog).getByTestId(VOTES_TEST_IDS.voteDialogFinal)).toBeTruthy();
+    expect(within(dialog).queryByTestId(VOTES_TEST_IDS.voteDialogOffline)).toBeNull();
 
-    fireEvent.press(within(dialog).getByTestId(TEST_IDS.voteConfirm));
+    fireEvent.press(within(dialog).getByTestId(VOTES_TEST_IDS.voteConfirm));
 
     // Recorded: the outcome is told once, the choices are gone, and the resolution says the user has
     // voted, in the words of the one the server recorded.
@@ -84,7 +88,7 @@ describe('voting, with the real composition root', () => {
       t('voting.submitted'),
     );
     await waitFor(() => {
-      expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
     });
     expect(await screen.findByTestId(voteNoticeTestId(RESOLUTION), {}, SLOW)).toHaveTextContent(
       t('voting.reason.alreadyVotedRecorded'),
@@ -97,14 +101,14 @@ describe('voting, with the real composition root', () => {
     for (const choice of Object.values(VOTE_CHOICE)) {
       expect(screen.queryByTestId(voteChoiceTestId(RESOLUTION, choice))).toBeNull();
     }
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
   });
 
   it('keeps the vote of the user: it is still recorded when the meeting is opened again', async () => {
     renderRouter();
     await signInAndOpenTheMeeting();
     fireEvent.press(screen.getByTestId(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.Against)));
-    fireEvent.press(await screen.findByTestId(TEST_IDS.voteConfirm));
+    fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.voteConfirm));
     await screen.findByTestId(voteNoticeTestId(RESOLUTION), {}, SLOW);
     await goBackToTheList();
 
@@ -123,12 +127,12 @@ describe('voting, with the real composition root', () => {
   it('shows a vote cast offline in the pending votes, with a badge, until the connection sends it', async () => {
     renderRouter();
     await signInAndOpenTheMeeting();
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
-    await screen.findByTestId(TEST_IDS.offlineBanner);
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
+    await screen.findByTestId(CORE_TEST_IDS.offlineBanner);
 
     fireEvent.press(screen.getByTestId(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.Abstain)));
-    expect(await screen.findByTestId(TEST_IDS.voteDialogOffline)).toBeTruthy();
-    fireEvent.press(screen.getByTestId(TEST_IDS.voteConfirm));
+    expect(await screen.findByTestId(VOTES_TEST_IDS.voteDialogOffline)).toBeTruthy();
+    fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.voteConfirm));
     expect(await screen.findByTestId(voteOutcomeTestId(RESOLUTION))).toHaveTextContent(
       t('voting.queued'),
     );
@@ -137,20 +141,20 @@ describe('voting, with the real composition root', () => {
 
     await goBackToTheList();
     expect(
-      within(await screen.findByTestId(TEST_IDS.pendingVotesBadge)).getByText('1'),
+      within(await screen.findByTestId(VOTES_TEST_IDS.pendingVotesBadge)).getByText('1'),
     ).toBeTruthy();
-    fireEvent.press(screen.getByTestId(TEST_IDS.pendingVotesButton));
+    fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.pendingVotesButton));
     const row = await screen.findByTestId(pendingVoteTestId(RESOLUTION));
     expect(within(row).getByText(t('voteChoice.abstain'), { exact: false })).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.pendingVotesEmpty)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesEmpty)).toBeNull();
 
     // The connection comes back, from the screen the user is on: the vote is sent and the list empties.
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
-    expect(await screen.findByTestId(TEST_IDS.pendingVotesEmpty, {}, SLOW)).toBeTruthy();
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
+    expect(await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty, {}, SLOW)).toBeTruthy();
     expect(screen.queryByTestId(pendingVoteTestId(RESOLUTION))).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
     expect(
-      within(await screen.findByTestId(TEST_IDS.syncSummary, {}, SLOW)).getByText(
+      within(await screen.findByTestId(VOTES_TEST_IDS.syncSummary, {}, SLOW)).getByText(
         t('banner.sent', { count: 1, formattedCount: '1' }),
       ),
     ).toBeTruthy();

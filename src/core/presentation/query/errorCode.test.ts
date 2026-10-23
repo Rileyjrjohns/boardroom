@@ -1,13 +1,17 @@
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { ERROR_CATALOG } from '@composition/shell/errorCatalog';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@core/domain/errors/ValidationError';
 import { valuesOf } from '@core/domain/shared/constants';
 
-import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
+import { MEETINGS_ERROR_KEYS } from '@features/meetings/presentation/i18n/meetingMessageKeys';
 
-import { errorCodeOf } from './errorCode';
+import { errorCodeOf as errorCodeIn } from './errorCode';
 import { QueryFailure } from './QueryFailure';
+
+/** The codes the screens of the app have a text for: the catalog of the composition. */
+const errorCodeOf = (error: unknown): string => errorCodeIn(error, ERROR_CATALOG);
 
 const CODES = [
   ...valuesOf(REPOSITORY_ERROR_CODE),

@@ -1,10 +1,27 @@
-import type { Migration } from '@composition/persistence/migrations';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 
 import { describeFailure } from '../shared/attempt';
 
 import type { SqlDatabase } from './SqlDatabase';
+
+/**
+ * A step from one version of the schema to the next. Versions are 1, 2, 3, ... with no gap. The
+ * statements run in one transaction together with the update of the version, so that a migration
+ * that fails leaves the database at the version it was at.
+ *
+ * The machinery knows no table: the list of migrations is the app's (the history of its schema, see
+ * `src/composition/persistence/migrations.ts`) and is handed to `runMigrations` and to
+ * `openProtectedDatabase`.
+ *
+ * Forward only: a migration that was released is never edited, a change is a new migration, and
+ * there is no way back. A database that is more recent than the app (the app was downgraded) is
+ * refused, not touched (see `runMigrations`).
+ */
+export interface Migration {
+  readonly version: number;
+  readonly statements: readonly string[];
+}
 
 /** Where the version of the schema is kept: the `user_version` of the header of the database. */
 const READ_VERSION = 'PRAGMA user_version';

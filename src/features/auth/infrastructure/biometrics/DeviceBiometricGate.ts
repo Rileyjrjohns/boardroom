@@ -12,11 +12,11 @@ import {
   biometricLockedOut,
   biometricNotEnrolled,
   biometricUnavailable,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import type {
   BiometricAvailabilityError,
   BiometricError,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { attempt } from '@core/infrastructure/shared/attempt';

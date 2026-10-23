@@ -2,10 +2,9 @@ import { useCallback, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import type { DemoAccount, DemoNetwork } from '@composition/shell/services/AppServices';
-
-import { TEST_IDS, demoAccountTestId } from '../testIds';
+import { useCoreServices } from '../services/CoreServices';
+import type { DemoAccount, DemoNetwork } from '../services/CoreServices';
+import { CORE_TEST_IDS, demoAccountTestId } from '../testIds';
 import {
   borderWidths,
   colors,
@@ -27,7 +26,7 @@ import { Button } from './Button';
  * is every configuration but the mock one: a real device has no switch to cut its own network.
  */
 export function DemoOfflineSwitch() {
-  const { demoControls } = useAppServices();
+  const { demoControls } = useCoreServices();
 
   return demoControls === undefined ? null : <OfflineSwitch network={demoControls.network} />;
 }
@@ -42,7 +41,7 @@ function OfflineSwitch({ network }: { readonly network: DemoNetwork }) {
   const offline = !online;
 
   return (
-    <View style={styles.bar} testID={TEST_IDS.demoPanel}>
+    <View style={styles.bar} testID={CORE_TEST_IDS.demoPanel}>
       <Badge label={t('demo.badge')} />
       <Pressable
         accessibilityHint={t('demo.offlineHint')}
@@ -53,7 +52,7 @@ function OfflineSwitch({ network }: { readonly network: DemoNetwork }) {
           network.setOnline(offline);
         }}
         style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-        testID={TEST_IDS.demoOfflineSwitch}
+        testID={CORE_TEST_IDS.demoOfflineSwitch}
       >
         <Text style={styles.label}>{t('demo.offline')}</Text>
         {/* The row is the control; the native switch only draws its state. */}
@@ -82,11 +81,11 @@ interface DemoAccountsProps {
  */
 export function DemoAccounts({ onPick }: DemoAccountsProps) {
   const { t } = useTranslation();
-  const { demoControls } = useAppServices();
+  const { demoControls } = useCoreServices();
 
   if (demoControls === undefined) return null;
   return (
-    <View style={styles.panel} testID={TEST_IDS.demoAccounts}>
+    <View style={styles.panel} testID={CORE_TEST_IDS.demoAccounts}>
       <View style={styles.heading}>
         <Badge label={t('demo.badge')} />
         <Text accessibilityRole="header" style={styles.label}>

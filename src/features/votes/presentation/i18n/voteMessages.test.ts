@@ -1,10 +1,10 @@
-import { BIOMETRIC_ERROR_CODE } from '@core/domain/errors/BiometricError';
+import { BIOMETRIC_ERROR_CODE } from '@features/auth/domain/errors/BiometricError';
 import {
   VOTE_DELIVERY_ERROR_CODE,
   votePreviouslyRejected,
   voteUndeliverable,
-} from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+} from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { valuesOf } from '@core/domain/shared/constants';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { createI18n } from '@core/presentation/i18n/createI18n';

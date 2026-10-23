@@ -3,8 +3,8 @@ import {
   VALIDATION_RULE,
   validationError,
 } from '@core/domain/errors/ValidationError';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { err } from '@core/domain/shared/Result';
 import {
   MILLIS_PER_MINUTE,

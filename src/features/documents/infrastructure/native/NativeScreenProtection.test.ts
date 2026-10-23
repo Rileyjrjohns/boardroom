@@ -1,6 +1,6 @@
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
-import { SCREEN_PROTECTION_ERROR_CODE } from '@core/domain/errors/ScreenProtectionError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@features/documents/domain/errors/ScreenProtectionError';
 import { SCREEN_CAPTURE_KIND } from '@features/documents/application/ports/ScreenProtection';
 import type { ScreenCaptureEvent } from '@features/documents/application/ports/ScreenProtection';
 import { describeScreenProtectionContract } from '@features/documents/application/testing/contracts/screenProtectionContract';

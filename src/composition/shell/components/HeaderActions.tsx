@@ -4,7 +4,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@core/presentation/components/Badge';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import { TEST_IDS } from '@core/presentation/testIds';
 import {
   colors,
   fontSizes,
@@ -16,6 +15,8 @@ import {
 import { SignOutDialog } from '@features/auth/presentation/components/SignOutDialog';
 import { usePendingVotes } from '@features/votes/presentation/hooks/usePendingVotes';
 import { useOpenPendingVotes } from '@features/votes/presentation/navigation/useOpenPendingVotes';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { VOTES_TEST_IDS } from '@features/votes/presentation/testIds';
 
 /**
  * The actions in the header of the meetings list: the votes that are not settled, with a count
@@ -41,11 +42,11 @@ export function HeaderActions() {
         accessibilityRole="button"
         onPress={openPendingVotes}
         style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-        testID={TEST_IDS.pendingVotesButton}
+        testID={VOTES_TEST_IDS.pendingVotesButton}
       >
         <Text style={styles.label}>{t('pendingVotes.open')}</Text>
         {count === 0 ? null : (
-          <View testID={TEST_IDS.pendingVotesBadge}>
+          <View testID={VOTES_TEST_IDS.pendingVotesBadge}>
             <Badge label={number(count)} tone="confidential" />
           </View>
         )}
@@ -57,7 +58,7 @@ export function HeaderActions() {
           setSigningOut(true);
         }}
         style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-        testID={TEST_IDS.signOutButton}
+        testID={AUTH_TEST_IDS.signOutButton}
       >
         <Text style={styles.label}>{t('signOut.action')}</Text>
       </Pressable>

@@ -6,15 +6,17 @@ import { renderRouter } from 'expo-router/testing-library';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { createI18n } from '@core/presentation/i18n/createI18n';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
-import {
-  TEST_IDS,
-  demoAccountTestId,
-  resolutionTestId,
-  voteChoiceTestId,
-  voteOutcomeTestId,
-} from '@core/presentation/testIds';
 import { statusBarStyle } from '@core/presentation/theme/tokens';
 import { MEETING_ROW_TEST_ID_PATTERN } from '@features/meetings/presentation/testing/meetingFixtures';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { resolutionTestId, MEETINGS_TEST_IDS } from '@features/meetings/presentation/testIds';
+import {
+  voteChoiceTestId,
+  voteOutcomeTestId,
+  VOTES_TEST_IDS,
+} from '@features/votes/presentation/testIds';
+import { demoAccountTestId, CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // Renders the real route tree, app/_layout.tsx and its routes included, the way expo-router does on
 // a device, with the real composition root behind it (the in-memory adapters, and a simulated
@@ -94,7 +96,7 @@ const NOT_MOUNTED_YET_WARNING = "hasn't mounted yet";
  */
 async function signInAsAlice(): Promise<void> {
   fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
-  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+  fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
 }
 
 /** Signs in and waits for the rows of the list. */
@@ -113,12 +115,12 @@ describe('root layout', () => {
 
         const { getPathname } = renderRouter();
 
-        expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+        expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
         expect(getPathname()).toBe('/sign-in');
         expect(screen.getByRole('header', { name: t('signIn.title') })).toBeTruthy();
         expect(screen.getByTestId(demoAccountTestId(ALICE))).toBeTruthy();
-        expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
-        expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
+        expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeNull();
+        expect(screen.queryByTestId(SHELL_TEST_IDS.startupFailure)).toBeNull();
       },
     );
 
@@ -129,7 +131,7 @@ describe('root layout', () => {
       setDeviceLanguages('en');
 
       renderRouter();
-      await screen.findByTestId(TEST_IDS.signInScreen);
+      await screen.findByTestId(AUTH_TEST_IDS.signInScreen);
 
       const warnings = error.mock.calls.filter(([message]) =>
         String(message).includes(NOT_MOUNTED_YET_WARNING),
@@ -145,9 +147,9 @@ describe('root layout', () => {
 
       expect(rows.length).toBeGreaterThan(0);
       expect(getPathname()).toBe('/');
-      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.signOutButton)).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.pendingVotesButton)).toBeTruthy();
+      expect(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+      expect(screen.getByTestId(AUTH_TEST_IDS.signOutButton)).toBeTruthy();
+      expect(screen.getByTestId(VOTES_TEST_IDS.pendingVotesButton)).toBeTruthy();
     });
 
     it('refuses the wrong password of a demo account with a message, and stays on the sign-in screen', async () => {
@@ -155,14 +157,14 @@ describe('root layout', () => {
       const { t } = createI18n('en');
       renderRouter();
       fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
-      fireEvent.changeText(screen.getByTestId(TEST_IDS.signInPassword), 'not the password');
+      fireEvent.changeText(screen.getByTestId(AUTH_TEST_IDS.signInPassword), 'not the password');
 
-      fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
 
-      expect(await screen.findByTestId(TEST_IDS.signInError)).toHaveTextContent(
+      expect(await screen.findByTestId(AUTH_TEST_IDS.signInError)).toHaveTextContent(
         t('errors.invalidCredentials'),
       );
-      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+      expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeNull();
     });
 
     it('signs out from the header, after a confirmation, and returns to the sign-in screen', async () => {
@@ -170,12 +172,12 @@ describe('root layout', () => {
       renderRouter();
       await openTheList();
 
-      fireEvent.press(screen.getByTestId(TEST_IDS.signOutButton));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutButton));
       await act(async () => {
-        fireEvent.press(await screen.findByTestId(TEST_IDS.signOutConfirm));
+        fireEvent.press(await screen.findByTestId(AUTH_TEST_IDS.signOutConfirm));
       });
 
-      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+      expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
       expect(screen.queryAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).toEqual([]);
     });
 
@@ -192,7 +194,7 @@ describe('root layout', () => {
           await screen.findByRole('tab', { name: t('meetings.period.upcoming'), selected: true }),
         ).toBeTruthy();
         expect(rows.length).toBeGreaterThan(0);
-        expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
+        expect(screen.queryByTestId(SHELL_TEST_IDS.startupFailure)).toBeNull();
       },
     );
 
@@ -218,7 +220,7 @@ describe('root layout', () => {
 
       fireEvent.press(row!);
 
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       expect(getPathname()).toMatch(/^\/meetings\/meeting-/);
       expect(screen.getByRole('header', { name: t('meeting.agenda') })).toBeTruthy();
     });
@@ -230,7 +232,7 @@ describe('root layout', () => {
 
       fireEvent.press(row!);
       fireEvent.press(row!);
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       const detail = getPathname();
       act(() => {
         router.back();
@@ -255,7 +257,7 @@ describe('root layout', () => {
         expect(headerTitles()).toEqual([listTitle]);
 
         fireEvent.press(row!);
-        await screen.findByTestId(TEST_IDS.meetingDetail);
+        await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
         expect(headerTitles()).toEqual([listTitle, detailTitle]);
         expect(t('navigation.meeting')).toBe(detailTitle);
@@ -265,13 +267,13 @@ describe('root layout', () => {
     it('asks for dark system bar content on the list and on the detail of a meeting', async () => {
       setDeviceLanguages('en');
       renderRouter();
-      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+      expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
       const [row] = await openTheList();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
 
       fireEvent.press(row!);
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
@@ -287,11 +289,11 @@ describe('root layout', () => {
       });
 
       await act(async () => {
-        screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
+        screen.getByTestId(MEETINGS_TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
       });
 
-      expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(
+      expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
+      expect(screen.getByTestId(AUTH_TEST_IDS.sessionNotice)).toHaveTextContent(
         t('errors.sessionExpired'),
       );
       expect(screen.queryAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).toEqual([]);
@@ -309,7 +311,7 @@ describe('root layout', () => {
         router.push('/meetings/does-not-exist');
       });
 
-      await screen.findByTestId(TEST_IDS.meetingNotFound);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingNotFound);
       expect(screen.getByText(t('errors.notFound'))).toBeTruthy();
     });
   });
@@ -329,16 +331,16 @@ describe('root layout', () => {
       const rows = await openTheList();
       for (const row of rows.slice(0, 6)) {
         fireEvent.press(row);
-        await screen.findByTestId(TEST_IDS.meetingDetail);
+        await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
         await waitFor(() => {
-          expect(screen.queryByTestId(TEST_IDS.votingLoading)).toBeNull();
+          expect(screen.queryByTestId(VOTES_TEST_IDS.votingLoading)).toBeNull();
         });
         const resolutionId = votableResolution();
         if (resolutionId !== undefined) return { meetingPath: getPathname(), resolutionId };
         act(() => {
           router.back();
         });
-        await screen.findByTestId(TEST_IDS.meetingsList);
+        await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
       }
       throw new Error('No meeting of the first rows has a resolution to vote on.');
     }
@@ -353,20 +355,20 @@ describe('root layout', () => {
       act(() => {
         router.back();
       });
-      await screen.findByTestId(TEST_IDS.meetingsList);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
 
       // The connection is cut with the switch of the demo; the meeting was seen, so it is saved.
-      fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
-      expect(await screen.findByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
+      fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
+      expect(await screen.findByTestId(CORE_TEST_IDS.offlineBanner)).toBeTruthy();
       act(() => {
         router.push(meetingPath as '/');
       });
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       const choice = await screen.findByTestId(voteChoiceTestId(resolutionId as never, 'for'));
 
       // The vote is confirmed, then queued: the detail says it is waiting.
       fireEvent.press(choice);
-      fireEvent.press(await screen.findByTestId(TEST_IDS.voteConfirm));
+      fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.voteConfirm));
       expect(await screen.findByTestId(voteOutcomeTestId(resolutionId as never))).toHaveTextContent(
         t('voting.queued'),
       );
@@ -378,12 +380,12 @@ describe('root layout', () => {
       ).toBeTruthy();
 
       // The connection is back: the vote is sent by itself, and the detail shows it recorded.
-      fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+      fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
       await waitFor(() => {
-        expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+        expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
       });
       expect(
-        within(await screen.findByTestId(TEST_IDS.syncSummary)).getByText(
+        within(await screen.findByTestId(VOTES_TEST_IDS.syncSummary)).getByText(
           t('banner.sent', { count: 1, formattedCount: '1' }),
         ),
       ).toBeTruthy();
@@ -407,11 +409,11 @@ describe('root layout', () => {
 
       renderRouter();
 
-      expect(screen.getByTestId(TEST_IDS.startupLoading)).toBeTruthy();
+      expect(screen.getByTestId(SHELL_TEST_IDS.startupLoading)).toBeTruthy();
       expect(screen.getByRole('progressbar', { name: text })).toBeTruthy();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
-      await screen.findByTestId(TEST_IDS.signInScreen);
-      expect(screen.queryByTestId(TEST_IDS.startupLoading)).toBeNull();
+      await screen.findByTestId(AUTH_TEST_IDS.signInScreen);
+      expect(screen.queryByTestId(SHELL_TEST_IDS.startupLoading)).toBeNull();
     });
   });
 
@@ -424,10 +426,10 @@ describe('root layout', () => {
 
       renderRouter();
 
-      expect(await screen.findByTestId(TEST_IDS.startupFailure)).toBeTruthy();
+      expect(await screen.findByTestId(SHELL_TEST_IDS.startupFailure)).toBeTruthy();
       expect(screen.getByRole('header', { name: t('startup.title') })).toBeTruthy();
       expect(screen.getByText(t('startup.code', { code: 'missingApiBaseUrl' }))).toBeTruthy();
-      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+      expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeNull();
       expect(statusBarStyles()).toEqual([statusBarStyle]);
     });
 
@@ -466,7 +468,7 @@ describe('root layout', () => {
 
       expect(await screen.findByRole('header', { name: t('startup.title') })).toBeTruthy();
       expect(screen.getByText(t('startup.code', { code: 'missingAdaptersSetting' }))).toBeTruthy();
-      expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+      expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeNull();
     });
 
     it('starts the mock adapters in a build that is not a development one when they are asked for', async () => {
@@ -476,8 +478,8 @@ describe('root layout', () => {
 
       renderRouter();
 
-      await screen.findByTestId(TEST_IDS.signInScreen);
-      expect(screen.queryByTestId(TEST_IDS.startupFailure)).toBeNull();
+      await screen.findByTestId(AUTH_TEST_IDS.signInScreen);
+      expect(screen.queryByTestId(SHELL_TEST_IDS.startupFailure)).toBeNull();
     });
   });
 });

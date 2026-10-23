@@ -1,7 +1,6 @@
 import { screen, within } from '@testing-library/react-native';
 
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
-import { resolutionTestId } from '@core/presentation/testIds';
 import { colors } from '@core/presentation/theme/tokens';
 import { RESOLUTION_STATUS } from '@features/meetings/domain/entities/Resolution';
 import { VOTING_STATE } from '@features/meetings/domain/policies/votingState';
@@ -10,6 +9,7 @@ import { MILLIS_PER_DAY, NOW, aResolution, at } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { ResolutionView } from './ResolutionView';
+import { resolutionTestId } from '../testIds';
 
 // Where voting stands is told by the rule of the domain, at the instant the data was produced at.
 // The component reads no clock: given the same resolution at two instants, it shows two states.

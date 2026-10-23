@@ -1,4 +1,3 @@
-import { COLUMN, TABLE } from '@composition/persistence/schema';
 import { MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
@@ -19,6 +18,7 @@ import type { TestDatabase } from '@testing/infrastructure/testDatabase';
 import { aDocumentDevice } from '../testing/documentDevice';
 import type { DocumentDevice } from '../testing/documentDevice';
 
+import { DOCUMENT_COLUMN, DOCUMENT_TABLE } from './schema';
 import { SqliteDocumentCache } from './SqliteDocumentCache';
 import { storedDocumentOf } from './storedDocument';
 
@@ -86,7 +86,7 @@ async function openCache(timeoutMillis?: number) {
 
 const rowsLeft = async (test: TestDatabase): Promise<number> =>
   Number(
-    (await test.database.all(`SELECT count(*) AS total FROM ${TABLE.DocumentEntries}`))[0]?.total,
+    (await test.database.all(`SELECT count(*) AS total FROM ${DOCUMENT_TABLE.Entries}`))[0]?.total,
   );
 
 const filesLeft = async (device: DocumentDevice): Promise<string[]> => {
@@ -99,7 +99,7 @@ describe('SqliteDocumentCache, on rows written by an earlier version', () => {
     const { test, device, monitoring, cache } = await openCache();
     await device.files.put(LOCATION);
     await test.database.run(
-      `INSERT INTO ${TABLE.DocumentEntries} (owner, document_id, cached_at, location, payload) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO ${DOCUMENT_TABLE.Entries} (owner, document_id, cached_at, location, payload) VALUES (?, ?, ?, ?, ?)`,
       [OWNER, DOCUMENT.id, at(10), LOCATION, ROW_WRITTEN_BEFORE],
     );
 
@@ -115,7 +115,7 @@ describe('SqliteDocumentCache, on rows written by an earlier version', () => {
     await cache.save(OWNER, VIEWABLE, at(10));
 
     const rows = await test.database.all(
-      `SELECT ${COLUMN.Payload}, ${COLUMN.Location}, ${COLUMN.CachedAt} FROM ${TABLE.DocumentEntries}`,
+      `SELECT ${DOCUMENT_COLUMN.Payload}, ${DOCUMENT_COLUMN.Location}, ${DOCUMENT_COLUMN.CachedAt} FROM ${DOCUMENT_TABLE.Entries}`,
     );
 
     expect(rows).toEqual([{ payload: ROW_WRITTEN_BEFORE, location: LOCATION, cached_at: at(10) }]);
@@ -127,7 +127,7 @@ describe('SqliteDocumentCache, on rows written by an earlier version', () => {
     await device.files.put(LOCATION);
     await cache.save(OWNER, VIEWABLE, at(10));
 
-    const [row] = await test.database.all(`SELECT payload FROM ${TABLE.DocumentEntries}`);
+    const [row] = await test.database.all(`SELECT payload FROM ${DOCUMENT_TABLE.Entries}`);
 
     expect(String(row?.payload)).not.toContain('file:');
   });
@@ -139,30 +139,34 @@ describe('SqliteDocumentCache, on rows that no longer read back', () => {
     const context = await openCache();
     await context.device.files.put(LOCATION);
     await context.cache.save(OWNER, VIEWABLE, at(10));
-    await context.test.database.run(`UPDATE ${TABLE.DocumentEntries} SET ${column} = ?`, [value]);
+    await context.test.database.run(`UPDATE ${DOCUMENT_TABLE.Entries} SET ${column} = ?`, [value]);
     return context;
   }
 
   it.each([
-    ['text that is not JSON', COLUMN.Payload, 'not json at all'],
+    ['text that is not JSON', DOCUMENT_COLUMN.Payload, 'not json at all'],
     [
       'JSON that is not the shape of a document',
-      COLUMN.Payload,
+      DOCUMENT_COLUMN.Payload,
       JSON.stringify({ id: 'document-1' }),
     ],
     [
       'a document whose level nobody knows',
-      COLUMN.Payload,
+      DOCUMENT_COLUMN.Payload,
       JSON.stringify({ ...storedDocumentOf(DOCUMENT), confidentiality: 'secret' }),
     ],
     [
       'a document with a blank title',
-      COLUMN.Payload,
+      DOCUMENT_COLUMN.Payload,
       JSON.stringify({ ...storedDocumentOf(DOCUMENT), title: '  ' }),
     ],
-    ['an instant that is not one', COLUMN.CachedAt, -1],
-    ['a location that is blank', COLUMN.Location, '   '],
-    ['a location that is no file of the store', COLUMN.Location, 'memory://documents/1/user/doc'],
+    ['an instant that is not one', DOCUMENT_COLUMN.CachedAt, -1],
+    ['a location that is blank', DOCUMENT_COLUMN.Location, '   '],
+    [
+      'a location that is no file of the store',
+      DOCUMENT_COLUMN.Location,
+      'memory://documents/1/user/doc',
+    ],
   ])('reads %s as a miss, reports it, and deletes the row', async (_name, column, value) => {
     const { test, monitoring, cache } = await corrupt(column, value);
 
@@ -173,10 +177,10 @@ describe('SqliteDocumentCache, on rows that no longer read back', () => {
   });
 
   it('deletes the file of a row it cannot read, and not the file another owner needs', async () => {
-    const { test, device, cache } = await corrupt(COLUMN.Payload, 'not json at all');
+    const { test, device, cache } = await corrupt(DOCUMENT_COLUMN.Payload, 'not json at all');
     await device.files.put(aDocumentLocation('file:///documents/kept.pdf'));
     await test.database.run(
-      `INSERT INTO ${TABLE.DocumentEntries} (owner, document_id, cached_at, location, payload) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO ${DOCUMENT_TABLE.Entries} (owner, document_id, cached_at, location, payload) VALUES (?, ?, ?, ?, ?)`,
       [OTHER_OWNER, DOCUMENT.id, at(11), LOCATION, ROW_WRITTEN_BEFORE],
     );
 
@@ -190,7 +194,7 @@ describe('SqliteDocumentCache, on rows that no longer read back', () => {
   });
 
   it('deletes the file of a row it cannot read when nobody else needs it', async () => {
-    const { device, cache } = await corrupt(COLUMN.Payload, 'not json at all');
+    const { device, cache } = await corrupt(DOCUMENT_COLUMN.Payload, 'not json at all');
 
     await cache.read(OWNER, DOCUMENT.id);
 
@@ -199,7 +203,7 @@ describe('SqliteDocumentCache, on rows that no longer read back', () => {
 
   it('puts no path, location, title nor value in what it reports', async () => {
     const { monitoring, cache } = await corrupt(
-      COLUMN.Payload,
+      DOCUMENT_COLUMN.Payload,
       JSON.stringify({ ...storedDocumentOf(DOCUMENT), title: '   ', secret: 'Remuneration' }),
     );
 
@@ -305,7 +309,7 @@ describe('SqliteDocumentCache, the content', () => {
       error: { code: STORAGE_ERROR_CODE.WriteFailed, cause: 'EBUSY' },
     });
     const rows = await test.database.all(
-      `SELECT ${COLUMN.DocumentId} FROM ${TABLE.DocumentEntries}`,
+      `SELECT ${DOCUMENT_COLUMN.DocumentId} FROM ${DOCUMENT_TABLE.Entries}`,
     );
     expect(rows.map((row) => row.document_id)).toEqual([other.document.id]);
     expect(await filesLeft(device)).toEqual(['other.pdf']);

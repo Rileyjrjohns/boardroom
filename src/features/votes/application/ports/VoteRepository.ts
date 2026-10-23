@@ -1,5 +1,5 @@
 import type { GatewayError } from '@core/domain/errors/RepositoryError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import type { Result } from '@core/domain/shared/Result';
 import type { Vote } from '@features/votes/domain/entities/Vote';
 

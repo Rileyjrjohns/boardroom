@@ -5,18 +5,17 @@ import type { StorageReadFailedError } from '@core/domain/errors/StorageError';
 import { isErr, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { isSessionExpired } from '@features/auth/domain/policies/sessionExpiry';
-import type { DocumentCache } from '@features/documents/application/ports/DocumentCache';
-import type { MeetingCache } from '@features/meetings/application/ports/MeetingCache';
 
 import type { AuthSession } from '../ports/AuthSession';
+import type { SessionDataPurger } from '../ports/SessionDataPurger';
 import type { AppLock } from '../session/AppLock';
 import { purgeCaches } from '../session/purgeCaches';
 
 export interface RestoreSessionDeps {
   readonly auth: AuthSession;
   readonly clock: Clock;
-  readonly meetingCache: MeetingCache;
-  readonly documentCache: DocumentCache;
+  /** Emptied when the stored session has expired: see `purgeCaches`. */
+  readonly sessionDataPurgers: readonly SessionDataPurger[];
   readonly monitoring: Monitoring;
   /** The instance shared by every use case: see `AppLock`. */
   readonly appLock: AppLock;

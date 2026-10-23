@@ -4,7 +4,6 @@ import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FRESHNESS } from '@core/application/offline/Loaded';
-import { isRetryableCode } from '@core/application/retryableCodes';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import type { Instant } from '@core/domain/value-objects/Instant';
 import { parseMeetingId } from '@core/domain/value-objects/ids';
@@ -18,20 +17,17 @@ import { Message } from '@core/presentation/components/Message';
 import { Section } from '@core/presentation/components/Section';
 import { StatusBanner } from '@core/presentation/components/StatusBanner';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import type { MeetingsErrorCode } from '@core/presentation/i18n/translationKeys';
-import { errorCodeOf } from '@core/presentation/query/errorCode';
-import { TEST_IDS } from '@core/presentation/testIds';
+import { useErrorCatalog, useErrorCodeOf } from '@core/presentation/errors/ErrorCatalog';
 import { colors, fontSizes, fontWeights, spacing } from '@core/presentation/theme/tokens';
 import type { Meeting } from '@features/meetings/domain/entities/Meeting';
-import {
-  VOTES_STATUS,
-  useResolutionVotes,
-} from '@features/votes/presentation/hooks/useResolutionVotes';
 
 import { AgendaItemView } from '../components/AgendaItemView';
 import { DocumentRow } from '../components/DocumentRow';
 import { ParticipantRow } from '../components/ParticipantRow';
 import { useMeeting } from '../hooks/useMeeting';
+import { useResolutionActionsSlot } from '../slots/resolutionActions';
+import { MEETINGS_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 interface MeetingDetailScreenProps {
   /** The `meetingId` segment of the route, as the router gives it. */
@@ -56,7 +52,7 @@ function NotFound() {
 
   return (
     <View style={styles.screen}>
-      <Message centered message={t('errors.notFound')} testID={TEST_IDS.meetingNotFound} />
+      <Message centered message={t('errors.notFound')} testID={MEETINGS_TEST_IDS.meetingNotFound} />
     </View>
   );
 }
@@ -70,6 +66,8 @@ function MeetingDetail({
 }) {
   const { t } = useTranslation();
   const { data, error, isPending, isError, isRefetchError, refetch } = useMeeting(id);
+  const errorCodeOf = useErrorCodeOf();
+  const { isRetryableCode } = useErrorCatalog();
   const errorCode = isError ? errorCodeOf(error) : undefined;
   const [refreshing, setRefreshing] = useState(false);
   const retry = useCallback(() => {
@@ -87,7 +85,10 @@ function MeetingDetail({
   if (isPending) {
     return (
       <View style={styles.screen}>
-        <LoadingState accessibilityLabel={t('meeting.loading')} testID={TEST_IDS.meetingLoading} />
+        <LoadingState
+          accessibilityLabel={t('meeting.loading')}
+          testID={MEETINGS_TEST_IDS.meetingLoading}
+        />
       </View>
     );
   }
@@ -98,7 +99,7 @@ function MeetingDetail({
       <NotFound />
     ) : (
       <View style={styles.screen}>
-        <ErrorState code={errorCode} onRetry={retry} testID={TEST_IDS.meetingError} />
+        <ErrorState code={errorCode} onRetry={retry} testID={MEETINGS_TEST_IDS.meetingError} />
       </View>
     );
   }
@@ -125,7 +126,7 @@ interface MeetingContentProps {
   /** When the saved copy on the screen was cached, or `undefined` when it is fresh. */
   readonly staleSince: Instant | undefined;
   /** Why the last refresh failed, while the content of the last success stays on the screen. */
-  readonly refreshError: MeetingsErrorCode | undefined;
+  readonly refreshError: string | undefined;
   /** Whether the user's pull to refresh is under way. */
   readonly refreshing: boolean;
   readonly onRefresh: () => void;
@@ -146,7 +147,8 @@ function MeetingContent({
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { fullDateTime } = useFormatters();
-  const votes = useResolutionVotes(meeting, loadedAt);
+  const { useMeetingActions } = useResolutionActionsSlot();
+  const actions = useMeetingActions(meeting, loadedAt);
   useAnnounce(refreshing ? t('states.refreshing') : undefined);
 
   return (
@@ -154,26 +156,28 @@ function MeetingContent({
       style={styles.screen}
       contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      testID={TEST_IDS.meetingDetail}
+      testID={MEETINGS_TEST_IDS.meetingDetail}
     >
       <StatusBanner {...(staleSince === undefined ? {} : { staleSince })} />
       <DemoOfflineSwitch />
       {refreshError === undefined ? null : (
-        <InlineError code={refreshError} onRetry={onRetry} testID={TEST_IDS.refreshError} />
+        <InlineError code={refreshError} onRetry={onRetry} testID={CORE_TEST_IDS.refreshError} />
       )}
-      {votes.status === VOTES_STATUS.Unavailable ? (
-        <InlineError code={votes.error} onRetry={votes.retry} testID={TEST_IDS.votingError} />
-      ) : null}
+      {actions.notice}
 
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.title} testID={TEST_IDS.meetingTitle}>
+        <Text
+          accessibilityRole="header"
+          style={styles.title}
+          testID={MEETINGS_TEST_IDS.meetingTitle}
+        >
           {meeting.title}
         </Text>
         <Text style={styles.detail}>{fullDateTime(meeting.scheduledAt)}</Text>
         <Text style={styles.detail}>{meeting.location}</Text>
       </View>
 
-      <Section title={t('meeting.agenda')} testID={TEST_IDS.agendaSection}>
+      <Section title={t('meeting.agenda')} testID={MEETINGS_TEST_IDS.agendaSection}>
         {meeting.agenda.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.agendaEmpty')}</Text>
         ) : (
@@ -182,13 +186,13 @@ function MeetingContent({
               key={item.id}
               item={item}
               now={loadedAt}
-              votes={{ meetingId: meeting.id, state: votes }}
+              renderActions={actions.renderResolutionActions}
             />
           ))
         )}
       </Section>
 
-      <Section title={t('meeting.documents')} testID={TEST_IDS.documentsSection}>
+      <Section title={t('meeting.documents')} testID={MEETINGS_TEST_IDS.documentsSection}>
         {meeting.documents.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.documentsEmpty')}</Text>
         ) : (
@@ -198,7 +202,7 @@ function MeetingContent({
         )}
       </Section>
 
-      <Section title={t('meeting.participants')} testID={TEST_IDS.participantsSection}>
+      <Section title={t('meeting.participants')} testID={MEETINGS_TEST_IDS.participantsSection}>
         {meeting.participants.length === 0 ? (
           <Text style={styles.empty}>{t('meeting.participantsEmpty')}</Text>
         ) : (

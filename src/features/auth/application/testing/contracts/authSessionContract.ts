@@ -1,5 +1,5 @@
 import { valueOf } from '@core/application/testing/contracts/support';
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import { networkUnavailable } from '@core/domain/errors/RepositoryError';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Instant } from '@core/domain/value-objects/Instant';

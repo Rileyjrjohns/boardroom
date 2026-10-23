@@ -5,8 +5,8 @@ import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { AppStatusBar } from '@core/presentation/components/AppStatusBar';
 import { ErrorState } from '@core/presentation/components/ErrorState';
 import { I18nProvider } from '@core/presentation/i18n/I18nProvider';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors } from '@core/presentation/theme/tokens';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
 
 /**
  * What the app shows when a screen fails while it renders, instead of a blank screen: the message
@@ -21,7 +21,7 @@ import { colors } from '@core/presentation/theme/tokens';
 export function AppErrorBoundary({ retry }: ErrorBoundaryProps) {
   return (
     <I18nProvider>
-      <View style={styles.screen} testID={TEST_IDS.errorBoundary}>
+      <View style={styles.screen} testID={SHELL_TEST_IDS.errorBoundary}>
         <AppStatusBar />
         <ErrorState
           code={REPOSITORY_ERROR_CODE.Unexpected}

@@ -1,7 +1,8 @@
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { useUiStore, useUiStoreApi } from '@composition/shell/state/uiStore';
 import type { StorageWriteFailedError } from '@core/domain/errors/StorageError';
 import { useResultMutation } from '@core/presentation/query/useResultMutation';
+
+import { useAuthServices } from '../services/AuthServices';
+import { useAccessStore, useAccessStoreApi } from '../state/accessStore';
 
 /**
  * Signs the user out: the use case empties the caches and forgets the session, and the state moves
@@ -13,12 +14,12 @@ import { useResultMutation } from '@core/presentation/query/useResultMutation';
  * with nothing behind it; signing out is offered there as well.
  */
 export function useSignOut() {
-  const { useCases } = useAppServices();
-  const store = useUiStoreApi();
-  const signedOut = useUiStore((state) => state.signedOut);
+  const { signOut } = useAuthServices();
+  const store = useAccessStoreApi();
+  const signedOut = useAccessStore((state) => state.signedOut);
 
   return useResultMutation<void, void, StorageWriteFailedError>({
-    execute: () => useCases.signOut.execute(),
+    execute: () => signOut.execute(),
     onSuccess: signedOut,
     onFailure: (_failure, _input, startedUnder) => {
       store.getState().locked(startedUnder);

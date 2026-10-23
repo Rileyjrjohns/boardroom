@@ -2,7 +2,7 @@ import { Fragment, createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '../testIds';
 
 /** What a `Dialog` hands to its host: its window, and whether it is open. */
 interface HostedDialog {
@@ -73,7 +73,7 @@ export function DialogHost({ covered, children }: DialogHostProps) {
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? 'no-hide-descendants' : 'auto'}
         style={styles.content}
-        testID={TEST_IDS.appContent}
+        testID={CORE_TEST_IDS.appContent}
       >
         {children}
       </View>

@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
 import { StyleSheet } from 'react-native';
 
-import { TEST_IDS } from '@core/presentation/testIds';
-
 import { ScreenProtectionSecureView } from '../../../../../modules/screen-protection';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 interface SecureContentProps {
   /** Whether the content must come out blank in screenshots and screen recordings. */
@@ -36,7 +35,7 @@ export function SecureContent({ secure, children }: SecureContentProps) {
     <ScreenProtectionSecureView
       secure={secure}
       style={styles.fill}
-      testID={TEST_IDS.documentSecureContent}
+      testID={DOCUMENTS_TEST_IDS.documentSecureContent}
     >
       {children}
     </ScreenProtectionSecureView>

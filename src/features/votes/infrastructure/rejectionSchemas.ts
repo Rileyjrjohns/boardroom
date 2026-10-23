@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 import type { ValidationError } from '@core/domain/errors/ValidationError';
-import { VOTE_DELIVERY_ERROR_CODE } from '@core/domain/errors/VoteDeliveryError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { map, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { parseResolutionId } from '@core/domain/value-objects/ids';

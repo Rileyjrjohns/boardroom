@@ -1,8 +1,9 @@
 import { useCallback } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { ACCESS, useUiStoreApi } from '@composition/shell/state/uiStore';
 import { isSessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+
+import { useAuthServices } from '../services/AuthServices';
+import { ACCESS, useAccessStoreApi } from '../state/accessStore';
 
 /**
  * Asks whether the session of the open app is still good, and ends it if it is not. It returns
@@ -22,13 +23,13 @@ import { isSessionEndingCode } from '@features/auth/application/session/sessionP
  * (`useSessionWatch`).
  */
 export function useSessionCheck(): (epoch: number) => Promise<void> {
-  const { useCases } = useAppServices();
-  const store = useUiStoreApi();
+  const { getCurrentUser } = useAuthServices();
+  const store = useAccessStoreApi();
 
   return useCallback(
     async (epoch) => {
       if (store.getState().access !== ACCESS.Unlocked) return;
-      const checked = await useCases.getCurrentUser.execute();
+      const checked = await getCurrentUser.execute();
       if (checked.ok) return;
 
       const { code } = checked.error;
@@ -38,6 +39,6 @@ export function useSessionCheck(): (epoch: number) => Promise<void> {
         store.getState().locked(epoch);
       }
     },
-    [useCases, store],
+    [getCurrentUser, store],
   );
 }

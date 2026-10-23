@@ -7,7 +7,6 @@ import type { Result } from '@core/domain/shared/Result';
 import { I18nProvider } from '@core/presentation/i18n/I18nProvider';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { createI18n } from '@core/presentation/i18n/createI18n';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
 import { unusedServices } from '@testing/presentation/unusedServices';
 
@@ -15,6 +14,7 @@ import { useAppServices } from './AppServices';
 import type { AppServices } from './AppServices';
 import { STARTUP_ABORTED, StartupGate } from './StartupGate';
 import type { BiometricPromptText, StartApp } from './StartupGate';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
 
 const SERVICES: AppServices = unusedServices(12);
 
@@ -60,7 +60,7 @@ describe('StartupGate', () => {
         </I18nProvider>,
       );
 
-      expect(screen.getByTestId(TEST_IDS.startupLoading)).toBeTruthy();
+      expect(screen.getByTestId(SHELL_TEST_IDS.startupLoading)).toBeTruthy();
       expect(screen.getByRole('progressbar', { name: t('startup.loading') })).toBeTruthy();
       expect(screen.queryByText(/page size/)).toBeNull();
     },
@@ -79,7 +79,7 @@ describe('StartupGate', () => {
     await resolve(ok(SERVICES));
 
     expect(screen.getByText('page size 12')).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.startupLoading)).toBeNull();
+    expect(screen.queryByTestId(SHELL_TEST_IDS.startupLoading)).toBeNull();
   });
 
   it('shows why the app cannot start, with the technical code, when the start fails', async () => {
@@ -95,7 +95,7 @@ describe('StartupGate', () => {
 
     await resolve(err({ code: 'storageUnavailable' }));
 
-    expect(screen.getByTestId(TEST_IDS.startupFailure)).toBeTruthy();
+    expect(screen.getByTestId(SHELL_TEST_IDS.startupFailure)).toBeTruthy();
     expect(screen.getByText(t('startup.code', { code: 'storageUnavailable' }))).toBeTruthy();
     expect(screen.queryByText(/page size/)).toBeNull();
   });

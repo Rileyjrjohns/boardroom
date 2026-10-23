@@ -1,15 +1,15 @@
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
-import { BIOMETRIC_ERROR_CODE } from '@core/domain/errors/BiometricError';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
+import { BIOMETRIC_ERROR_CODE } from '@features/auth/domain/errors/BiometricError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { SCREEN_PROTECTION_ERROR_CODE } from '@core/domain/errors/ScreenProtectionError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@features/documents/domain/errors/ScreenProtectionError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import {
   VALIDATION_ERROR_CODE,
   VALIDATION_FIELD,
   VALIDATION_RULE,
 } from '@core/domain/errors/ValidationError';
-import { VOTE_DELIVERY_ERROR_CODE } from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '@core/domain/value-objects/PageRequest';
 import { CONFIDENTIALITY_LEVEL } from '@features/meetings/domain/entities/Document';
 import { PARTICIPANT_ROLE } from '@features/meetings/domain/entities/Participant';

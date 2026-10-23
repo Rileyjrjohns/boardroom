@@ -4,12 +4,12 @@ import {
   notAuthenticated,
   sessionChanged,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import { networkUnavailable, unauthorized, unexpected } from '@core/domain/errors/RepositoryError';
 import { storageReadFailed, storageWriteFailed } from '@core/domain/errors/StorageError';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { err, ok } from '@core/domain/shared/Result';
 import { findResolution } from '@features/meetings/domain/entities/Meeting';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';

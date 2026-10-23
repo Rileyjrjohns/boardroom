@@ -6,10 +6,10 @@ import { Dialog } from '@core/presentation/components/Dialog';
 import { LiveText } from '@core/presentation/components/LiveText';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes } from '@core/presentation/theme/tokens';
 
 import { useSignOut } from '../hooks/useSignOut';
+import { AUTH_TEST_IDS } from '../testIds';
 
 interface SignOutDialogProps {
   readonly visible: boolean;
@@ -47,7 +47,7 @@ export function SignOutDialog({ visible, onDismiss, pendingCount }: SignOutDialo
       visible={visible}
       title={t('signOut.title')}
       onDismiss={dismiss}
-      testID={TEST_IDS.signOutDialog}
+      testID={AUTH_TEST_IDS.signOutDialog}
       actions={
         <>
           <Button
@@ -55,25 +55,25 @@ export function SignOutDialog({ visible, onDismiss, pendingCount }: SignOutDialo
             variant="secondary"
             disabled={isPending}
             onPress={dismiss}
-            testID={TEST_IDS.signOutCancel}
+            testID={AUTH_TEST_IDS.signOutCancel}
           />
           <Button
             title={isPending ? t('signOut.signingOut') : t('signOut.action')}
             variant="danger"
             busy={isPending}
             onPress={confirm}
-            testID={TEST_IDS.signOutConfirm}
+            testID={AUTH_TEST_IDS.signOutConfirm}
           />
         </>
       }
     >
       <Text style={styles.text}>{t('signOut.message')}</Text>
       {pendingCount === undefined ? (
-        <Text style={styles.text} testID={TEST_IDS.signOutPending}>
+        <Text style={styles.text} testID={AUTH_TEST_IDS.signOutPending}>
           {t('signOut.pendingUnknown')}
         </Text>
       ) : pendingCount > 0 ? (
-        <Text style={styles.text} testID={TEST_IDS.signOutPending}>
+        <Text style={styles.text} testID={AUTH_TEST_IDS.signOutPending}>
           {translateCount(t, 'signOut.pending', pendingCount, number)}
         </Text>
       ) : null}
@@ -81,7 +81,7 @@ export function SignOutDialog({ visible, onDismiss, pendingCount }: SignOutDialo
         <LiveText
           message={t('signOut.failed')}
           style={styles.error}
-          testID={TEST_IDS.signOutError}
+          testID={AUTH_TEST_IDS.signOutError}
         />
       )}
     </Dialog>

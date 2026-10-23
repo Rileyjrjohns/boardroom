@@ -1,6 +1,6 @@
 import type { FakeNetwork } from '@core/application/testing/FakeNetwork';
 import { networkUnavailable, unauthorized } from '@core/domain/errors/RepositoryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { FakeAuthSession } from '@features/auth/application/testing/FakeAuthSession';

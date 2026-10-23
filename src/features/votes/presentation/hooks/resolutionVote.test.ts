@@ -1,5 +1,5 @@
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { PARTICIPANT_ROLE } from '@features/meetings/domain/entities/Participant';
 import { RESOLUTION_STATUS } from '@features/meetings/domain/entities/Resolution';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';

@@ -1,11 +1,12 @@
 import { useCallback, useRef } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { useUiStore } from '@composition/shell/state/uiStore';
 import { unexpected } from '@core/domain/errors/RepositoryError';
 import { err, map } from '@core/domain/shared/Result';
 import { useResultMutation } from '@core/presentation/query/useResultMutation';
 import type { SignInError, SignInInput } from '@features/auth/application/use-cases/SignIn';
+
+import { useAuthServices } from '../services/AuthServices';
+import { useAccessStore } from '../state/accessStore';
 
 /**
  * Signs in with what the user typed. On success the app is open (the state moves to `Unlocked`),
@@ -23,8 +24,8 @@ import type { SignInError, SignInInput } from '@features/auth/application/use-ca
  * storm to be had from a button, a keyboard's "go" key or both at once.
  */
 export function useSignIn() {
-  const { useCases } = useAppServices();
-  const signedIn = useUiStore((state) => state.signedIn);
+  const { signIn: signInUseCase } = useAuthServices();
+  const signedIn = useAccessStore((state) => state.signedIn);
   const credentials = useRef<SignInInput | undefined>(undefined);
 
   const mutation = useResultMutation<void, void, SignInError>({
@@ -32,7 +33,7 @@ export function useSignIn() {
       const typed = credentials.current;
       credentials.current = undefined;
       if (typed === undefined) return err(unexpected());
-      return map(await useCases.signIn.execute(typed), () => undefined);
+      return map(await signInUseCase.execute(typed), () => undefined);
     },
     onSuccess: signedIn,
   });

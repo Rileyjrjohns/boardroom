@@ -1,7 +1,7 @@
 import type { Clock } from '@core/application/ports/Clock';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { isVotingError } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { isVotingError } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { isErr, ok } from '@core/domain/shared/Result';
 import type { Duration } from '@core/domain/value-objects/Duration';
 import { durationFromMillis } from '@core/domain/value-objects/Duration';

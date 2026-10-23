@@ -2,8 +2,8 @@ import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
 import type { Query } from '@tanstack/react-query';
 
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { isSessionEndingCode } from '@features/auth/application/session/sessionPolicy';
-import type { SessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+
+import type { ErrorCatalog } from '../errors/ErrorCatalog';
 
 import { errorCodeOf } from './errorCode';
 import { isQueryFailure } from './QueryFailure';
@@ -51,12 +51,28 @@ const ITEM_REFUSAL_CODES: ReadonlySet<string> = new Set([
  * data is dropped from the query, which keeps its error. (The copy on the device is the business
  * of the application layer, which removes it when it meets the same refusal.)
  */
-function forgetRefusedItem(error: unknown, query: Query<unknown, unknown, unknown>): void {
-  if (!isQueryFailure(error) || !ITEM_REFUSAL_CODES.has(errorCodeOf(error))) return;
+function forgetRefusedItem(
+  error: unknown,
+  query: Query<unknown, unknown, unknown>,
+  catalog: ErrorCatalog,
+): void {
+  if (!isQueryFailure(error) || !ITEM_REFUSAL_CODES.has(errorCodeOf(error, catalog))) return;
   query.setState({ data: undefined, dataUpdatedAt: 0 });
 }
 
 export interface QueryClientOptions {
+  /**
+   * What the screens know of the failures: the codes they have a text for, and which of them a
+   * second try can fix. The codes are those of the core and of every feature, so the core does not
+   * list them: the composition assembles the catalog.
+   */
+  readonly errorCatalog: ErrorCatalog;
+  /**
+   * Whether a failure with this code says the session of the user is over. What a session is, and
+   * what ends it, is the business of `auth` (`isSessionEndingCode` of its session policy): the
+   * composition hands it over.
+   */
+  readonly isSessionEndingCode: (code: string) => boolean;
   /** The wait before a retry. A test gives a function that answers zero. */
   readonly retryDelay?: (failureCount: number) => number;
   /**
@@ -67,7 +83,7 @@ export interface QueryClientOptions {
    * `createAppState`): once the cache is empty a screen would ask again, which the answer would
    * end again.
    */
-  readonly onSessionEnded?: (code: SessionEndingCode, startedUnder: number | undefined) => void;
+  readonly onSessionEnded?: (code: string, startedUnder: number | undefined) => void;
 }
 
 /**
@@ -95,7 +111,7 @@ export function discardSessionData(client: QueryClient): void {
  *   state in this app, and the screens refresh on demand (pull to refresh, "Try again");
  * - `networkMode: 'always'` runs every query, because whether the server is reachable is for the
  *   adapters to say, with a `networkUnavailable` error, and not for the library to guess;
- * - a failure that ends the session (see `isSessionEndingCode`) empties the whole cache from here,
+ * - a failure that ends the session (the `isSessionEndingCode` it is given) empties the whole cache from here,
  *   whichever query or mutation it came from, so that nothing of the previous session stays in
  *   memory;
  * - a query that fails because the item is refused or gone (`forbidden`, `notFound`) loses its
@@ -105,10 +121,11 @@ export function discardSessionData(client: QueryClient): void {
  *   screen is gone, and it may hold the choice of a vote, so it is dropped from memory as soon as
  *   nothing observes it (`gcTime: 0`) instead of lingering for five minutes.
  */
-export function createQueryClient(options: QueryClientOptions = {}): QueryClient {
+export function createQueryClient(options: QueryClientOptions): QueryClient {
+  const { errorCatalog, isSessionEndingCode } = options;
   const endSession = (error: unknown): void => {
     if (!isQueryFailure(error)) return;
-    const code = errorCodeOf(error);
+    const code = errorCodeOf(error, errorCatalog);
     if (!isSessionEndingCode(code)) return;
     options.onSessionEnded?.(code, error.startedUnder);
     // Once the failing query has finished with its own error: it schedules its collection
@@ -120,7 +137,7 @@ export function createQueryClient(options: QueryClientOptions = {}): QueryClient
   const client: QueryClient = new QueryClient({
     queryCache: new QueryCache({
       onError: (error, query) => {
-        forgetRefusedItem(error, query);
+        forgetRefusedItem(error, query, errorCatalog);
         endSession(error);
       },
     }),
@@ -132,7 +149,7 @@ export function createQueryClient(options: QueryClientOptions = {}): QueryClient
         gcTime: 0,
       },
       queries: {
-        retry: shouldRetry,
+        retry: (failureCount, error) => shouldRetry(failureCount, error, errorCatalog),
         retryDelay: options.retryDelay ?? retryDelay,
         staleTime: QUERY_STALE_TIME_MILLIS,
         gcTime: QUERY_GC_TIME_MILLIS,

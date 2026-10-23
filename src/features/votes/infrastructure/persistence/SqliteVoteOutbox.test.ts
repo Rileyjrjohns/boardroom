@@ -1,8 +1,7 @@
 import { MIGRATIONS } from '@composition/persistence/migrations';
-import { COLUMN, INDEX, OUTBOX_QUARANTINED, TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
 import { ok } from '@core/domain/shared/Result';
 import type { UserId } from '@core/domain/value-objects/ids';
 import { runMigrations } from '@core/infrastructure/persistence/migrate';
@@ -15,6 +14,8 @@ import { databaseDirectory, openTestDatabase } from '@testing/infrastructure/tes
 import type { TestDatabase } from '@testing/infrastructure/testDatabase';
 
 import { SqliteVoteOutbox } from './SqliteVoteOutbox';
+
+import { OUTBOX_QUARANTINED, VOTE_COLUMN, VOTE_INDEX, VOTE_TABLE } from './schema';
 
 const directory = databaseDirectory();
 
@@ -30,9 +31,9 @@ function harnessOf(test: TestDatabase, monitoring = new FakeMonitoring()) {
     // An entry the outbox cannot read as a vote: a choice nobody can make.
     plantUnreadable: async (voter: UserId, key: IdempotencyKey) => {
       await test.database.run(
-        `INSERT INTO ${TABLE.OutboxVotes}
-          (${COLUMN.IdempotencyKey}, ${COLUMN.VoterId}, ${COLUMN.ResolutionId}, ${COLUMN.MeetingId},
-           ${COLUMN.Choice}, ${COLUMN.CastAt}, ${COLUMN.EnqueuedAt}, ${COLUMN.Attempts}, ${COLUMN.Status})
+        `INSERT INTO ${VOTE_TABLE.Outbox}
+          (${VOTE_COLUMN.IdempotencyKey}, ${VOTE_COLUMN.VoterId}, ${VOTE_COLUMN.ResolutionId}, ${VOTE_COLUMN.MeetingId},
+           ${VOTE_COLUMN.Choice}, ${VOTE_COLUMN.CastAt}, ${VOTE_COLUMN.EnqueuedAt}, ${VOTE_COLUMN.Attempts}, ${VOTE_COLUMN.Status})
           VALUES (?, ?, 'planted', 'planted', 'maybe', 1, 1, 0, 'pending')`,
         [key, voter],
       );
@@ -62,9 +63,9 @@ const pendingVote = (resolution: string, enqueuedAt = at(0)) =>
   aPendingVote(aVote({ resolutionId: aResolutionId(resolution), voterId: VOTER }), enqueuedAt);
 
 const rows = async (test: TestDatabase) =>
-  (await test.database.all(`SELECT * FROM ${TABLE.OutboxVotes} ORDER BY ${COLUMN.Sequence}`)).map(
-    (row) => ({ ...row }),
-  );
+  (
+    await test.database.all(`SELECT * FROM ${VOTE_TABLE.Outbox} ORDER BY ${VOTE_COLUMN.Sequence}`)
+  ).map((row) => ({ ...row }));
 
 describe('SqliteVoteOutbox, on the rows it keeps', () => {
   it('holds a vote in columns, the choice and the status among them, in the order of enqueueing', async () => {
@@ -123,33 +124,33 @@ describe('SqliteVoteOutbox, on the rows it keeps', () => {
   it.each([
     [
       'a pending vote with a reason',
-      `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.RejectionReason} = '{}'`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.RejectionReason} = '{}'`,
     ],
     [
       'a rejected vote without a reason',
-      `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = 'rejected'`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = 'rejected'`,
     ],
     [
       'a pending vote with an instant of rejection',
-      `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.RejectedAt} = 5`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.RejectedAt} = 5`,
     ],
     [
       'a rejected vote with a reason and no instant',
-      `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = 'rejected', ${COLUMN.RejectionReason} = '{}'`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = 'rejected', ${VOTE_COLUMN.RejectionReason} = '{}'`,
     ],
     [
       'a rejected vote with an instant and no reason',
-      `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = 'rejected', ${COLUMN.RejectedAt} = 5`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = 'rejected', ${VOTE_COLUMN.RejectedAt} = 5`,
     ],
-    ['a status that is neither', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = 'sent'`],
-    ['an empty status', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = ''`],
-    ['no status', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Status} = NULL`],
-    ['no key', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.IdempotencyKey} = NULL`],
-    ['no voter', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.VoterId} = NULL`],
-    ['no attempts', `UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.Attempts} = NULL`],
+    ['a status that is neither', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = 'sent'`],
+    ['an empty status', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = ''`],
+    ['no status', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Status} = NULL`],
+    ['no key', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.IdempotencyKey} = NULL`],
+    ['no voter', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.VoterId} = NULL`],
+    ['no attempts', `UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.Attempts} = NULL`],
     [
       'a second row with the same key',
-      `INSERT INTO ${TABLE.OutboxVotes} SELECT sequence + 100, ${COLUMN.IdempotencyKey}, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status, rejection_reason, rejected_at FROM ${TABLE.OutboxVotes}`,
+      `INSERT INTO ${VOTE_TABLE.Outbox} SELECT sequence + 100, ${VOTE_COLUMN.IdempotencyKey}, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status, rejection_reason, rejected_at FROM ${VOTE_TABLE.Outbox}`,
     ],
   ])('is refused by the database: %s', async (_name, statement) => {
     const { test, outbox } = await openOutbox();
@@ -167,7 +168,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
     await outbox.enqueue(queued);
     await outbox.enqueue(pendingVote('r2'));
     await test.database.run(
-      `UPDATE ${TABLE.OutboxVotes} SET ${column} = ? WHERE ${COLUMN.ResolutionId} = 'r1'`,
+      `UPDATE ${VOTE_TABLE.Outbox} SET ${column} = ? WHERE ${VOTE_COLUMN.ResolutionId} = 'r1'`,
       [value],
     );
     const corrupted = (await rows(test)).find((row) => row.resolution_id === 'r1');
@@ -175,10 +176,10 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   }
 
   const CORRUPTIONS = [
-    ['a choice that is not one', COLUMN.Choice, 'maybe'],
-    ['an instant that is not one', COLUMN.EnqueuedAt, -4],
-    ['an attempt count that is not whole', COLUMN.Attempts, 1.5],
-    ['a key that is not the key of the vote', COLUMN.IdempotencyKey, 'another-key'],
+    ['a choice that is not one', VOTE_COLUMN.Choice, 'maybe'],
+    ['an instant that is not one', VOTE_COLUMN.EnqueuedAt, -4],
+    ['an attempt count that is not whole', VOTE_COLUMN.Attempts, 1.5],
+    ['a key that is not the key of the vote', VOTE_COLUMN.IdempotencyKey, 'another-key'],
   ] as const;
 
   describe.each(CORRUPTIONS)('a vote with %s', (_name, column, value) => {
@@ -224,7 +225,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
     const queued = pendingVote('r1');
     await outbox.enqueue(queued);
     await outbox.reject(queued.vote.idempotencyKey, { code: 'resolutionClosed' }, at(5));
-    await test.database.run(`UPDATE ${TABLE.OutboxVotes} SET ${COLUMN.RejectionReason} = ?`, [
+    await test.database.run(`UPDATE ${VOTE_TABLE.Outbox} SET ${VOTE_COLUMN.RejectionReason} = ?`, [
       reason,
     ]);
 
@@ -238,7 +239,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   });
 
   it('reports a row without anything that identifies the vote, the voter or the choice', async () => {
-    const { monitoring, outbox } = await corruptWith(COLUMN.Choice, 'maybe');
+    const { monitoring, outbox } = await corruptWith(VOTE_COLUMN.Choice, 'maybe');
 
     await outbox.list(VOTER);
 
@@ -250,7 +251,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
 
   it('does not overwrite a row that holds the key of a vote but is no vote: the vote is refused, the row kept', async () => {
     const { test, monitoring, outbox, queued, corrupted } = await corruptWith(
-      COLUMN.Choice,
+      VOTE_COLUMN.Choice,
       'maybe',
     );
 
@@ -267,7 +268,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   });
 
   it('still answers when the row cannot be marked: it is left out and counted all the same', async () => {
-    const { test, outbox } = await corruptWith(COLUMN.Choice, 'maybe');
+    const { test, outbox } = await corruptWith(VOTE_COLUMN.Choice, 'maybe');
     const original = test.database.run.bind(test.database);
     jest
       .spyOn(test.database, 'run')
@@ -283,7 +284,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   });
 
   it('is deleted by a discard that asks for it, whether or not a read had marked it', async () => {
-    const { test, monitoring, outbox } = await corruptWith(COLUMN.Choice, 'maybe');
+    const { test, monitoring, outbox } = await corruptWith(VOTE_COLUMN.Choice, 'maybe');
 
     const discarded = await outbox.discardUnreadable(VOTER);
 
@@ -293,7 +294,7 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   });
 
   it('is not deleted by the removal of the key it sits under', async () => {
-    const { test, outbox, queued } = await corruptWith(COLUMN.Choice, 'maybe');
+    const { test, outbox, queued } = await corruptWith(VOTE_COLUMN.Choice, 'maybe');
     await outbox.list(VOTER);
 
     await outbox.remove(queued.vote.idempotencyKey);
@@ -302,12 +303,12 @@ describe('SqliteVoteOutbox, on rows that no longer read back', () => {
   });
 
   it('is attributed by the voter column, whatever else the row holds', async () => {
-    const { test, outbox } = await corruptWith(COLUMN.Choice, 'maybe');
+    const { test, outbox } = await corruptWith(VOTE_COLUMN.Choice, 'maybe');
 
     const other = await outbox.list(aUserId('voter-2'));
 
     expect(other).toStrictEqual(ok({ votes: [], unreadable: 0 }));
-    expect(await test.database.all(`SELECT count(*) AS total FROM ${TABLE.OutboxVotes}`)).toEqual([
+    expect(await test.database.all(`SELECT count(*) AS total FROM ${VOTE_TABLE.Outbox}`)).toEqual([
       { total: 2 },
     ]);
   });
@@ -351,10 +352,10 @@ describe('SqliteVoteOutbox, after the migration that makes room for quarantined 
     const test = await openTestDatabase(directory);
 
     const indexes = await test.database.all(
-      `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '${TABLE.OutboxVotes}'`,
+      `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '${VOTE_TABLE.Outbox}'`,
     );
 
-    expect(indexes.map((row) => row.name)).toContain(INDEX.OutboxByResolution);
+    expect(indexes.map((row) => row.name)).toContain(VOTE_INDEX.OutboxByResolution);
   });
 
   it('leaves no table behind that the migration used', async () => {
@@ -362,17 +363,17 @@ describe('SqliteVoteOutbox, after the migration that makes room for quarantined 
 
     const tables = await test.database.all(`SELECT name FROM sqlite_master WHERE type = 'table'`);
 
-    expect(tables.map((row) => row.name)).not.toContain(TABLE.OutboxVotesRebuilt);
+    expect(tables.map((row) => row.name)).not.toContain(VOTE_TABLE.OutboxRebuilt);
   });
 
   it.each([
     [
       'a quarantined row with nothing in it that a vote has',
-      `INSERT INTO ${TABLE.OutboxVotes} (idempotency_key, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status) VALUES ('k', 'v', 'r', 'm', 'maybe', 'yesterday', 'x', 'many', 'quarantined')`,
+      `INSERT INTO ${VOTE_TABLE.Outbox} (idempotency_key, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status) VALUES ('k', 'v', 'r', 'm', 'maybe', 'yesterday', 'x', 'many', 'quarantined')`,
     ],
     [
       'a quarantined row with a reason and an instant',
-      `INSERT INTO ${TABLE.OutboxVotes} (idempotency_key, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status, rejection_reason, rejected_at) VALUES ('k', 'v', 'r', 'm', 'for', 1, 1, 0, 'quarantined', '{}', 5)`,
+      `INSERT INTO ${VOTE_TABLE.Outbox} (idempotency_key, voter_id, resolution_id, meeting_id, choice, cast_at, enqueued_at, attempts, status, rejection_reason, rejected_at) VALUES ('k', 'v', 'r', 'm', 'for', 1, 1, 0, 'quarantined', '{}', 5)`,
     ],
   ])('accepts %s', async (_name, statement) => {
     const test = await openTestDatabase(directory);

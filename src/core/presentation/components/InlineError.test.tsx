@@ -1,10 +1,10 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
-import { isRetryableCode } from '@core/application/retryableCodes';
+import { isRetryableCode } from '@composition/glue/retryableCodes';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
-import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
-import type { MeetingsErrorCode } from '../i18n/translationKeys';
+import { MEETINGS_ERROR_KEYS } from '@features/meetings/presentation/i18n/meetingMessageKeys';
+import type { MeetingsErrorCode } from '@features/meetings/presentation/i18n/meetingMessageKeys';
 
 import { InlineError } from './InlineError';
 

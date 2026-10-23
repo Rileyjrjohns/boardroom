@@ -1,4 +1,4 @@
-import { isRetryableCode } from '@core/application/retryableCodes';
+import type { ErrorCatalog } from '../errors/ErrorCatalog';
 
 import { errorCodeOf } from './errorCode';
 
@@ -11,13 +11,13 @@ const RETRY_MAX_DELAY_MILLIS = 4000;
 
 /**
  * Whether the query client tries a failed query again. It depends on the error code: a code that a
- * retry cannot fix is reported at once (which codes they are is for the application to say, see
- * `isRetryableCode`). A rejection that is not the failure of a use case is read as `unexpected`
- * (see `errorCodeOf`), which is retried like a server fault.
+ * retry cannot fix is reported at once (which codes they are is for the catalog to say, see
+ * `ErrorCatalog.isRetryableCode`). A rejection that is not the failure of a use case is read as
+ * `unexpected` (see `errorCodeOf`), which is retried like a server fault.
  */
-export function shouldRetry(failureCount: number, error: unknown): boolean {
+export function shouldRetry(failureCount: number, error: unknown, catalog: ErrorCatalog): boolean {
   if (failureCount >= MAX_QUERY_RETRIES) return false;
-  return isRetryableCode(errorCodeOf(error));
+  return catalog.isRetryableCode(errorCodeOf(error, catalog));
 }
 
 /** Exponential backoff: 0.5 s, then 1 s, up to 4 s. */

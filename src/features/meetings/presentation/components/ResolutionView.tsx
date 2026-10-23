@@ -1,16 +1,10 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
 import type { Instant } from '@core/domain/value-objects/Instant';
-import type { MeetingId } from '@core/domain/value-objects/ids';
 import { Badge } from '@core/presentation/components/Badge';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import {
-  VOTING_DATE_KEYS,
-  VOTING_STATE_KEYS,
-  VOTE_CHOICE_KEYS,
-} from '@core/presentation/i18n/translationKeys';
-import { resolutionTestId } from '@core/presentation/testIds';
 import {
   borderWidths,
   colors,
@@ -21,11 +15,12 @@ import {
 } from '@core/presentation/theme/tokens';
 import type { Resolution } from '@features/meetings/domain/entities/Resolution';
 import { getVotingState } from '@features/meetings/domain/policies/votingState';
-import { ResolutionVoting } from '@features/votes/presentation/components/ResolutionVoting';
-import { VOTE_VIEW } from '@features/votes/presentation/hooks/resolutionVote';
-import type { ResolutionVoteView } from '@features/votes/presentation/hooks/resolutionVote';
+
+import { VOTING_DATE_KEYS, VOTING_STATE_KEYS } from '../i18n/meetingMessageKeys';
+import { resolutionTestId } from '../testIds';
 
 import { VOTING_STATE_TONES } from './badgeTones';
+import { ResolutionVoteLine } from './ResolutionVoteLine';
 
 interface ResolutionViewProps {
   readonly resolution: Resolution;
@@ -36,39 +31,25 @@ interface ResolutionViewProps {
    */
   readonly now: Instant;
   /**
-   * The vote of the user, with the meeting it belongs to. Without it the resolution is display
-   * only: it tells the vote the server recorded and offers nothing to do.
+   * What a feature adds under the resolution, from the line about the vote of the user down (see
+   * `ResolutionActionsSlot`). Without it the resolution is display only: it tells the vote the
+   * server recorded and offers nothing to do.
    */
-  readonly voting?: {
-    readonly meetingId: MeetingId;
-    readonly view: ResolutionVoteView;
-  };
+  readonly actions?: ReactNode;
 }
 
 /**
  * The resolution of an agenda item: its title and text, where voting stands (open, closed, or its
  * window over, told by the same rule as the eligibility to vote), the deadline or the date it
  * closed on, and the vote of the user: the one the server recorded, the one that waits to be sent,
- * or none. Given the state of their vote (`voting`), it also offers what the user can do about it
- * (see `ResolutionVoting`).
+ * or none. When a feature plugs actions into the slot (`actions`), they come in the place of that
+ * line, and offer what the user can do about the resolution.
  */
-export function ResolutionView({ resolution, now, voting }: ResolutionViewProps) {
+export function ResolutionView({ resolution, now, actions }: ResolutionViewProps) {
   const { t } = useTranslation();
   const { dateTime } = useFormatters();
-  const { recordedVote, closesAt } = resolution;
+  const { closesAt } = resolution;
   const votingState = getVotingState(resolution, now);
-  const view = voting?.view;
-  // While the outbox is unknown the user may have a vote waiting that the line cannot tell yet:
-  // saying "you have not voted" then would be a guess, so the line stays out.
-  const voteUnknown = view?.kind === VOTE_VIEW.Loading || view?.kind === VOTE_VIEW.Unavailable;
-  let voteLine: string | undefined;
-  if (recordedVote !== undefined) {
-    voteLine = t('meeting.resolutionYourVote', { choice: t(VOTE_CHOICE_KEYS[recordedVote]) });
-  } else if (view?.kind === VOTE_VIEW.Queued) {
-    voteLine = t('meeting.resolutionYourVoteQueued', { choice: t(VOTE_CHOICE_KEYS[view.choice]) });
-  } else if (!voteUnknown) {
-    voteLine = t('meeting.resolutionNoVote');
-  }
 
   return (
     <View style={styles.resolution} testID={resolutionTestId(resolution.id)}>
@@ -80,10 +61,7 @@ export function ResolutionView({ resolution, now, voting }: ResolutionViewProps)
           {t(VOTING_DATE_KEYS[votingState], { date: dateTime(closesAt) })}
         </Text>
       )}
-      {voteLine === undefined ? null : <Text style={styles.detail}>{voteLine}</Text>}
-      {voting === undefined ? null : (
-        <ResolutionVoting meetingId={voting.meetingId} resolution={resolution} view={voting.view} />
-      )}
+      {actions === undefined ? <ResolutionVoteLine resolution={resolution} /> : actions}
     </View>
   );
 }

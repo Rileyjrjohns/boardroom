@@ -2,7 +2,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
 import type { MeetingId } from '@core/domain/value-objects/ids';
-import { queryKeys } from '@core/presentation/query/queryKeys';
+import { meetingsQueryKeys } from '@features/meetings/presentation/query/meetingsQueryKeys';
+
+import { votesQueryKeys } from '../query/votesQueryKeys';
 
 /**
  * What an action makes stale, by key, through the key factory. Each function marks the queries as
@@ -17,12 +19,12 @@ export function useRefreshQueries() {
   return useMemo(
     () => ({
       /** The outbox: a vote was queued, sent, rejected or acknowledged. */
-      pendingVotes: () => queryClient.invalidateQueries({ queryKey: queryKeys.votes.pending() }),
+      pendingVotes: () => queryClient.invalidateQueries({ queryKey: votesQueryKeys.pending() }),
       /** One meeting: a vote was recorded on it, or refused. */
       meeting: (meetingId: MeetingId) =>
-        queryClient.invalidateQueries({ queryKey: queryKeys.meetings.detail(meetingId) }),
+        queryClient.invalidateQueries({ queryKey: meetingsQueryKeys.detail(meetingId) }),
       /** Every meeting held: a synchronisation recorded votes on some of them. */
-      meetings: () => queryClient.invalidateQueries({ queryKey: queryKeys.meetings.details() }),
+      meetings: () => queryClient.invalidateQueries({ queryKey: meetingsQueryKeys.details() }),
     }),
     [queryClient],
   );

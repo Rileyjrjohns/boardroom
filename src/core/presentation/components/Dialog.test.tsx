@@ -3,10 +3,9 @@ import { AccessibilityInfo, Modal, Text } from 'react-native';
 
 import { renderScreen } from '@testing/presentation/renderScreen';
 
-import { TEST_IDS } from '../testIds';
-
 import { Button } from './Button';
 import { Dialog } from './Dialog';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The window that asks the user something. The confirmation of a vote and of a sign-out are built
 // on it, and their own tests cover what they say; these cover what makes it a dialog.
@@ -94,7 +93,7 @@ describe('Dialog', () => {
         uiStore.getState().setPrivacyCover(true);
       });
 
-      expect(screen.getByTestId(TEST_IDS.privacyCover)).toBeTruthy();
+      expect(screen.getByTestId(CORE_TEST_IDS.privacyCover)).toBeTruthy();
       expect(screen.queryByText(BODY)).toBeNull();
       expect(screen.queryByText(TITLE)).toBeNull();
     });
@@ -109,7 +108,7 @@ describe('Dialog', () => {
         uiStore.getState().setPrivacyCover(false);
       });
 
-      expect(screen.queryByTestId(TEST_IDS.privacyCover)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.privacyCover)).toBeNull();
       expect(screen.getByText(BODY)).toBeTruthy();
     });
 

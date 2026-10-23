@@ -3,11 +3,13 @@ import { renderRouter } from 'expo-router/testing-library';
 
 import { createI18n } from '@core/presentation/i18n/createI18n';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
-import { TEST_IDS, demoAccountTestId } from '@core/presentation/testIds';
 import { MEETING_ROW_TEST_ID_PATTERN } from '@features/meetings/presentation/testing/meetingFixtures';
 
 import { APP_STATE } from '../session/appState';
 import { driveAppState } from '../testing/appState';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { MEETINGS_TEST_IDS } from '@features/meetings/presentation/testIds';
+import { demoAccountTestId } from '@core/presentation/testIds';
 
 // The lock on the way back from the background, through the real root layout, the real route files
 // and the real composition root in its mock configuration (the grace period of the real
@@ -36,7 +38,7 @@ afterEach(() => {
 
 async function signIn(): Promise<void> {
   fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
-  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+  fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
   await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
 }
 
@@ -68,8 +70,8 @@ describe('the lock on resume, with the real composition root', () => {
 
     await awayFor(appState, BEFORE_GRACE_PERIOD_MILLIS);
 
-    expect(screen.getByTestId(TEST_IDS.meetingsList)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.lockScreen)).toBeNull();
+    expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeTruthy();
+    expect(screen.queryByTestId(AUTH_TEST_IDS.lockScreen)).toBeNull();
     expect(getPathname()).toBe('/');
   });
 
@@ -79,18 +81,18 @@ describe('the lock on resume, with the real composition root', () => {
 
     await awayFor(appState, AFTER_GRACE_PERIOD_MILLIS);
 
-    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.lockScreen)).toBeTruthy();
     expect(getPathname()).toBe('/lock');
-    expect(screen.queryByTestId(TEST_IDS.meetingsList)).toBeNull();
+    expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeNull();
     expect(screen.queryAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).toEqual([]);
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId(TEST_IDS.lockUnlock));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.lockUnlock));
     });
 
-    expect(await screen.findByTestId(TEST_IDS.meetingsList)).toBeTruthy();
+    expect(await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList)).toBeTruthy();
     expect(await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN)).not.toHaveLength(0);
-    expect(screen.queryByTestId(TEST_IDS.lockScreen)).toBeNull();
+    expect(screen.queryByTestId(AUTH_TEST_IDS.lockScreen)).toBeNull();
     expect(getPathname()).toBe('/');
   });
 
@@ -99,18 +101,18 @@ describe('the lock on resume, with the real composition root', () => {
     const { t } = createI18n('en');
     await signIn();
     await awayFor(appState, AFTER_GRACE_PERIOD_MILLIS);
-    await screen.findByTestId(TEST_IDS.lockScreen);
+    await screen.findByTestId(AUTH_TEST_IDS.lockScreen);
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.lockSignOut));
-    expect(await screen.findByTestId(TEST_IDS.signOutDialog)).toHaveTextContent(
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.lockSignOut));
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signOutDialog)).toHaveTextContent(
       t('signOut.title'),
       { exact: false },
     );
     await act(async () => {
-      fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
     });
 
-    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.lockScreen)).toBeNull();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
+    expect(screen.queryByTestId(AUTH_TEST_IDS.lockScreen)).toBeNull();
   });
 });

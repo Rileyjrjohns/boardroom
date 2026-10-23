@@ -1,10 +1,10 @@
 import { screen } from '@testing-library/react-native';
 
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { StartupFailureScreen } from './StartupFailureScreen';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
 
 describe('StartupFailureScreen', () => {
   it.each(SUPPORTED_LANGUAGES)(
@@ -19,7 +19,7 @@ describe('StartupFailureScreen', () => {
       expect(
         screen.getByText(t('startup.code', { code: 'configurationNotAvailable' })),
       ).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.startupFailure)).toBeTruthy();
+      expect(screen.getByTestId(SHELL_TEST_IDS.startupFailure)).toBeTruthy();
     },
   );
 

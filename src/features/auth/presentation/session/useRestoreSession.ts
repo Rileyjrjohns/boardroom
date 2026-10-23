@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { ACCESS, useUiStore } from '@composition/shell/state/uiStore';
 import type { StorageReadFailedError } from '@core/domain/errors/StorageError';
+
+import { useAuthServices } from '../services/AuthServices';
+import { ACCESS, useAccessStore } from '../state/accessStore';
 
 export interface RestoreSessionState {
   /** Why `RestoreSession` could not find out whether somebody is signed in. */
@@ -18,16 +19,16 @@ export interface RestoreSessionState {
  * answer). The only failure is a stored session that cannot be read, which can be asked again.
  */
 export function useRestoreSession(): RestoreSessionState {
-  const { useCases } = useAppServices();
-  const starting = useUiStore((state) => state.access === ACCESS.Starting);
-  const sessionRestored = useUiStore((state) => state.sessionRestored);
+  const { restoreSession } = useAuthServices();
+  const starting = useAccessStore((state) => state.access === ACCESS.Starting);
+  const sessionRestored = useAccessStore((state) => state.sessionRestored);
   const [attempt, setAttempt] = useState(0);
   const [failure, setFailure] = useState<StorageReadFailedError>();
 
   useEffect(() => {
     if (!starting) return;
     let current = true;
-    void useCases.restoreSession.execute().then((result) => {
+    void restoreSession.execute().then((result) => {
       if (!current) return;
       if (result.ok) {
         setFailure(undefined);
@@ -39,7 +40,7 @@ export function useRestoreSession(): RestoreSessionState {
     return () => {
       current = false;
     };
-  }, [starting, attempt, useCases, sessionRestored]);
+  }, [starting, attempt, restoreSession, sessionRestored]);
 
   const retry = useCallback(() => {
     setFailure(undefined);

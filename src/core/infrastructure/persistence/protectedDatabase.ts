@@ -1,4 +1,3 @@
-import type { Migration } from '@composition/persistence/migrations';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import type { Monitoring } from '@core/application/ports/Monitoring';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
@@ -18,6 +17,7 @@ import type { DatabaseOpener } from './DatabaseOpener';
 import { RESET_REASON, markLocalDataReset } from './localDataReset';
 import type { ResetReason } from './localDataReset';
 import { MIGRATION_FAILURE, runMigrations } from './migrate';
+import type { Migration } from './migrate';
 import { KEY_BYTES, keyFromBytes } from './randomKey';
 import type { RandomBytes } from './randomKey';
 import { createSqlDatabase } from './SqlDatabase';

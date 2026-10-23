@@ -1,4 +1,4 @@
-import { ACCESS, useUiStore } from './uiStore';
+import { ACCESS, useAccessStore } from './accessStore';
 
 /**
  * Whether the app is open: signed in and unlocked. The queries that hold the data of a user run
@@ -8,5 +8,5 @@ import { ACCESS, useUiStore } from './uiStore';
  * more render waits instead of asking a use case that would only answer that the session is over.
  */
 export function useSessionOpen(): boolean {
-  return useUiStore((state) => state.access === ACCESS.Unlocked);
+  return useAccessStore((state) => state.access === ACCESS.Unlocked);
 }

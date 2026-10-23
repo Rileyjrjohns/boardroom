@@ -3,7 +3,7 @@ import type {
   StorageReadFailedError,
   StorageWriteFailedError,
 } from '@core/domain/errors/StorageError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { Instant } from '@core/domain/value-objects/Instant';

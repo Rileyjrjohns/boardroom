@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import type { MeetingId } from '@core/domain/value-objects/ids';
-import { meetingRowTestId } from '@core/presentation/testIds';
 import {
   borderWidths,
   colors,
@@ -13,6 +12,7 @@ import {
   spacing,
   touchTarget,
 } from '@core/presentation/theme/tokens';
+import { meetingRowTestId } from '../testIds';
 
 interface MeetingRowProps {
   readonly id: MeetingId;

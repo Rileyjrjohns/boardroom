@@ -3,11 +3,10 @@ import { Text } from 'react-native';
 
 import { renderScreen } from '@testing/presentation/renderScreen';
 
-import { TEST_IDS } from '../testIds';
-
 import { Button } from './Button';
 import { Dialog } from './Dialog';
 import { DialogHost } from './DialogHost';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // What keeps the screen reader out of the content while something is over it. On Android that is a
 // flag on the content (`no-hide-descendants`), and the dialogs have to be outside of what it hides.
@@ -50,7 +49,7 @@ function renderHosted(open: boolean, covered = false) {
 }
 
 const contentFlags = () => {
-  const { props } = screen.getByTestId(TEST_IDS.appContent, { includeHiddenElements: true });
+  const { props } = screen.getByTestId(CORE_TEST_IDS.appContent, { includeHiddenElements: true });
   return {
     android: props.importantForAccessibility,
     ios: props.accessibilityElementsHidden,

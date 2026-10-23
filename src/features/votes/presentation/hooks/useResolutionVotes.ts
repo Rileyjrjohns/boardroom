@@ -1,8 +1,7 @@
 import { useCallback, useMemo } from 'react';
 
 import type { Instant } from '@core/domain/value-objects/Instant';
-import type { MeetingsErrorCode } from '@core/presentation/i18n/translationKeys';
-import { errorCodeOf } from '@core/presentation/query/errorCode';
+import { useErrorCodeOf } from '@core/presentation/errors/ErrorCatalog';
 import { useCurrentUser } from '@features/auth/presentation/hooks/useCurrentUser';
 import type { Meeting } from '@features/meetings/domain/entities/Meeting';
 import type { Resolution } from '@features/meetings/domain/entities/Resolution';
@@ -23,7 +22,7 @@ export type ResolutionVotes =
   | {
       readonly status: typeof VOTES_STATUS.Unavailable;
       /** Why: only a failure that asking again can fix gets this far (the others end the session). */
-      readonly error: MeetingsErrorCode;
+      readonly error: string;
       retry(): void;
     }
   | {
@@ -39,6 +38,7 @@ export type ResolutionVotes =
  */
 export function useResolutionVotes(meeting: Meeting, now: Instant): ResolutionVotes {
   const user = useCurrentUser();
+  const errorCodeOf = useErrorCodeOf();
   const outbox = usePendingVotes();
   const { refetch: refetchUser } = user;
   const { refetch: refetchOutbox } = outbox;
@@ -73,6 +73,7 @@ export function useResolutionVotes(meeting: Meeting, now: Instant): ResolutionVo
     outbox.isError,
     outbox.error,
     retry,
+    errorCodeOf,
   ]);
 }
 

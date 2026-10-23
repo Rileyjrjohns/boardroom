@@ -1,4 +1,4 @@
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import type {
   StorageReadFailedError,
   StorageWriteFailedError,

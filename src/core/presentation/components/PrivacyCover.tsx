@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '../testIds';
 import { colors, fontSizes, fontWeights } from '../theme/tokens';
 
 /**
@@ -23,7 +23,7 @@ export function PrivacyCover() {
       accessibilityLabel={t('privacy.hidden')}
       accessibilityViewIsModal
       style={[StyleSheet.absoluteFill, styles.cover]}
-      testID={TEST_IDS.privacyCover}
+      testID={CORE_TEST_IDS.privacyCover}
     >
       <Text style={styles.name}>{t('app.name')}</Text>
     </View>

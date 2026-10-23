@@ -1,5 +1,4 @@
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
+import type { AppError } from '@core/domain/errors/AppError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import type { RepositoryError } from '@core/domain/errors/RepositoryError';
 import type {
@@ -13,23 +12,28 @@ import type { Result } from '@core/domain/shared/Result';
 import type { Duration } from '@core/domain/value-objects/Duration';
 import type { Instant } from '@core/domain/value-objects/Instant';
 import type { UserId } from '@core/domain/value-objects/ids';
-import { endRefusedSession } from '@features/auth/application/session/endSession';
-import { purgeCaches } from '@features/auth/application/session/purgeCaches';
-import { requireSameUser } from '@features/auth/application/session/requireSession';
-import type {
-  RequireSessionDeps,
-  SessionRequiredError,
-} from '@features/auth/application/session/requireSession';
 
-import type { CacheEntry } from '../ports/types/CacheEntry';
+import type { Clock } from '../ports/Clock';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '../ports/Monitoring';
-import type { LogAttributes } from '../ports/Monitoring';
+import type { LogAttributes, Monitoring } from '../ports/Monitoring';
+import type { SessionGate } from '../ports/SessionGate';
+import type { CacheEntry } from '../ports/types/CacheEntry';
 
 import type { CacheResource } from './CacheResource';
 import { FRESHNESS } from './Loaded';
 import type { Loaded } from './Loaded';
 
-export interface CacheFallbackDeps extends RequireSessionDeps {
+/**
+ * What `loadWithCacheFallback` needs. `Refusal` is the family of errors the session gate refuses
+ * with, which the policy returns as it is.
+ */
+export interface CacheFallbackDeps<Refusal extends AppError = AppError> {
+  /** The clock the age of a cached entry is judged by. */
+  readonly clock: Clock;
+  /** Where what the policy meets is reported. */
+  readonly monitoring: Monitoring;
+  /** What the policy asks of the session: who is signed in, and ending a session the server refused. */
+  readonly sessionGate: SessionGate<Refusal>;
   /**
    * Configuration, set once by the composition root: how old a cached entry may be and still be
    * served as stale data. An older entry counts as a miss.
@@ -63,7 +67,7 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
  *    in the middle of it. If somebody else is signed in now, nothing is written, nothing is
  *    returned, and the answer is `sessionChanged`. If the remote call had succeeded, what it may
  *    have left on the device (the file of a downloaded document, which no entry points at) is
- *    removed by emptying both caches, unless the answer is `appLocked`: the user is the same and
+ *    removed by emptying every cache, unless the answer is `appLocked`: the user is the same and
  *    comes back.
  * 2. On success, write the data through to the cache and return it `Fresh`. A cache that cannot be
  *    written does not fail the call: the failure is captured, the fresh data is returned, and the
@@ -74,7 +78,7 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
  *    is captured and treated as a miss. On a miss the original network error is returned. An entry
  *    older than `maxCacheAge`, or dated in the future, counts as a miss (see `isWithinMaxAge`).
  * 4. `unauthorized` means the session is no longer valid, for anything: the session is ended on
- *    the device (`endRefusedSession`: the app is locked, both caches are emptied for every owner,
+ *    the device (`SessionGate.endRefusedSession`: the app is locked, the caches are emptied for every owner,
  *    and the user is signed out, so that a restart does not restore it). `forbidden` and
  *    `notFound` concern one item: it is dropped from the cache
  *    with what hangs off it (`revoke`). A removal that fails is captured and falls back on the
@@ -86,12 +90,12 @@ export interface CacheFallbackSource<T, E extends RepositoryError> {
  * meeting that became forbidden keeps showing it until it is refreshed or expires; opening the
  * meeting is refused, and its detail and documents are gone.
  */
-export async function loadWithCacheFallback<T, E extends RepositoryError>(
-  deps: CacheFallbackDeps,
+export async function loadWithCacheFallback<T, E extends RepositoryError, Refusal extends AppError>(
+  deps: CacheFallbackDeps<Refusal>,
   owner: UserId,
   source: CacheFallbackSource<T, E>,
-): Promise<Result<Loaded<T>, E | SessionRequiredError | SessionChangedError>> {
-  const { clock, monitoring, maxCacheAge } = deps;
+): Promise<Result<Loaded<T>, E | Refusal>> {
+  const { clock, monitoring, maxCacheAge, sessionGate } = deps;
   const attributes: LogAttributes = {
     ...source.attributes,
     [LOG_ATTRIBUTE.Resource]: source.resource,
@@ -99,17 +103,16 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
 
   const remote = await source.fetch();
 
-  const stillSignedIn = await requireSameUser(deps, owner);
+  const stillSignedIn = await sessionGate.requireSameUser(owner);
   if (isErr(stillSignedIn)) {
+    const refusal = stillSignedIn.error;
     // A source can keep what it fetched before this function sees it (the repository of the
     // documents writes the file as soon as the download is complete), and nothing points at it:
-    // no entry is saved. Nobody must be left with it, so both caches are emptied, the files of
+    // no entry is saved. Nobody must be left with it, so every cache is emptied, the files of
     // the documents with them. Not when the app is only locked: the user is still the one who
     // asked, and the cache they have is theirs. A failed remote call kept nothing.
-    if (isOk(remote) && stillSignedIn.error.code !== AUTHENTICATION_ERROR_CODE.AppLocked) {
-      await purgeCaches(deps);
-    }
-    return stillSignedIn;
+    if (isOk(remote) && !refusal.sessionKept) await sessionGate.purgeSessionData();
+    return err(refusal.error);
   }
 
   if (isOk(remote)) {
@@ -124,7 +127,7 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
 
   const { code } = remote.error;
   if (code === REPOSITORY_ERROR_CODE.Unauthorized) {
-    await endRefusedSession(deps, owner);
+    await sessionGate.endRefusedSession(owner);
     return remote;
   }
   if (code === REPOSITORY_ERROR_CODE.Forbidden || code === REPOSITORY_ERROR_CODE.NotFound) {
@@ -158,17 +161,17 @@ export async function loadWithCacheFallback<T, E extends RepositoryError>(
 
 /**
  * Drops a copy that must not be served any more. A removal that fails is captured and falls back
- * on emptying both caches, which captures its own failures: the copy is never left behind with
+ * on emptying every cache, which captures its own failures: the copy is never left behind with
  * nobody told.
  */
 async function dropOrPurge(
-  deps: CacheFallbackDeps,
+  deps: CacheFallbackDeps<AppError>,
   drop: () => Promise<Result<void, StorageError>>,
   attributes: LogAttributes,
 ): Promise<void> {
   const dropped = await drop();
   if (isErr(dropped)) {
     deps.monitoring.captureError(MONITORING_EVENT.CacheRemoveFailed, dropped.error, attributes);
-    await purgeCaches(deps);
+    await deps.sessionGate.purgeSessionData();
   }
 }

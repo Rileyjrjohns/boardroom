@@ -4,7 +4,7 @@ import { DEMO_PASSWORD } from '@composition/dev/in-memory/seed';
 import { FakeClock } from '@core/application/testing/FakeClock';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { isErr } from '@core/domain/shared/Result';
 import { createPageRequest } from '@core/domain/value-objects/PageRequest';
 import { HttpClient } from '@core/infrastructure/http/HttpClient';

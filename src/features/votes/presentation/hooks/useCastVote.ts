@@ -1,6 +1,5 @@
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { VOTE_DELIVERY_ERROR_CODE } from '@core/domain/errors/VoteDeliveryError';
-import { isVotingError } from '@core/domain/errors/VotingError';
+import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
+import { isVotingError } from '@features/votes/domain/errors/VotingError';
 import { useResultMutation } from '@core/presentation/query/useResultMutation';
 import { CAST_VOTE_STATUS } from '@features/votes/application/use-cases/CastVote';
 import type {
@@ -8,6 +7,8 @@ import type {
   CastVoteInput,
   CastVoteOutcome,
 } from '@features/votes/application/use-cases/CastVote';
+
+import { useVotesServices } from '../services/VotesServices';
 
 import { useRefreshQueries } from './useRefreshQueries';
 
@@ -26,11 +27,11 @@ import { useRefreshQueries } from './useRefreshQueries';
  * cases have answered: there is no optimistic vote that the server could contradict.
  */
 export function useCastVote(onCast: (outcome: CastVoteOutcome) => void) {
-  const { useCases } = useAppServices();
+  const { castVote } = useVotesServices();
   const refresh = useRefreshQueries();
 
   return useResultMutation<CastVoteInput, CastVoteOutcome, CastVoteError>({
-    execute: (input) => useCases.castVote.execute(input),
+    execute: (input) => castVote.execute(input),
     onSuccess: async (outcome, input) => {
       await Promise.all(
         outcome.status === CAST_VOTE_STATUS.Submitted

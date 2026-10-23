@@ -1,6 +1,6 @@
-import type { ResolutionId } from '../value-objects/ids';
-import type { ValueOf } from '../shared/constants';
-import { valuesOf } from '../shared/constants';
+import type { ResolutionId } from '@core/domain/value-objects/ids';
+import type { ValueOf } from '@core/domain/shared/constants';
+import { valuesOf } from '@core/domain/shared/constants';
 
 /** Why a vote cannot be cast. The same reasons come back from the remote source when it rejects one. */
 export const VOTING_ERROR_CODE = {

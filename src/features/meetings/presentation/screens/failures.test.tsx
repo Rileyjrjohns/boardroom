@@ -3,11 +3,10 @@ import { View } from 'react-native';
 
 import type { QueryClient } from '@tanstack/react-query';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { unauthorized, unexpected } from '@core/domain/errors/RepositoryError';
 import { discardSessionData } from '@core/presentation/query/createQueryClient';
-import { queryKeys } from '@core/presentation/query/queryKeys';
-import { TEST_IDS, meetingRowTestId } from '@core/presentation/testIds';
+import { meetingsQueryKeys } from '@features/meetings/presentation/query/meetingsQueryKeys';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import {
   MILLIS_PER_HOUR,
@@ -28,6 +27,8 @@ import {
 
 import { MeetingDetailScreen } from './MeetingDetailScreen';
 import { MeetingsListScreen } from './MeetingsListScreen';
+import { meetingRowTestId, MEETINGS_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // What the screens do when something that was loaded cannot be loaded again. A failure that asking
 // again cannot fix is final for the screen: it shows the error and never the data it had before.
@@ -71,7 +72,7 @@ function shownIds(): string[] {
 
 async function pullToRefresh(): Promise<void> {
   await act(async () => {
-    screen.getByTestId(TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
+    screen.getByTestId(MEETINGS_TEST_IDS.meetingsList).props.refreshControl.props.onRefresh();
   });
 }
 
@@ -138,30 +139,30 @@ describe('when the session ends while a list is on the screen', () => {
   it.each(SESSION_ENDINGS)(
     'sends the user to the screen that fits and empties the cache: %s',
     async (code, _key, end) => {
-      const { fakes, queryClient, uiStore } = renderList();
+      const { fakes, queryClient, accessStore } = renderList();
       await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
       expect(queryClient.getQueryCache().getAll().length).toBeGreaterThan(0);
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
 
       end(fakes);
       await pullToRefresh();
 
       await waitFor(() => {
-        expect(uiStore.getState().access).toBe(accessAfter(code));
+        expect(accessStore.getState().access).toBe(accessAfter(code));
       });
-      expect(uiStore.getState().sessionEndedBy).toBe(code);
+      expect(accessStore.getState().sessionEndedBy).toBe(code);
       expect(cachedData(queryClient)).toEqual([]);
     },
   );
 
   it('does not ask again once the session has ended', async () => {
-    const { fakes, uiStore } = renderList();
+    const { fakes, accessStore } = renderList();
     await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
     fakes.meetings.failure = unauthorized();
 
     await pullToRefresh();
     await waitFor(() => {
-      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     });
     const calls = fakes.meetings.listCalls.length;
     await act(async () => {
@@ -172,16 +173,16 @@ describe('when the session ends while a list is on the screen', () => {
   });
 
   it('does the same when the next page is the one that is refused', async () => {
-    const { fakes, queryClient, uiStore } = renderList();
+    const { fakes, queryClient, accessStore } = renderList();
     await screen.findByTestId(meetingRowTestId(aMeetingId('u1')));
     fakes.meetings.failure = unauthorized();
 
     await act(async () => {
-      fireEvent(screen.getByTestId(TEST_IDS.meetingsList), 'endReached');
+      fireEvent(screen.getByTestId(MEETINGS_TEST_IDS.meetingsList), 'endReached');
     });
 
     await waitFor(() => {
-      expect(uiStore.getState().sessionEndedBy).toBe('unauthorized');
+      expect(accessStore.getState().sessionEndedBy).toBe('unauthorized');
     });
     expect(cachedData(queryClient)).toEqual([]);
   });
@@ -191,7 +192,7 @@ describe('when the session ends while a meeting is on the screen', () => {
   it.each(SESSION_ENDINGS)(
     'sends the user to the screen that fits and empties the cache: %s',
     async (code, _key, end) => {
-      const { fakes, queryClient, uiStore } = renderDetail();
+      const { fakes, queryClient, accessStore } = renderDetail();
       await screen.findByRole('header', { name: MEETING.title });
 
       end(fakes);
@@ -200,9 +201,9 @@ describe('when the session ends while a meeting is on the screen', () => {
       });
 
       await waitFor(() => {
-        expect(uiStore.getState().access).toBe(accessAfter(code));
+        expect(accessStore.getState().access).toBe(accessAfter(code));
       });
-      expect(uiStore.getState().sessionEndedBy).toBe(code);
+      expect(accessStore.getState().sessionEndedBy).toBe(code);
       expect(cachedData(queryClient)).toEqual([]);
     },
   );
@@ -218,13 +219,13 @@ describe('when a meeting that was on the screen is refused or gone', () => {
       void queryClient.refetchQueries();
     });
 
-    const error = await screen.findByTestId(TEST_IDS.meetingError);
+    const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
     expect(within(error).getByText(t('errors.forbidden'))).toBeTruthy();
     expect(within(error).queryByRole('button')).toBeNull();
     expect(screen.queryByText(MEETING.title)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.meetingDetail)).toBeNull();
+    expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingDetail)).toBeNull();
     // Hidden on the screen and gone from the memory: the meeting is not the user's to hold any more.
-    expect(queryClient.getQueryData(queryKeys.meetings.detail(MEETING.id))).toBeUndefined();
+    expect(queryClient.getQueryData(meetingsQueryKeys.detail(MEETING.id))).toBeUndefined();
   });
 
   it('shows that it does not exist in place of the meeting', async () => {
@@ -236,11 +237,11 @@ describe('when a meeting that was on the screen is refused or gone', () => {
       void queryClient.refetchQueries();
     });
 
-    const missing = await screen.findByTestId(TEST_IDS.meetingNotFound);
+    const missing = await screen.findByTestId(MEETINGS_TEST_IDS.meetingNotFound);
     expect(within(missing).getByText(t('errors.notFound'))).toBeTruthy();
     expect(screen.queryByText(MEETING.title)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.meetingDetail)).toBeNull();
-    expect(queryClient.getQueryData(queryKeys.meetings.detail(MEETING.id))).toBeUndefined();
+    expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingDetail)).toBeNull();
+    expect(queryClient.getQueryData(meetingsQueryKeys.detail(MEETING.id))).toBeUndefined();
   });
 
   it('keeps the meeting, and offers the retry, for a failure that can pass', async () => {
@@ -252,10 +253,10 @@ describe('when a meeting that was on the screen is refused or gone', () => {
       void queryClient.refetchQueries();
     });
 
-    const error = await screen.findByTestId(TEST_IDS.refreshError);
+    const error = await screen.findByTestId(CORE_TEST_IDS.refreshError);
     expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
     expect(within(error).getByRole('button', { name: t('states.retry') })).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.meetingDetail)).toBeTruthy();
+    expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingDetail)).toBeTruthy();
   });
 });
 
@@ -270,10 +271,10 @@ describe('the error of a next page', () => {
     else fakes.network.goOffline();
 
     await act(async () => {
-      fireEvent(screen.getByTestId(TEST_IDS.meetingsList), 'endReached');
+      fireEvent(screen.getByTestId(MEETINGS_TEST_IDS.meetingsList), 'endReached');
     });
 
-    const footer = await screen.findByTestId(TEST_IDS.meetingsLoadMoreError);
+    const footer = await screen.findByTestId(MEETINGS_TEST_IDS.meetingsLoadMoreError);
     expect(within(footer).getByText(t(key))).toBeTruthy();
     expect(within(footer).getByRole('button', { name: t('states.retry') })).toBeTruthy();
   });
@@ -288,7 +289,7 @@ describe('a rejection that is not the failure of a use case', () => {
     const { fakes, t } = renderList();
     fakes.meetings.onRequest = boom;
 
-    const error = await screen.findByTestId(TEST_IDS.meetingsError);
+    const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingsError);
 
     expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
     expect(within(error).getByRole('button', { name: t('states.retry') })).toBeTruthy();
@@ -298,7 +299,7 @@ describe('a rejection that is not the failure of a use case', () => {
     const { fakes, t } = renderDetail();
     fakes.meetings.onRequest = boom;
 
-    const error = await screen.findByTestId(TEST_IDS.meetingError);
+    const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
 
     expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
     expect(within(error).getByRole('button', { name: t('states.retry') })).toBeTruthy();
@@ -311,7 +312,7 @@ describe('a rejection that is not the failure of a use case', () => {
 
     await pullToRefresh();
 
-    const error = await screen.findByTestId(TEST_IDS.refreshError);
+    const error = await screen.findByTestId(CORE_TEST_IDS.refreshError);
     expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
     expect(shownIds()).toEqual(['u1', 'u2', 'u3']);
   });
@@ -343,7 +344,7 @@ describe('a second user on the same device', () => {
     const held = holdRequests(fakes);
     rerender(<MeetingsListScreen onOpenMeeting={noop} />);
 
-    expect(screen.getByTestId(TEST_IDS.meetingsLoading)).toBeTruthy();
+    expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingsLoading)).toBeTruthy();
     expect(shownIds()).toEqual([]);
     expect(queryClient.getQueryCache().getAll().length).toBe(1);
 
@@ -369,19 +370,19 @@ describe('a second user on the same device', () => {
   });
 
   it('is told, by the use case, when the user changed under a request that was in flight', async () => {
-    const { fakes, uiStore } = renderList();
+    const { fakes, accessStore } = renderList();
     fakes.meetings.onRequest = () => {
       fakes.auth.session = SECOND;
     };
 
     await waitFor(() => {
-      expect(uiStore.getState().sessionEndedBy).toBe('sessionChanged');
+      expect(accessStore.getState().sessionEndedBy).toBe('sessionChanged');
     });
   });
 });
 
 it('does not end the session for a meeting that is refused: only that meeting is lost', async () => {
-  const { fakes, queryClient, uiStore } = renderDetail();
+  const { fakes, queryClient, accessStore } = renderDetail();
   await screen.findByRole('header', { name: MEETING.title });
   fakes.meetings.forbid(MEETING.id);
 
@@ -389,9 +390,9 @@ it('does not end the session for a meeting that is refused: only that meeting is
     void queryClient.refetchQueries();
   });
 
-  await screen.findByTestId(TEST_IDS.meetingError);
-  expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
-  expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+  await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
+  expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
+  expect(accessStore.getState().sessionEndedBy).toBeUndefined();
   // The meeting itself, and who the user is and what waits in their outbox, are still held.
   expect(cachedData(queryClient)).not.toEqual([]);
 });

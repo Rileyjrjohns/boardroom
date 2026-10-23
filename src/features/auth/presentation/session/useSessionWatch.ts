@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 
-import { ACCESS, useUiStore, useUiStoreApi } from '@composition/shell/state/uiStore';
+import { useUiStore } from '@core/presentation/state/uiStore';
 import { SESSION_CHECK_INTERVAL_MILLIS } from '@features/auth/application/session/sessionPolicy';
+
+import { ACCESS, useAccessStore, useAccessStoreApi } from '../state/accessStore';
 
 import { useSessionCheck } from './useSessionCheck';
 
@@ -15,8 +17,8 @@ import { useSessionCheck } from './useSessionCheck';
  */
 export function useSessionWatch(): void {
   const check = useSessionCheck();
-  const store = useUiStoreApi();
-  const open = useUiStore((state) => state.access === ACCESS.Unlocked);
+  const store = useAccessStoreApi();
+  const open = useAccessStore((state) => state.access === ACCESS.Unlocked);
   const covered = useUiStore((state) => state.privacyCover);
   const checking = useRef(false);
 

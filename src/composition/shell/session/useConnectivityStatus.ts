@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
+import { useUiStore } from '@core/presentation/state/uiStore';
 
 import { useAppServices } from '../services/AppServices';
-import { useUiStore } from '../state/uiStore';
 
 /**
  * Follows the connection of the device through the `ObserveConnectivity` use case, from the start

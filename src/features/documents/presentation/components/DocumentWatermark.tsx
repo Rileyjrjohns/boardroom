@@ -4,9 +4,9 @@ import type { LayoutChangeEvent } from 'react-native';
 
 import type { Instant } from '@core/domain/value-objects/Instant';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, spacing, watermark } from '@core/presentation/theme/tokens';
 import type { Watermark } from '@features/documents/domain/value-objects/Watermark';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 interface DocumentWatermarkProps {
   /** What the domain says the page must show: who is reading, and since when. */
@@ -77,7 +77,7 @@ export function DocumentWatermark({ watermark: reader }: DocumentWatermarkProps)
       importantForAccessibility="no-hide-descendants"
       onLayout={onLayout}
       style={styles.overlay}
-      testID={TEST_IDS.documentWatermark}
+      testID={DOCUMENTS_TEST_IDS.documentWatermark}
     >
       <View
         style={{
@@ -99,7 +99,7 @@ export function DocumentWatermark({ watermark: reader }: DocumentWatermarkProps)
                 key={column}
                 numberOfLines={3}
                 style={styles.tile}
-                testID={TEST_IDS.documentWatermarkTile}
+                testID={DOCUMENTS_TEST_IDS.documentWatermarkTile}
               >
                 {text}
               </Text>

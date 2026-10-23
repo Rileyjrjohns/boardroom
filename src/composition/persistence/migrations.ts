@@ -1,20 +1,34 @@
+import type { Migration } from '@core/infrastructure/persistence/migrate';
+import {
+  DOCUMENT_COLUMN,
+  DOCUMENT_INDEX,
+  DOCUMENT_TABLE,
+} from '@features/documents/infrastructure/persistence/schema';
+import {
+  MEETING_COLUMN,
+  MEETING_TABLE,
+} from '@features/meetings/infrastructure/persistence/schema';
 import { OUTBOX_STATUS } from '@features/votes/domain/entities/OutboxVote';
+import {
+  OUTBOX_QUARANTINED,
+  VOTE_COLUMN,
+  VOTE_INDEX,
+  VOTE_TABLE,
+} from '@features/votes/infrastructure/persistence/schema';
 
-import { COLUMN, INDEX, OUTBOX_QUARANTINED, TABLE } from './schema';
+// The history of the file: the migrations of the database of the whole app, in order. Each feature
+// owns its tables and their names (`schema.ts` of its `infrastructure/persistence` folder), and
+// this list, which is the app's, reads them; the machinery that runs the list is `migrate.ts` of
+// the core (a migration is `{ version, statements }`).
+//
+// Forward only: a migration that was released is never edited, a change is a new migration, and
+// there is no way back. A database that is more recent than the app (the app was downgraded) is
+// refused, not touched (see `runMigrations`).
 
-/**
- * A step from one version of the schema to the next. Versions are 1, 2, 3, ... with no gap. The
- * statements run in one transaction together with the update of the version, so that a migration
- * that fails leaves the database at the version it was at.
- *
- * Forward only: a migration that was released is never edited, a change is a new migration, and
- * there is no way back. A database that is more recent than the app (the app was downgraded) is
- * refused, not touched (see `runMigrations`).
- */
-export interface Migration {
-  readonly version: number;
-  readonly statements: readonly string[];
-}
+/** The columns of the tables of the meetings, of the votes and of the documents. */
+const M = MEETING_COLUMN;
+const V = VOTE_COLUMN;
+const D = DOCUMENT_COLUMN;
 
 const pending = `'${OUTBOX_STATUS.Pending}'`;
 const rejected = `'${OUTBOX_STATUS.Rejected}'`;
@@ -32,37 +46,37 @@ const quarantined = `'${OUTBOX_QUARANTINED}'`;
 const initial: Migration = {
   version: 1,
   statements: [
-    `CREATE TABLE ${TABLE.MeetingPages} (
-      ${COLUMN.Owner} TEXT NOT NULL,
-      ${COLUMN.Period} TEXT NOT NULL,
-      ${COLUMN.CursorKey} TEXT NOT NULL,
-      ${COLUMN.PageLimit} INTEGER NOT NULL,
-      ${COLUMN.CachedAt} INTEGER NOT NULL,
-      ${COLUMN.Payload} TEXT NOT NULL,
-      PRIMARY KEY (${COLUMN.Owner}, ${COLUMN.Period}, ${COLUMN.CursorKey}, ${COLUMN.PageLimit})
+    `CREATE TABLE ${MEETING_TABLE.Pages} (
+      ${M.Owner} TEXT NOT NULL,
+      ${M.Period} TEXT NOT NULL,
+      ${M.CursorKey} TEXT NOT NULL,
+      ${M.PageLimit} INTEGER NOT NULL,
+      ${M.CachedAt} INTEGER NOT NULL,
+      ${M.Payload} TEXT NOT NULL,
+      PRIMARY KEY (${M.Owner}, ${M.Period}, ${M.CursorKey}, ${M.PageLimit})
     ) WITHOUT ROWID`,
-    `CREATE TABLE ${TABLE.MeetingDetails} (
-      ${COLUMN.Owner} TEXT NOT NULL,
-      ${COLUMN.MeetingId} TEXT NOT NULL,
-      ${COLUMN.CachedAt} INTEGER NOT NULL,
-      ${COLUMN.Payload} TEXT NOT NULL,
-      PRIMARY KEY (${COLUMN.Owner}, ${COLUMN.MeetingId})
+    `CREATE TABLE ${MEETING_TABLE.Details} (
+      ${M.Owner} TEXT NOT NULL,
+      ${M.MeetingId} TEXT NOT NULL,
+      ${M.CachedAt} INTEGER NOT NULL,
+      ${M.Payload} TEXT NOT NULL,
+      PRIMARY KEY (${M.Owner}, ${M.MeetingId})
     ) WITHOUT ROWID`,
-    `CREATE TABLE ${TABLE.OutboxVotes} (
-      ${COLUMN.Sequence} INTEGER PRIMARY KEY AUTOINCREMENT,
-      ${COLUMN.IdempotencyKey} TEXT NOT NULL UNIQUE,
-      ${COLUMN.VoterId} TEXT NOT NULL,
-      ${COLUMN.ResolutionId} TEXT NOT NULL,
-      ${COLUMN.MeetingId} TEXT NOT NULL,
-      ${COLUMN.Choice} TEXT NOT NULL,
-      ${COLUMN.CastAt} INTEGER NOT NULL,
-      ${COLUMN.EnqueuedAt} INTEGER NOT NULL,
-      ${COLUMN.Attempts} INTEGER NOT NULL,
-      ${COLUMN.Status} TEXT NOT NULL CHECK (${COLUMN.Status} IN (${pending}, ${rejected})),
-      ${COLUMN.RejectionReason} TEXT,
-      ${COLUMN.RejectedAt} INTEGER,
-      CHECK ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectionReason} IS NULL)),
-      CHECK ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectedAt} IS NULL))
+    `CREATE TABLE ${VOTE_TABLE.Outbox} (
+      ${V.Sequence} INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${V.IdempotencyKey} TEXT NOT NULL UNIQUE,
+      ${V.VoterId} TEXT NOT NULL,
+      ${V.ResolutionId} TEXT NOT NULL,
+      ${V.MeetingId} TEXT NOT NULL,
+      ${V.Choice} TEXT NOT NULL,
+      ${V.CastAt} INTEGER NOT NULL,
+      ${V.EnqueuedAt} INTEGER NOT NULL,
+      ${V.Attempts} INTEGER NOT NULL,
+      ${V.Status} TEXT NOT NULL CHECK (${V.Status} IN (${pending}, ${rejected})),
+      ${V.RejectionReason} TEXT,
+      ${V.RejectedAt} INTEGER,
+      CHECK ((${V.Status} = ${pending}) = (${V.RejectionReason} IS NULL)),
+      CHECK ((${V.Status} = ${pending}) = (${V.RejectedAt} IS NULL))
     )`,
   ],
 };
@@ -77,8 +91,8 @@ const initial: Migration = {
 const indexOutboxByResolution: Migration = {
   version: 2,
   statements: [
-    `CREATE INDEX ${INDEX.OutboxByResolution}
-      ON ${TABLE.OutboxVotes} (${COLUMN.VoterId}, ${COLUMN.ResolutionId})`,
+    `CREATE INDEX ${VOTE_INDEX.OutboxByResolution}
+      ON ${VOTE_TABLE.Outbox} (${V.VoterId}, ${V.ResolutionId})`,
   ],
 };
 
@@ -98,41 +112,41 @@ const indexOutboxByResolution: Migration = {
 const quarantineUnreadableVotes: Migration = {
   version: 3,
   statements: [
-    `CREATE TABLE ${TABLE.OutboxVotesRebuilt} (
-      ${COLUMN.Sequence} INTEGER PRIMARY KEY AUTOINCREMENT,
-      ${COLUMN.IdempotencyKey} TEXT NOT NULL UNIQUE,
-      ${COLUMN.VoterId} TEXT NOT NULL,
-      ${COLUMN.ResolutionId} TEXT NOT NULL,
-      ${COLUMN.MeetingId} TEXT NOT NULL,
-      ${COLUMN.Choice} TEXT NOT NULL,
-      ${COLUMN.CastAt} INTEGER NOT NULL,
-      ${COLUMN.EnqueuedAt} INTEGER NOT NULL,
-      ${COLUMN.Attempts} INTEGER NOT NULL,
-      ${COLUMN.Status} TEXT NOT NULL
-        CHECK (${COLUMN.Status} IN (${pending}, ${rejected}, ${quarantined})),
-      ${COLUMN.RejectionReason} TEXT,
-      ${COLUMN.RejectedAt} INTEGER,
-      CHECK (${COLUMN.Status} = ${quarantined}
-        OR ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectionReason} IS NULL))),
-      CHECK (${COLUMN.Status} = ${quarantined}
-        OR ((${COLUMN.Status} = ${pending}) = (${COLUMN.RejectedAt} IS NULL)))
+    `CREATE TABLE ${VOTE_TABLE.OutboxRebuilt} (
+      ${V.Sequence} INTEGER PRIMARY KEY AUTOINCREMENT,
+      ${V.IdempotencyKey} TEXT NOT NULL UNIQUE,
+      ${V.VoterId} TEXT NOT NULL,
+      ${V.ResolutionId} TEXT NOT NULL,
+      ${V.MeetingId} TEXT NOT NULL,
+      ${V.Choice} TEXT NOT NULL,
+      ${V.CastAt} INTEGER NOT NULL,
+      ${V.EnqueuedAt} INTEGER NOT NULL,
+      ${V.Attempts} INTEGER NOT NULL,
+      ${V.Status} TEXT NOT NULL
+        CHECK (${V.Status} IN (${pending}, ${rejected}, ${quarantined})),
+      ${V.RejectionReason} TEXT,
+      ${V.RejectedAt} INTEGER,
+      CHECK (${V.Status} = ${quarantined}
+        OR ((${V.Status} = ${pending}) = (${V.RejectionReason} IS NULL))),
+      CHECK (${V.Status} = ${quarantined}
+        OR ((${V.Status} = ${pending}) = (${V.RejectedAt} IS NULL)))
     )`,
-    `INSERT INTO ${TABLE.OutboxVotesRebuilt}
-      (${COLUMN.Sequence}, ${COLUMN.IdempotencyKey}, ${COLUMN.VoterId}, ${COLUMN.ResolutionId},
-       ${COLUMN.MeetingId}, ${COLUMN.Choice}, ${COLUMN.CastAt}, ${COLUMN.EnqueuedAt},
-       ${COLUMN.Attempts}, ${COLUMN.Status}, ${COLUMN.RejectionReason}, ${COLUMN.RejectedAt})
-      SELECT ${COLUMN.Sequence}, ${COLUMN.IdempotencyKey}, ${COLUMN.VoterId}, ${COLUMN.ResolutionId},
-       ${COLUMN.MeetingId}, ${COLUMN.Choice}, ${COLUMN.CastAt}, ${COLUMN.EnqueuedAt},
-       ${COLUMN.Attempts}, ${COLUMN.Status}, ${COLUMN.RejectionReason}, ${COLUMN.RejectedAt}
-      FROM ${TABLE.OutboxVotes}`,
-    `DELETE FROM sqlite_sequence WHERE name = '${TABLE.OutboxVotesRebuilt}'`,
+    `INSERT INTO ${VOTE_TABLE.OutboxRebuilt}
+      (${V.Sequence}, ${V.IdempotencyKey}, ${V.VoterId}, ${V.ResolutionId},
+       ${V.MeetingId}, ${V.Choice}, ${V.CastAt}, ${V.EnqueuedAt},
+       ${V.Attempts}, ${V.Status}, ${V.RejectionReason}, ${V.RejectedAt})
+      SELECT ${V.Sequence}, ${V.IdempotencyKey}, ${V.VoterId}, ${V.ResolutionId},
+       ${V.MeetingId}, ${V.Choice}, ${V.CastAt}, ${V.EnqueuedAt},
+       ${V.Attempts}, ${V.Status}, ${V.RejectionReason}, ${V.RejectedAt}
+      FROM ${VOTE_TABLE.Outbox}`,
+    `DELETE FROM sqlite_sequence WHERE name = '${VOTE_TABLE.OutboxRebuilt}'`,
     `INSERT INTO sqlite_sequence (name, seq)
-      SELECT '${TABLE.OutboxVotesRebuilt}', seq FROM sqlite_sequence
-      WHERE name = '${TABLE.OutboxVotes}'`,
-    `DROP TABLE ${TABLE.OutboxVotes}`,
-    `ALTER TABLE ${TABLE.OutboxVotesRebuilt} RENAME TO ${TABLE.OutboxVotes}`,
-    `CREATE INDEX ${INDEX.OutboxByResolution}
-      ON ${TABLE.OutboxVotes} (${COLUMN.VoterId}, ${COLUMN.ResolutionId})`,
+      SELECT '${VOTE_TABLE.OutboxRebuilt}', seq FROM sqlite_sequence
+      WHERE name = '${VOTE_TABLE.Outbox}'`,
+    `DROP TABLE ${VOTE_TABLE.Outbox}`,
+    `ALTER TABLE ${VOTE_TABLE.OutboxRebuilt} RENAME TO ${VOTE_TABLE.Outbox}`,
+    `CREATE INDEX ${VOTE_INDEX.OutboxByResolution}
+      ON ${VOTE_TABLE.Outbox} (${V.VoterId}, ${V.ResolutionId})`,
   ],
 };
 
@@ -151,16 +165,16 @@ const quarantineUnreadableVotes: Migration = {
 const cacheDocuments: Migration = {
   version: 4,
   statements: [
-    `CREATE TABLE ${TABLE.DocumentEntries} (
-      ${COLUMN.Owner} TEXT NOT NULL,
-      ${COLUMN.DocumentId} TEXT NOT NULL,
-      ${COLUMN.CachedAt} INTEGER NOT NULL,
-      ${COLUMN.Location} TEXT NOT NULL,
-      ${COLUMN.Payload} TEXT NOT NULL,
-      PRIMARY KEY (${COLUMN.Owner}, ${COLUMN.DocumentId})
+    `CREATE TABLE ${DOCUMENT_TABLE.Entries} (
+      ${D.Owner} TEXT NOT NULL,
+      ${D.DocumentId} TEXT NOT NULL,
+      ${D.CachedAt} INTEGER NOT NULL,
+      ${D.Location} TEXT NOT NULL,
+      ${D.Payload} TEXT NOT NULL,
+      PRIMARY KEY (${D.Owner}, ${D.DocumentId})
     ) WITHOUT ROWID`,
-    `CREATE INDEX ${INDEX.DocumentEntriesByLocation}
-      ON ${TABLE.DocumentEntries} (${COLUMN.Location})`,
+    `CREATE INDEX ${DOCUMENT_INDEX.EntriesByLocation}
+      ON ${DOCUMENT_TABLE.Entries} (${D.Location})`,
   ],
 };
 

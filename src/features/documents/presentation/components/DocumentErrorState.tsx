@@ -1,13 +1,14 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
-import { isRetryableCode } from '@core/application/retryableCodes';
 import { Button } from '@core/presentation/components/Button';
 import { LiveText } from '@core/presentation/components/LiveText';
-import { DOCUMENT_ERROR_KEYS } from '@core/presentation/i18n/translationKeys';
-import type { DocumentErrorCode } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
+import { useErrorCatalog } from '@core/presentation/errors/ErrorCatalog';
 import { colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
+import { DOCUMENT_ERROR_KEYS } from '../i18n/documentMessageKeys';
+import type { DocumentErrorCode } from '../i18n/documentMessageKeys';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 interface DocumentErrorStateProps {
   /** Why the document could not be opened, which decides the message and whether trying again can help. */
@@ -23,16 +24,17 @@ interface DocumentErrorStateProps {
  */
 export function DocumentErrorState({ code, onRetry }: DocumentErrorStateProps) {
   const { t } = useTranslation();
+  const { isRetryableCode } = useErrorCatalog();
 
   return (
     <View style={styles.container}>
       <LiveText
         message={t(DOCUMENT_ERROR_KEYS[code])}
         style={styles.message}
-        testID={TEST_IDS.documentError}
+        testID={DOCUMENTS_TEST_IDS.documentError}
       />
       {isRetryableCode(code) ? (
-        <Button title={t('states.retry')} onPress={onRetry} testID={TEST_IDS.retryButton} />
+        <Button title={t('states.retry')} onPress={onRetry} testID={CORE_TEST_IDS.retryButton} />
       ) : null}
     </View>
   );

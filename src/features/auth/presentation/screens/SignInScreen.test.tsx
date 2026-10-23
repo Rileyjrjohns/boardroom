@@ -1,16 +1,18 @@
 import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { AccessibilityInfo, Keyboard, Platform, TextInput } from 'react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { epochOf } from '@composition/shell/testing/accessEpoch';
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
-import { invalidCredentials, sessionExpired } from '@core/domain/errors/AuthenticationError';
+import {
+  invalidCredentials,
+  sessionExpired,
+} from '@features/auth/domain/errors/AuthenticationError';
 import { networkUnavailable, unexpected } from '@core/domain/errors/RepositoryError';
 import { storageWriteFailed } from '@core/domain/errors/StorageError';
 import { err } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
-import { TEST_IDS, demoAccountTestId } from '@core/presentation/testIds';
 import type { SignInFailure } from '@features/auth/application/ports/AuthSession';
 import { DEFAULT_PASSWORD } from '@features/auth/application/testing/FakeAuthSession';
 import type { Session } from '@features/auth/domain/entities/Session';
@@ -20,6 +22,9 @@ import { TEST_DEMO_ACCOUNTS, renderScreen } from '@testing/presentation/renderSc
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
 import { SignInScreen } from './SignInScreen';
+import { AUTH_TEST_IDS } from '../testIds';
+import { VOTES_TEST_IDS } from '@features/votes/presentation/testIds';
+import { demoAccountTestId, CORE_TEST_IDS } from '@core/presentation/testIds';
 
 const EMAIL = 'alice@example.com';
 
@@ -62,7 +67,7 @@ function type(testId: string, text: string): void {
 }
 
 function submit(): void {
-  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+  fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
 }
 
 /** Lets the timers of the query library run: it tells its observers on a timer of its own. */
@@ -73,8 +78,8 @@ async function settle(): Promise<void> {
 }
 
 async function signInWith(email: string, password: string): Promise<void> {
-  type(TEST_IDS.signInEmail, email);
-  type(TEST_IDS.signInPassword, password);
+  type(AUTH_TEST_IDS.signInEmail, email);
+  type(AUTH_TEST_IDS.signInPassword, password);
   await act(async () => {
     submit();
   });
@@ -87,10 +92,10 @@ describe('SignInScreen', () => {
       const { t } = renderSignIn();
 
       expect(screen.getByLabelText(t('signIn.email'))).toBe(
-        screen.getByTestId(TEST_IDS.signInEmail),
+        screen.getByTestId(AUTH_TEST_IDS.signInEmail),
       );
       expect(screen.getByLabelText(t('signIn.password'))).toBe(
-        screen.getByTestId(TEST_IDS.signInPassword),
+        screen.getByTestId(AUTH_TEST_IDS.signInPassword),
       );
       expect(screen.getByText(t('signIn.email'))).toBeTruthy();
       expect(screen.getByText(t('signIn.password'))).toBeTruthy();
@@ -100,8 +105,8 @@ describe('SignInScreen', () => {
 
     it('asks the keyboard and the password manager for what an email field and a password field need', () => {
       renderSignIn();
-      const email = screen.getByTestId(TEST_IDS.signInEmail);
-      const password = screen.getByTestId(TEST_IDS.signInPassword);
+      const email = screen.getByTestId(AUTH_TEST_IDS.signInEmail);
+      const password = screen.getByTestId(AUTH_TEST_IDS.signInPassword);
 
       expect(email.props).toMatchObject({
         keyboardType: 'email-address',
@@ -126,7 +131,7 @@ describe('SignInScreen', () => {
     it('has a button at least as tall as the touch target', () => {
       renderSignIn();
 
-      expect(screen.getByTestId(TEST_IDS.signInSubmit)).toHaveStyle({ minHeight: 44 });
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInSubmit)).toHaveStyle({ minHeight: 44 });
     });
   });
 
@@ -143,10 +148,10 @@ describe('SignInScreen', () => {
 
         await signInWith(email, password);
 
-        const message = screen.getByTestId(TEST_IDS.signInEmailError);
+        const message = screen.getByTestId(AUTH_TEST_IDS.signInEmailError);
         expect(message).toHaveTextContent(t(key));
         expect(message.props.accessibilityRole).toBe('alert');
-        expect(screen.queryByTestId(TEST_IDS.signInPasswordError)).toBeNull();
+        expect(screen.queryByTestId(AUTH_TEST_IDS.signInPasswordError)).toBeNull();
         expect(fakes.auth.signInCalls).toEqual([]);
       },
     );
@@ -156,10 +161,10 @@ describe('SignInScreen', () => {
 
       await signInWith(EMAIL, '');
 
-      expect(screen.getByTestId(TEST_IDS.signInPasswordError)).toHaveTextContent(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPasswordError)).toHaveTextContent(
         t('signIn.passwordRequired'),
       );
-      expect(screen.queryByTestId(TEST_IDS.signInEmailError)).toBeNull();
+      expect(screen.queryByTestId(AUTH_TEST_IDS.signInEmailError)).toBeNull();
       expect(fakes.auth.signInCalls).toEqual([]);
     });
 
@@ -168,14 +173,14 @@ describe('SignInScreen', () => {
 
       await signInWith('nope', 'secret');
 
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe('secret');
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.value).toBe('secret');
     });
 
     it.each([
-      ['', 'secret', TEST_IDS.signInEmail],
-      ['nope', 'secret', TEST_IDS.signInEmail],
-      [EMAIL, '', TEST_IDS.signInPassword],
-      ['', '', TEST_IDS.signInEmail],
+      ['', 'secret', AUTH_TEST_IDS.signInEmail],
+      ['nope', 'secret', AUTH_TEST_IDS.signInEmail],
+      [EMAIL, '', AUTH_TEST_IDS.signInPassword],
+      ['', '', AUTH_TEST_IDS.signInEmail],
     ])(
       'moves the focus to the first field it refuses, for %p and %p',
       async (email, password, field) => {
@@ -189,8 +194,8 @@ describe('SignInScreen', () => {
 
     it('does not move the focus when the form is accepted', async () => {
       renderSignIn();
-      type(TEST_IDS.signInEmail, EMAIL);
-      type(TEST_IDS.signInPassword, DEFAULT_PASSWORD);
+      type(AUTH_TEST_IDS.signInEmail, EMAIL);
+      type(AUTH_TEST_IDS.signInPassword, DEFAULT_PASSWORD);
 
       await act(async () => {
         submit();
@@ -203,26 +208,28 @@ describe('SignInScreen', () => {
       const { t } = renderSignIn();
 
       await signInWith('', '');
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.accessibilityHint).toBe(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.accessibilityHint).toBe(
         t('signIn.emailRequired'),
       );
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.accessibilityHint).toBeUndefined();
+      expect(
+        screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.accessibilityHint,
+      ).toBeUndefined();
 
       await signInWith(EMAIL, '');
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.accessibilityHint).toBe(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.accessibilityHint).toBe(
         t('signIn.passwordRequired'),
       );
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.accessibilityHint).toBeUndefined();
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.accessibilityHint).toBeUndefined();
     });
 
     it('forgets the message of a field as soon as the user edits one', async () => {
       renderSignIn();
       await signInWith('', '');
-      expect(screen.getByTestId(TEST_IDS.signInEmailError)).toBeTruthy();
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmailError)).toBeTruthy();
 
-      type(TEST_IDS.signInEmail, EMAIL);
+      type(AUTH_TEST_IDS.signInEmail, EMAIL);
 
-      expect(screen.queryByTestId(TEST_IDS.signInEmailError)).toBeNull();
+      expect(screen.queryByTestId(AUTH_TEST_IDS.signInEmailError)).toBeNull();
     });
   });
 
@@ -235,15 +242,15 @@ describe('SignInScreen', () => {
     ] as [SignInFailure, 'errors.invalidCredentials'][])(
       'says why, in words of its own, for %p',
       async (failure, key) => {
-        const { fakes, t, uiStore } = renderSignIn();
+        const { fakes, t, accessStore } = renderSignIn();
         fakes.auth.signInFailure = failure;
 
         await signInWith(EMAIL, DEFAULT_PASSWORD);
 
-        const message = screen.getByTestId(TEST_IDS.signInError);
+        const message = screen.getByTestId(AUTH_TEST_IDS.signInError);
         expect(message).toHaveTextContent(t(key));
         expect(message.props.accessibilityRole).toBe('alert');
-        expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+        expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
       },
     );
 
@@ -252,7 +259,7 @@ describe('SignInScreen', () => {
 
       await signInWith(EMAIL, 'not the password');
 
-      expect(screen.getByTestId(TEST_IDS.signInError)).toHaveTextContent(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInError)).toHaveTextContent(
         t('errors.invalidCredentials'),
       );
     });
@@ -262,18 +269,18 @@ describe('SignInScreen', () => {
 
       await signInWith(EMAIL, 'not the password');
 
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe('');
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.value).toBe(EMAIL);
-      expect(focusRequests()).toEqual([TEST_IDS.signInPassword]);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.value).toBe('');
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.value).toBe(EMAIL);
+      expect(focusRequests()).toEqual([AUTH_TEST_IDS.signInPassword]);
     });
 
     it('lets the user try again, and signs in when the credentials are right', async () => {
-      const { uiStore } = renderSignIn();
+      const { accessStore } = renderSignIn();
       await signInWith(EMAIL, 'not the password');
 
       await signInWith(EMAIL, DEFAULT_PASSWORD);
 
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
 
     it('announces the refusal to the screen reader on iOS', async () => {
@@ -290,11 +297,11 @@ describe('SignInScreen', () => {
 
   describe('a sign-in that is accepted', () => {
     it('opens the app: the state moves to unlocked and the user is signed in', async () => {
-      const { fakes, uiStore } = renderSignIn();
+      const { fakes, accessStore } = renderSignIn();
 
       await signInWith(EMAIL, DEFAULT_PASSWORD);
 
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
       expect(fakes.auth.session?.user.email).toBe(anEmail(EMAIL));
       expect(fakes.appLock.isLocked()).toBe(false);
     });
@@ -341,8 +348,8 @@ describe('SignInScreen', () => {
 
       const button = screen.getByRole('button', { name: t('signIn.submitting') });
       expect(button.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.editable).toBe(false);
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.editable).toBe(false);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.editable).toBe(false);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.editable).toBe(false);
       await held.release(err(invalidCredentials()));
       expect(screen.getByRole('button', { name: t('signIn.submit') })).toBeTruthy();
     });
@@ -351,13 +358,13 @@ describe('SignInScreen', () => {
       const fakes = createFakes();
       const held = holdSignIn(fakes);
       renderSignIn({ fakes });
-      type(TEST_IDS.signInEmail, EMAIL);
-      type(TEST_IDS.signInPassword, DEFAULT_PASSWORD);
+      type(AUTH_TEST_IDS.signInEmail, EMAIL);
+      type(AUTH_TEST_IDS.signInPassword, DEFAULT_PASSWORD);
 
       await act(async () => {
         submit();
         submit();
-        fireEvent(screen.getByTestId(TEST_IDS.signInPassword), 'submitEditing');
+        fireEvent(screen.getByTestId(AUTH_TEST_IDS.signInPassword), 'submitEditing');
       });
       await settle();
       submit();
@@ -402,9 +409,9 @@ describe('SignInScreen', () => {
   describe('the password', () => {
     it('is handed over and emptied when the form is sent, whatever the answer', async () => {
       renderSignIn();
-      type(TEST_IDS.signInEmail, EMAIL);
-      type(TEST_IDS.signInPassword, DEFAULT_PASSWORD);
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe(DEFAULT_PASSWORD);
+      type(AUTH_TEST_IDS.signInEmail, EMAIL);
+      type(AUTH_TEST_IDS.signInPassword, DEFAULT_PASSWORD);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.value).toBe(DEFAULT_PASSWORD);
 
       await act(async () => {
         submit();
@@ -452,19 +459,19 @@ describe('SignInScreen', () => {
       ['unauthorized', 'errors.unauthorized'],
       ['notAuthenticated', 'errors.notAuthenticated'],
     ] as const)('explains %s, in words, when that is what sent the user here', (code, key) => {
-      const { uiStore, t } = renderSignIn({ access: ACCESS.Unlocked });
+      const { accessStore, t } = renderSignIn({ access: ACCESS.Unlocked });
       act(() => {
-        uiStore.getState().endSession(code, epochOf(uiStore));
+        accessStore.getState().endSession(code, epochOf(accessStore));
       });
 
-      expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(t(key));
-      expect(screen.getByTestId(TEST_IDS.sessionNotice).props.accessibilityRole).toBe('alert');
+      expect(screen.getByTestId(AUTH_TEST_IDS.sessionNotice)).toHaveTextContent(t(key));
+      expect(screen.getByTestId(AUTH_TEST_IDS.sessionNotice).props.accessibilityRole).toBe('alert');
     });
 
     it('says nothing when the user signed out themselves', () => {
       renderSignIn();
 
-      expect(screen.queryByTestId(TEST_IDS.sessionNotice)).toBeNull();
+      expect(screen.queryByTestId(AUTH_TEST_IDS.sessionNotice)).toBeNull();
     });
   });
 
@@ -475,14 +482,14 @@ describe('SignInScreen', () => {
 
       fireEvent.press(screen.getByTestId(demoAccountTestId(second!.email)));
 
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.value).toBe(second!.email);
-      expect(screen.getByTestId(TEST_IDS.signInPassword).props.value).toBe(second!.password);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.value).toBe(second!.email);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInPassword).props.value).toBe(second!.password);
       fireEvent.press(screen.getByTestId(demoAccountTestId(first!.email)));
-      expect(screen.getByTestId(TEST_IDS.signInEmail).props.value).toBe(first!.email);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInEmail).props.value).toBe(first!.email);
     });
 
     it('sign the user in through the same use case as a typed form', async () => {
-      const { fakes, uiStore } = renderSignIn({ demo: true });
+      const { fakes, accessStore } = renderSignIn({ demo: true });
       const [first] = TEST_DEMO_ACCOUNTS;
       fakes.auth.registerAccount(anEmail(first!.email), first!.password, aSession());
 
@@ -492,13 +499,13 @@ describe('SignInScreen', () => {
       });
       await settle();
 
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
     });
 
     it('are marked as the demo, with a header and an explanation', () => {
       const { t } = renderSignIn({ demo: true });
 
-      const panel = screen.getByTestId(TEST_IDS.demoAccounts);
+      const panel = screen.getByTestId(CORE_TEST_IDS.demoAccounts);
 
       expect(within(panel).getByText(t('demo.badge'))).toBeTruthy();
       expect(within(panel).getByRole('header', { name: t('demo.accounts') })).toBeTruthy();
@@ -508,24 +515,26 @@ describe('SignInScreen', () => {
     it('are absent when the services have no demo controls: every configuration but the mock one', () => {
       renderSignIn();
 
-      expect(screen.queryByTestId(TEST_IDS.demoAccounts)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.demoAccounts)).toBeNull();
     });
   });
 
   describe('a device that is offline', () => {
     it('says so at the top, and nothing when the connection is there', () => {
       const { t, uiStore } = renderSignIn();
-      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
 
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
       });
 
-      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(
+        t('banner.offline'),
+      );
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Online);
       });
-      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
     });
 
     it('shows nothing else of the banner: there is no data and no synchronisation to tell here', () => {
@@ -536,29 +545,29 @@ describe('SignInScreen', () => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
       });
 
-      expect(screen.queryByTestId(TEST_IDS.localDataResetNotice)).toBeNull();
-      expect(screen.queryByTestId(TEST_IDS.syncSummary)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.localDataResetNotice)).toBeNull();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.syncSummary)).toBeNull();
     });
 
     it('offers the switch of the demo, in the mock configuration only', () => {
       renderSignIn({ demo: true });
-      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+      expect(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeTruthy();
     });
 
     it('has no switch in any other configuration', () => {
       renderSignIn();
-      expect(screen.queryByTestId(TEST_IDS.demoOfflineSwitch)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeNull();
     });
 
     it('can be brought back online with the switch, which is reachable with the form', async () => {
       const { demoNetwork } = renderSignIn({ demo: true });
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+        fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
       });
       expect(demoNetwork?.online).toBe(false);
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+        fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
       });
 
       expect(demoNetwork?.online).toBe(true);
@@ -569,9 +578,9 @@ describe('SignInScreen', () => {
     it.each(SUPPORTED_LANGUAGES)(
       'is written in %s, errors and notice included',
       async (language) => {
-        const { t, uiStore } = renderSignIn({ language, access: ACCESS.Unlocked, demo: true });
+        const { t, accessStore } = renderSignIn({ language, access: ACCESS.Unlocked, demo: true });
         act(() => {
-          uiStore.getState().endSession(sessionExpired().code, epochOf(uiStore));
+          accessStore.getState().endSession(sessionExpired().code, epochOf(accessStore));
         });
 
         await signInWith('nope', 'secret');
@@ -580,7 +589,7 @@ describe('SignInScreen', () => {
         expect(screen.getByText(t('signIn.message'))).toBeTruthy();
         expect(screen.getByLabelText(t('signIn.email'))).toBeTruthy();
         expect(screen.getByText(t('signIn.emailInvalid'))).toBeTruthy();
-        expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(
+        expect(screen.getByTestId(AUTH_TEST_IDS.sessionNotice)).toHaveTextContent(
           t('errors.sessionExpired'),
         );
         expect(screen.getByText(t('demo.accountsHint'))).toBeTruthy();
@@ -592,7 +601,7 @@ describe('SignInScreen', () => {
 
       await signInWith(EMAIL, 'not the password');
 
-      expect(screen.getByTestId(TEST_IDS.signInError)).toHaveTextContent(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signInError)).toHaveTextContent(
         'L’adresse e-mail ou le mot de passe est incorrect.',
       );
       expect(screen.getByRole('button', { name: 'Se connecter' })).toBeTruthy();

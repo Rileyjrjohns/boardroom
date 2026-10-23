@@ -1,36 +1,35 @@
-import { CACHE_RESOURCE } from '@core/application/offline/CacheResource';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import type { Monitoring } from '@core/application/ports/Monitoring';
 import { isErr } from '@core/domain/shared/Result';
-import type { DocumentCache } from '@features/documents/application/ports/DocumentCache';
-import type { MeetingCache } from '@features/meetings/application/ports/MeetingCache';
+
+import type { SessionDataPurger } from '../ports/SessionDataPurger';
 
 export interface PurgeCachesDeps {
-  readonly meetingCache: MeetingCache;
-  readonly documentCache: DocumentCache;
+  /**
+   * Everything a session leaves on the device, one purger for each feature that keeps data for a
+   * user. They are purged in this order, and the composition decides it.
+   */
+  readonly sessionDataPurgers: readonly SessionDataPurger[];
+  /** Where a failed purge is reported. */
   readonly monitoring: Monitoring;
 }
 
 /**
- * Empties the meeting cache and the document cache (the content of the documents included), for
- * every owner. Called when a session ends, so that nothing a user saw stays on the device. Both
- * are always attempted. A failure is captured and never returned: it must not stop a user from
- * signing out.
+ * Empties what a session leaves on the device (the meeting cache and the document cache, the
+ * content of the documents included), for every owner, through the `SessionDataPurger` of each
+ * feature. Called when a session ends, so that nothing a user saw stays on the device. Every
+ * purger is always attempted, whatever the one before it did. A failure is captured and never
+ * returned: it must not stop a user from signing out.
  */
 export async function purgeCaches(deps: PurgeCachesDeps): Promise<void> {
-  const { meetingCache, documentCache, monitoring } = deps;
+  const { sessionDataPurgers, monitoring } = deps;
 
-  const meetings = await meetingCache.purge();
-  if (isErr(meetings)) {
-    monitoring.captureError(MONITORING_EVENT.CachePurgeFailed, meetings.error, {
-      [LOG_ATTRIBUTE.Resource]: CACHE_RESOURCE.Meeting,
-    });
-  }
-
-  const documents = await documentCache.purge();
-  if (isErr(documents)) {
-    monitoring.captureError(MONITORING_EVENT.CachePurgeFailed, documents.error, {
-      [LOG_ATTRIBUTE.Resource]: CACHE_RESOURCE.Document,
-    });
+  for (const purger of sessionDataPurgers) {
+    const purged = await purger.purge();
+    if (isErr(purged)) {
+      monitoring.captureError(MONITORING_EVENT.CachePurgeFailed, purged.error, {
+        [LOG_ATTRIBUTE.Resource]: purger.resource,
+      });
+    }
   }
 }

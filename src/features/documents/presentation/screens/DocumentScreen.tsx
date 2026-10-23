@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useUiStore } from '@composition/shell/state/uiStore';
 import { FRESHNESS } from '@core/application/offline/Loaded';
 import { parseDocumentId } from '@core/domain/value-objects/ids';
 import type { DocumentId } from '@core/domain/value-objects/ids';
@@ -14,8 +13,7 @@ import { LiveText } from '@core/presentation/components/LiveText';
 import { LoadingState } from '@core/presentation/components/LoadingState';
 import { StatusBanner } from '@core/presentation/components/StatusBanner';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import { CONFIDENTIALITY_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
+import { useUiStore } from '@core/presentation/state/uiStore';
 import { colors, fontSizes, fontWeights, spacing } from '@core/presentation/theme/tokens';
 import type { OpenedDocument } from '@features/documents/application/use-cases/OpenDocument';
 import { CONFIDENTIALITY_TONES } from '@features/meetings/presentation/components/badgeTones';
@@ -27,6 +25,9 @@ import { PdfViewer } from '../components/PdfViewer';
 import { SecureContent } from '../components/SecureContent';
 import { DOCUMENT_VIEW_STATUS, useDocumentView } from '../hooks/useDocumentView';
 import { useScreenCaptureNotice } from '../hooks/useScreenCaptureNotice';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
+import { CONFIDENTIALITY_KEYS } from '@features/meetings/presentation/i18n/meetingMessageKeys';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 interface DocumentScreenProps {
   /** The `documentId` segment of the route, as the router gives it. */
@@ -50,7 +51,7 @@ function NotFound() {
   return (
     <View style={styles.screen}>
       <View style={styles.notFound}>
-        <Text style={styles.notFoundMessage} testID={TEST_IDS.documentNotFound}>
+        <Text style={styles.notFoundMessage} testID={DOCUMENTS_TEST_IDS.documentNotFound}>
           {t('document.notFound')}
         </Text>
       </View>
@@ -68,7 +69,7 @@ function DocumentViewer({ id }: { readonly id: DocumentId }) {
   const { notice, dismiss } = useScreenCaptureNotice(id);
 
   return (
-    <View style={styles.screen} collapsable={false} testID={TEST_IDS.documentScreen}>
+    <View style={styles.screen} collapsable={false} testID={DOCUMENTS_TEST_IDS.documentScreen}>
       <StatusBanner
         {...(state.status === DOCUMENT_VIEW_STATUS.Ready &&
         state.opened.source.freshness === FRESHNESS.Stale
@@ -80,7 +81,7 @@ function DocumentViewer({ id }: { readonly id: DocumentId }) {
       {state.status === DOCUMENT_VIEW_STATUS.Loading ? (
         <LoadingState
           accessibilityLabel={t('document.loading')}
-          testID={TEST_IDS.documentLoading}
+          testID={DOCUMENTS_TEST_IDS.documentLoading}
         />
       ) : null}
       {state.status === DOCUMENT_VIEW_STATUS.Failed ? (
@@ -129,7 +130,11 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
   return (
     <View style={styles.document}>
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.title} testID={TEST_IDS.documentTitle}>
+        <Text
+          accessibilityRole="header"
+          style={styles.title}
+          testID={DOCUMENTS_TEST_IDS.documentTitle}
+        >
           {document.title}
         </Text>
         <View style={styles.badges}>
@@ -138,7 +143,10 @@ function OpenedDocumentView({ opened, onRetry }: OpenedDocumentViewProps) {
             tone={CONFIDENTIALITY_TONES[document.confidentiality]}
           />
           {screenProtected ? (
-            <Badge label={t('document.protectedBadge')} testID={TEST_IDS.documentProtectedBadge} />
+            <Badge
+              label={t('document.protectedBadge')}
+              testID={DOCUMENTS_TEST_IDS.documentProtectedBadge}
+            />
           ) : null}
         </View>
       </View>
@@ -186,9 +194,9 @@ function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
           <LiveText
             message={t('document.renderFailed')}
             style={styles.failureMessage}
-            testID={TEST_IDS.documentPdfError}
+            testID={DOCUMENTS_TEST_IDS.documentPdfError}
           />
-          <Button title={t('states.retry')} onPress={onRetry} testID={TEST_IDS.retryButton} />
+          <Button title={t('states.retry')} onPress={onRetry} testID={CORE_TEST_IDS.retryButton} />
         </View>
       ) : (
         <View style={styles.page}>
@@ -203,7 +211,7 @@ function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
               <View style={styles.loading}>
                 <LoadingState
                   accessibilityLabel={t('document.rendering')}
-                  testID={TEST_IDS.documentPdfLoading}
+                  testID={DOCUMENTS_TEST_IDS.documentPdfLoading}
                 />
               </View>
             ) : null}
@@ -216,7 +224,7 @@ function DocumentPages({ opened, onRetry }: OpenedDocumentViewProps) {
         <Text
           accessibilityLiveRegion="polite"
           style={[styles.indicator, { paddingBottom: insets.bottom + spacing.sm }]}
-          testID={TEST_IDS.documentPageIndicator}
+          testID={DOCUMENTS_TEST_IDS.documentPageIndicator}
         >
           {t('document.pageIndicator', { page: number(pdf.page), total: number(pdf.pageCount) })}
         </Text>

@@ -9,19 +9,20 @@ import { createPage } from '@core/domain/value-objects/Page';
 import { parsePageCursor } from '@core/domain/value-objects/PageCursor';
 import {
   parseAgendaItemId,
+  parseDocumentId,
   parseMeetingId,
   parseResolutionId,
   parseUserId,
 } from '@core/domain/value-objects/ids';
 import { isoInstantSchema, toIsoString } from '@core/infrastructure/http/dto/wire';
 import { collect } from '@core/infrastructure/shared/results';
-import {
-  documentSchema,
-  toDocument,
-  toDocumentWire,
-} from '@features/documents/infrastructure/dto/documentDto';
 import { createAgendaItem } from '@features/meetings/domain/entities/AgendaItem';
 import type { AgendaItem } from '@features/meetings/domain/entities/AgendaItem';
+import {
+  createDocument,
+  parseConfidentialityLevel,
+} from '@features/meetings/domain/entities/Document';
+import type { Document } from '@features/meetings/domain/entities/Document';
 import { createMeeting } from '@features/meetings/domain/entities/Meeting';
 import type { Meeting } from '@features/meetings/domain/entities/Meeting';
 import { createMeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
@@ -43,6 +44,11 @@ import { parseVoteChoice } from '@features/meetings/domain/value-objects/VoteCho
 // A schema checks that each field is there and has the type of the API, and ignores the fields it
 // does not know. The values themselves are checked by the factories of the domain, in the mappers:
 // a status that is not one, a blank title, a duplicate id. An instant is an ISO 8601 string.
+//
+// The documents a meeting lists are the `Document` entity of the meetings, so the wire form of a
+// listed document is the meetings' (`listedDocumentSchema`): the same JSON as the metadata of
+// `GET /documents/{id}`, which is the form the documents read (`documentDto.ts` of the documents),
+// but each feature reads and writes its own and neither imports the other.
 
 const resolutionSchema = z.object({
   id: z.string(),
@@ -61,6 +67,13 @@ const agendaItemSchema = z.object({
   resolution: resolutionSchema.optional(),
 });
 
+const listedDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  confidentiality: z.string(),
+  pageCount: z.number(),
+});
+
 const participantSchema = z.object({
   userId: z.string(),
   fullName: z.string(),
@@ -76,7 +89,7 @@ export const meetingSummarySchema = z.object({
 
 export const meetingSchema = meetingSummarySchema.extend({
   agenda: z.array(agendaItemSchema),
-  documents: z.array(documentSchema),
+  documents: z.array(listedDocumentSchema),
   participants: z.array(participantSchema),
 });
 
@@ -136,6 +149,16 @@ function toAgendaItem(
   );
 }
 
+function toListedDocument(
+  wire: z.output<typeof listedDocumentSchema>,
+): Result<Document, ValidationError> {
+  return andThen(parseDocumentId(wire.id), (id) =>
+    andThen(parseConfidentialityLevel(wire.confidentiality), (confidentiality) =>
+      createDocument({ id, title: wire.title, confidentiality, pageCount: wire.pageCount }),
+    ),
+  );
+}
+
 function toParticipant(
   wire: z.output<typeof participantSchema>,
 ): Result<Participant, ValidationError> {
@@ -157,7 +180,7 @@ function optional<W, T, E>(
 export function toMeeting(wire: z.output<typeof meetingSchema>): Result<Meeting, ValidationError> {
   return andThen(toMeetingSummary(wire), (summary) =>
     andThen(collect(wire.agenda.map(toAgendaItem)), (agenda) =>
-      andThen(collect(wire.documents.map(toDocument)), (documents) =>
+      andThen(collect(wire.documents.map(toListedDocument)), (documents) =>
         andThen(collect(wire.participants.map(toParticipant)), (participants) =>
           createMeeting({ summary, agenda, documents, participants }),
         ),
@@ -206,11 +229,20 @@ function toAgendaItemWire(item: AgendaItem): z.input<typeof agendaItemSchema> {
   };
 }
 
+function toListedDocumentWire(document: Document): z.input<typeof listedDocumentSchema> {
+  return {
+    id: document.id,
+    title: document.title,
+    confidentiality: document.confidentiality,
+    pageCount: document.pageCount,
+  };
+}
+
 export function toMeetingWire(meeting: Meeting): MeetingWire {
   return {
     ...toMeetingSummaryWire(meeting),
     agenda: meeting.agenda.map(toAgendaItemWire),
-    documents: meeting.documents.map(toDocumentWire),
+    documents: meeting.documents.map(toListedDocumentWire),
     participants: meeting.participants.map((participant) => ({
       userId: participant.userId,
       fullName: participant.fullName,

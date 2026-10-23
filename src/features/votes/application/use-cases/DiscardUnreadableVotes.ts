@@ -1,5 +1,5 @@
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
+import type { SessionChangedError } from '@features/auth/domain/errors/AuthenticationError';
 import type { StorageWriteFailedError } from '@core/domain/errors/StorageError';
 import { isErr } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';

@@ -3,9 +3,9 @@ import {
   notAuthenticated,
   sessionChanged,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import { storageReadFailed, storageWriteFailed } from '@core/domain/errors/StorageError';
-import { voteNotRejected } from '@core/domain/errors/VoteDeliveryError';
+import { voteNotRejected } from '@features/votes/domain/errors/VoteDeliveryError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';
 import {

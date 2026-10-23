@@ -1,7 +1,7 @@
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
+import type { SessionChangedError } from '@features/auth/domain/errors/AuthenticationError';
 import type { StorageError } from '@core/domain/errors/StorageError';
-import { voteNotRejected } from '@core/domain/errors/VoteDeliveryError';
-import type { VoteNotRejectedError } from '@core/domain/errors/VoteDeliveryError';
+import { voteNotRejected } from '@features/votes/domain/errors/VoteDeliveryError';
+import type { VoteNotRejectedError } from '@features/votes/domain/errors/VoteDeliveryError';
 import { err, isErr, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { ResolutionId } from '@core/domain/value-objects/ids';

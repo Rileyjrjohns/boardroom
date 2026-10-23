@@ -3,10 +3,10 @@ import { StyleSheet, View } from 'react-native';
 
 import { Button } from '@core/presentation/components/Button';
 import { LiveText } from '@core/presentation/components/LiveText';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
 
 import type { CaptureNotice as CaptureNoticeValue } from '../hooks/useScreenCaptureNotice';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 interface CaptureNoticeProps {
   readonly notice: CaptureNoticeValue;
@@ -31,13 +31,13 @@ export function CaptureNotice({ notice, onDismiss }: CaptureNoticeProps) {
         key={notice.sequence}
         message={t(notice.message)}
         style={styles.message}
-        testID={TEST_IDS.documentCaptureNotice}
+        testID={DOCUMENTS_TEST_IDS.documentCaptureNotice}
       />
       <Button
         title={t('banner.dismiss')}
         variant="secondary"
         onPress={onDismiss}
-        testID={TEST_IDS.documentCaptureDismiss}
+        testID={DOCUMENTS_TEST_IDS.documentCaptureDismiss}
       />
     </View>
   );

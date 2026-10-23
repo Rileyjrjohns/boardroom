@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-
 import { AccessibilityInfo } from 'react-native';
 import type { ReactNode } from 'react';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import {
   forbidden,
@@ -15,8 +15,7 @@ import {
 import {
   screenProtectionFailed,
   screenProtectionUnsupported,
-} from '@core/domain/errors/ScreenProtectionError';
-import { TEST_IDS } from '@core/presentation/testIds';
+} from '@features/documents/domain/errors/ScreenProtectionError';
 import { SCREEN_CAPTURE_KIND } from '@features/documents/application/ports/ScreenProtection';
 import { CONFIDENTIALITY_LEVEL } from '@features/meetings/domain/entities/Document';
 import { createFakes } from '@testing/application/createFakes';
@@ -35,6 +34,8 @@ import { pdfProps, pdfStub, resetPdfStub } from '../testing/reactNativePdfStub';
 import { resetSecureViewStub, secureViewStub } from '../testing/screenProtectionSecureViewStub';
 
 import { DocumentScreen } from './DocumentScreen';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The screen of a document, with the real providers, the real use cases over the fakes of the
 // ports and the real translations. The PDF view is the stub that Jest gives for `react-native-pdf`
@@ -77,7 +78,7 @@ function renderDocument(
 
 /** Waits until the document is open and the file is handed to the PDF view. */
 async function opened(): Promise<void> {
-  await screen.findByTestId(TEST_IDS.documentPdf);
+  await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf);
 }
 
 beforeEach(() => {
@@ -92,24 +93,24 @@ afterEach(() => {
 describe('DocumentScreen, a confidential document', () => {
   it('turns the screen protection on, shows the file in the PDF view and says the screen is protected', async () => {
     const { fakes, t } = renderDocument();
-    expect(screen.getByTestId(TEST_IDS.documentLoading)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentLoading)).toBeTruthy();
 
     await opened();
 
     expect(fakes.screenProtection.enabled).toBe(true);
     expect(pdfProps().source).toEqual({ uri: locationOf('report'), cache: false });
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toHaveTextContent(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toHaveTextContent(
       t('document.protectedBadge'),
     );
     expect(screen.getByRole('header', { name: 'Remuneration report' })).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentLoading)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentLoading)).toBeNull();
   });
 
   it('draws the name and the email of the reader and the time of the opening over the file', async () => {
     const { format } = renderDocument();
     await opened();
 
-    const tiles = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
+    const tiles = screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
       includeHiddenElements: true,
     });
 
@@ -126,14 +127,14 @@ describe('DocumentScreen, a confidential document', () => {
     renderDocument();
     await opened();
 
-    const watermark = screen.getByTestId(TEST_IDS.documentWatermark, {
+    const watermark = screen.getByTestId(DOCUMENTS_TEST_IDS.documentWatermark, {
       includeHiddenElements: true,
     });
 
     expect(watermark.props.pointerEvents).toBe('none');
     expect(watermark.props.accessibilityElementsHidden).toBe(true);
     expect(watermark.props.importantForAccessibility).toBe('no-hide-descendants');
-    expect(screen.queryByTestId(TEST_IDS.documentWatermark)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentWatermark)).toBeNull();
   });
 
   it('turns off the annotations and the links of the file', async () => {
@@ -183,14 +184,16 @@ describe('DocumentScreen, the secure container', () => {
     await opened();
 
     expect(secureViewStub.latest).toBe(true);
-    const container = screen.getByTestId(TEST_IDS.documentSecureContent);
-    expect(within(container).getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    const container = screen.getByTestId(DOCUMENTS_TEST_IDS.documentSecureContent);
+    expect(within(container).getByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     expect(
-      within(container).getByTestId(TEST_IDS.documentWatermark, { includeHiddenElements: true }),
+      within(container).getByTestId(DOCUMENTS_TEST_IDS.documentWatermark, {
+        includeHiddenElements: true,
+      }),
     ).toBeTruthy();
-    expect(within(container).queryByTestId(TEST_IDS.documentTitle)).toBeNull();
-    expect(within(container).queryByTestId(TEST_IDS.documentProtectedBadge)).toBeNull();
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toBeTruthy();
+    expect(within(container).queryByTestId(DOCUMENTS_TEST_IDS.documentTitle)).toBeNull();
+    expect(within(container).queryByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeNull();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeTruthy();
   });
 
   it.each([PACK, MINUTES])(
@@ -200,8 +203,8 @@ describe('DocumentScreen, the secure container', () => {
       await opened();
 
       expect(secureViewStub.latest).toBe(false);
-      const container = screen.getByTestId(TEST_IDS.documentSecureContent);
-      expect(within(container).getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+      const container = screen.getByTestId(DOCUMENTS_TEST_IDS.documentSecureContent);
+      expect(within(container).getByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     },
   );
 });
@@ -215,9 +218,9 @@ describe('DocumentScreen, a document that is not confidential', () => {
 
       expect(fakes.screenProtection.enabled).toBe(false);
       expect(fakes.screenProtection.enableCalls).toBe(0);
-      expect(screen.queryByTestId(TEST_IDS.documentProtectedBadge)).toBeNull();
+      expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeNull();
       // Every document viewed carries the name of the reader: it deters a photograph of any of them.
-      const tiles = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
+      const tiles = screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
         includeHiddenElements: true,
       });
       expect(tiles.length).toBeGreaterThan(10);
@@ -238,15 +241,15 @@ describe('DocumentScreen, the PDF view', () => {
   it('shows a loading state until the file is read, then the page the reader is on', async () => {
     const { t } = renderDocument();
     await opened();
-    expect(screen.getByTestId(TEST_IDS.documentPdfLoading)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentPageIndicator)).toBeNull();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdfLoading)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toBeNull();
 
     act(() => {
       pdfProps().onLoadComplete?.(12);
     });
 
-    expect(screen.queryByTestId(TEST_IDS.documentPdfLoading)).toBeNull();
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator)).toHaveTextContent(
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdfLoading)).toBeNull();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toHaveTextContent(
       t('document.pageIndicator', { page: '1', total: '12' }),
     );
 
@@ -254,7 +257,9 @@ describe('DocumentScreen, the PDF view', () => {
       pdfProps().onPageChanged?.(7, 12);
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator)).toHaveTextContent('Page 7 of 12');
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toHaveTextContent(
+      'Page 7 of 12',
+    );
   });
 
   it('writes the pages with the grouping of the language', async () => {
@@ -265,7 +270,7 @@ describe('DocumentScreen, the PDF view', () => {
       pdfProps().onPageChanged?.(1234, 5678);
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator).props.children).toMatch(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator).props.children).toMatch(
       /^Page 1[\u202f\u00a0 ]234 sur 5[\u202f\u00a0 ]678$/,
     );
   });
@@ -273,7 +278,7 @@ describe('DocumentScreen, the PDF view', () => {
   it('keeps the watermark over the file while the file loads and after', async () => {
     renderDocument();
     await opened();
-    const tilesWhileLoading = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
+    const tilesWhileLoading = screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
       includeHiddenElements: true,
     }).length;
 
@@ -283,7 +288,9 @@ describe('DocumentScreen, the PDF view', () => {
 
     expect(tilesWhileLoading).toBeGreaterThan(0);
     expect(
-      screen.getAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }),
+      screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
+        includeHiddenElements: true,
+      }),
     ).toHaveLength(tilesWhileLoading);
   });
 
@@ -295,12 +302,12 @@ describe('DocumentScreen, the PDF view', () => {
       pdfProps().onError?.(new Error('boom'));
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentPdfError)).toHaveTextContent(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdfError)).toHaveTextContent(
       t('document.renderFailed'),
     );
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(
-      screen.queryByTestId(TEST_IDS.documentWatermark, { includeHiddenElements: true }),
+      screen.queryByTestId(DOCUMENTS_TEST_IDS.documentWatermark, { includeHiddenElements: true }),
     ).toBeNull();
 
     fireEvent.press(screen.getByRole('button', { name: t('states.retry') }));
@@ -310,7 +317,7 @@ describe('DocumentScreen, the PDF view', () => {
     expect(closeDocument).toHaveBeenCalledTimes(1);
     expect(fakes.documents.fetchContentCalls).toHaveLength(2);
     expect(fakes.screenProtection.enabled).toBe(true);
-    expect(screen.queryByTestId(TEST_IDS.documentPdfError)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdfError)).toBeNull();
   });
 });
 
@@ -320,13 +327,13 @@ describe('DocumentScreen, a screenshot or a recording', () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockClear();
     const { fakes, t } = renderDocument();
     await opened();
-    expect(screen.queryByTestId(TEST_IDS.documentCaptureNotice)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toBeNull();
 
     act(() => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.ScreenshotTaken });
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentCaptureNotice)).toHaveTextContent(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toHaveTextContent(
       t('document.capture.screenshot'),
     );
     expect(screen.getByRole('alert')).toHaveTextContent(t('document.capture.screenshot'));
@@ -360,7 +367,7 @@ describe('DocumentScreen, a screenshot or a recording', () => {
     expect(
       announce.mock.calls.filter(([text]) => text === t('document.capture.screenshot')),
     ).toHaveLength(2);
-    expect(screen.getAllByTestId(TEST_IDS.documentCaptureNotice)).toHaveLength(1);
+    expect(screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toHaveLength(1);
   });
 
   it('says a screen recording was seen, and says nothing more when it stops', async () => {
@@ -370,7 +377,7 @@ describe('DocumentScreen, a screenshot or a recording', () => {
     act(() => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.RecordingStarted });
     });
-    const notice = () => screen.getByTestId(TEST_IDS.documentCaptureNotice);
+    const notice = () => screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice);
     expect(notice()).toHaveTextContent(t('document.capture.recording'));
     act(() => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.RecordingStopped });
@@ -386,10 +393,10 @@ describe('DocumentScreen, a screenshot or a recording', () => {
     act(() => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.ScreenshotTaken });
     });
-    expect(screen.getByTestId(TEST_IDS.documentCaptureNotice)).toBeTruthy();
-    fireEvent.press(screen.getByTestId(TEST_IDS.documentCaptureDismiss));
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toBeTruthy();
+    fireEvent.press(screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureDismiss));
 
-    expect(screen.queryByTestId(TEST_IDS.documentCaptureNotice)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toBeNull();
   });
 
   it('is watched for while the screen is shown, and no longer once it is left', async () => {
@@ -437,7 +444,7 @@ describe('DocumentScreen, offline', () => {
     const { format } = renderDocument(REPORT.id, { fakes });
     await opened();
 
-    expect(screen.getByTestId(TEST_IDS.staleBanner)).toHaveTextContent(format.dateTime(NOW), {
+    expect(screen.getByTestId(CORE_TEST_IDS.staleBanner)).toHaveTextContent(format.dateTime(NOW), {
       exact: false,
     });
     expect(fakes.screenProtection.enabled).toBe(true);
@@ -457,9 +464,11 @@ describe('DocumentScreen, offline', () => {
     await opened();
 
     expect(fakes.screenProtection.enabled).toBe(true);
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeTruthy();
     expect(
-      screen.getAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }).length,
+      screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
+        includeHiddenElements: true,
+      }).length,
     ).toBeGreaterThan(0);
   });
 
@@ -468,17 +477,17 @@ describe('DocumentScreen, offline', () => {
     fakes.network.goOffline();
     const { t } = renderDocument(PACK.id, { fakes });
 
-    const error = await screen.findByTestId(TEST_IDS.documentError);
+    const error = await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError);
 
     expect(error).toHaveTextContent(t('document.errors.networkUnavailable'));
     expect(fakes.screenProtection.enableCalls).toBe(0);
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
 
     fakes.network.goOnline();
     fireEvent.press(screen.getByRole('button', { name: t('states.retry') }));
     await opened();
 
-    expect(screen.queryByTestId(TEST_IDS.documentError)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentError)).toBeNull();
   });
 
   it('says it in French in French', async () => {
@@ -486,7 +495,7 @@ describe('DocumentScreen, offline', () => {
     fakes.network.goOffline();
     renderDocument(PACK.id, { fakes, language: 'fr' });
 
-    const error = await screen.findByTestId(TEST_IDS.documentError);
+    const error = await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError);
 
     expect(error).toHaveTextContent('n’est pas enregistré sur cet appareil', { exact: false });
     expect(error).toHaveTextContent('hors ligne', { exact: false });
@@ -505,7 +514,7 @@ describe('DocumentScreen, when the document cannot be opened', () => {
       fakes.documents.failure = failure();
       const { t } = renderDocument(PACK.id, { fakes });
 
-      const error = await screen.findByTestId(TEST_IDS.documentError);
+      const error = await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError);
 
       expect(error).toHaveTextContent(t(key));
       expect(screen.queryByRole('button') !== null).toBe(retry);
@@ -518,11 +527,11 @@ describe('DocumentScreen, when the document cannot be opened', () => {
     fakes.screenProtection.enableFailure = screenProtectionUnsupported();
     const { t } = renderDocument(REPORT.id, { fakes });
 
-    const error = await screen.findByTestId(TEST_IDS.documentError);
+    const error = await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError);
 
     expect(error).toHaveTextContent(t('document.errors.screenProtectionUnsupported'));
     expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(fakes.screenProtection.enabled).toBe(false);
   });
 
@@ -530,7 +539,7 @@ describe('DocumentScreen, when the document cannot be opened', () => {
     const fakes = aWorld();
     fakes.screenProtection.enableFailure = screenProtectionFailed();
     const { t } = renderDocument(REPORT.id, { fakes });
-    const error = await screen.findByTestId(TEST_IDS.documentError);
+    const error = await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError);
     expect(error).toHaveTextContent(t('document.errors.screenProtectionFailed'));
 
     fakes.screenProtection.enableFailure = undefined;
@@ -543,25 +552,27 @@ describe('DocumentScreen, when the document cannot be opened', () => {
   it('says a document id that is no id is not found, without asking for anything', () => {
     const { fakes, t } = renderDocument(' ');
 
-    expect(screen.getByTestId(TEST_IDS.documentNotFound)).toHaveTextContent(t('document.notFound'));
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentNotFound)).toHaveTextContent(
+      t('document.notFound'),
+    );
     expect(fakes.documents.getCalls).toEqual([]);
   });
 
   it('says there is no document when the route has none', () => {
     renderScreen(<DocumentScreen documentId={undefined} />);
 
-    expect(screen.getByTestId(TEST_IDS.documentNotFound)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentNotFound)).toBeTruthy();
   });
 
   it('ends the session for the whole app when the server refuses it', async () => {
     const fakes = aWorld();
     fakes.documents.failure = unauthorized();
-    const { uiStore } = renderDocument(PACK.id, { fakes });
+    const { accessStore } = renderDocument(PACK.id, { fakes });
 
     await waitFor(() => {
-      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     });
-    expect(uiStore.getState().sessionEndedBy).toBe('unauthorized');
+    expect(accessStore.getState().sessionEndedBy).toBe('unauthorized');
   });
 
   it('says the network is out of reach for a request that fails on a document never opened', async () => {
@@ -569,7 +580,7 @@ describe('DocumentScreen, when the document cannot be opened', () => {
     fakes.documents.failure = networkUnavailable();
     renderDocument(PACK.id, { fakes });
 
-    expect(await screen.findByTestId(TEST_IDS.documentError)).toBeTruthy();
+    expect(await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError)).toBeTruthy();
   });
 });
 
@@ -649,20 +660,20 @@ describe('DocumentScreen, opened and closed', () => {
   });
 
   it('closes the document, and shows nothing of it, when the app stops being open', async () => {
-    const { fakes, uiStore, closeDocument } = renderDocument();
+    const { fakes, accessStore, closeDocument } = renderDocument();
     await opened();
 
     act(() => {
-      uiStore.getState().signedOut();
+      accessStore.getState().signedOut();
     });
 
     await waitFor(() => {
       expect(fakes.screenProtection.enabled).toBe(false);
     });
     expect(closeDocument).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(
-      screen.queryByTestId(TEST_IDS.documentWatermark, { includeHiddenElements: true }),
+      screen.queryByTestId(DOCUMENTS_TEST_IDS.documentWatermark, { includeHiddenElements: true }),
     ).toBeNull();
     expect(screen.queryByText('Remuneration report')).toBeNull();
   });
@@ -722,7 +733,7 @@ describe('DocumentScreen, in a navigator', () => {
       expect(fakes.screenProtection.enabled).toBe(false);
     });
     expect(closeDocument).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(fakes.screenProtection.listenerCount).toBe(0);
 
     act(() => navigation.emit('focus'));
@@ -766,12 +777,16 @@ describe('DocumentScreen, in French', () => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.ScreenshotTaken });
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toHaveTextContent('Écran protégé');
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator)).toHaveTextContent('Page 1 sur 12');
-    expect(screen.getByTestId(TEST_IDS.documentCaptureNotice)).toHaveTextContent(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toHaveTextContent(
+      'Écran protégé',
+    );
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toHaveTextContent(
+      'Page 1 sur 12',
+    );
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toHaveTextContent(
       'Une capture d’écran a été détectée. Elle a été consignée.',
     );
-    const [tile] = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
+    const [tile] = screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
       includeHiddenElements: true,
     });
     expect(tile).toHaveTextContent(
@@ -784,7 +799,7 @@ describe('DocumentScreen, in French', () => {
   it('loads in French', async () => {
     renderDocument(REPORT.id, { language: 'fr' });
 
-    expect(screen.getByTestId(TEST_IDS.documentLoading).props.accessibilityLabel).toBe(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentLoading).props.accessibilityLabel).toBe(
       'Ouverture du document',
     );
     await opened();
@@ -794,7 +809,7 @@ describe('DocumentScreen, in French', () => {
     renderDocument(REPORT.id, { language: 'fr' });
     await opened();
 
-    expect(screen.getByTestId(TEST_IDS.documentPdfLoading).props.accessibilityLabel).toBe(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdfLoading).props.accessibilityLabel).toBe(
       'Affichage du document',
     );
     expect(pdfStub.mounted).toBe(1);
@@ -811,18 +826,20 @@ describe('DocumentScreen, while the app is not active', () => {
     act(() => {
       pdfProps().onPageChanged?.(7, 12);
     });
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator)).toHaveTextContent('Page 7 of 12');
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toHaveTextContent(
+      'Page 7 of 12',
+    );
     expect(pdfStub.mounted).toBe(1);
 
     act(() => {
       uiStore.getState().setPrivacyCover(true);
     });
 
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(pdfStub.latest).toBeUndefined();
-    expect(screen.queryByTestId(TEST_IDS.documentPageIndicator)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toBeNull();
     expect(
-      screen.queryByTestId(TEST_IDS.documentWatermark, { includeHiddenElements: true }),
+      screen.queryByTestId(DOCUMENTS_TEST_IDS.documentWatermark, { includeHiddenElements: true }),
     ).toBeNull();
     // The document is still open and protected: only the native view is gone.
     expect(screen.getByRole('header', { name: 'Remuneration report' })).toBeTruthy();
@@ -831,15 +848,15 @@ describe('DocumentScreen, while the app is not active', () => {
       uiStore.getState().setPrivacyCover(false);
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     expect(pdfStub.mounted).toBe(2);
     expect(pdfProps().source.uri).toBe(locationOf('report'));
-    expect(screen.getByTestId(TEST_IDS.documentPdfLoading)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentPageIndicator)).toBeNull();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdfLoading)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toBeNull();
     act(() => {
       pdfProps().onLoadComplete?.(12);
     });
-    expect(screen.getByTestId(TEST_IDS.documentPageIndicator)).toHaveTextContent(
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPageIndicator)).toHaveTextContent(
       t('document.pageIndicator', { page: '1', total: '12' }),
     );
   });
@@ -872,8 +889,8 @@ describe('DocumentScreen, while the app is not active', () => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.ScreenshotTaken });
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentCaptureNotice)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentCaptureNotice)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(pdfStub.mounted).toBe(1);
   });
 
@@ -882,16 +899,16 @@ describe('DocumentScreen, while the app is not active', () => {
     act(() => {
       uiStore.getState().setPrivacyCover(true);
     });
-    await screen.findByTestId(TEST_IDS.documentTitle);
+    await screen.findByTestId(DOCUMENTS_TEST_IDS.documentTitle);
 
     expect(pdfStub.mounted).toBe(0);
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
 
     act(() => {
       uiStore.getState().setPrivacyCover(false);
     });
 
-    expect(screen.getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
   });
 });
 
@@ -916,21 +933,21 @@ describe('DocumentScreen, the test ids', () => {
       fakes.screenProtection.emit({ kind: SCREEN_CAPTURE_KIND.ScreenshotTaken });
     });
     const whileLoading = [
-      TEST_IDS.documentScreen,
-      TEST_IDS.documentTitle,
-      TEST_IDS.documentProtectedBadge,
-      TEST_IDS.documentPdf,
-      TEST_IDS.documentPdfLoading,
-      TEST_IDS.documentCaptureNotice,
-      TEST_IDS.documentCaptureDismiss,
+      DOCUMENTS_TEST_IDS.documentScreen,
+      DOCUMENTS_TEST_IDS.documentTitle,
+      DOCUMENTS_TEST_IDS.documentProtectedBadge,
+      DOCUMENTS_TEST_IDS.documentPdf,
+      DOCUMENTS_TEST_IDS.documentPdfLoading,
+      DOCUMENTS_TEST_IDS.documentCaptureNotice,
+      DOCUMENTS_TEST_IDS.documentCaptureDismiss,
     ];
     act(() => {
       pdfProps().onLoadComplete?.(12);
     });
-    const afterLoading = [TEST_IDS.documentPageIndicator];
+    const afterLoading = [DOCUMENTS_TEST_IDS.documentPageIndicator];
 
     for (const id of [
-      ...whileLoading.filter((id) => id !== TEST_IDS.documentPdfLoading),
+      ...whileLoading.filter((id) => id !== DOCUMENTS_TEST_IDS.documentPdfLoading),
       ...afterLoading,
     ]) {
       expect({ id, reaches: reachesTheNativeTree(screen.getByTestId(id)) }).toEqual({
@@ -942,7 +959,7 @@ describe('DocumentScreen, the test ids', () => {
     act(() => {
       pdfProps().onError?.(new Error('boom'));
     });
-    for (const id of [TEST_IDS.documentPdfError, TEST_IDS.retryButton]) {
+    for (const id of [DOCUMENTS_TEST_IDS.documentPdfError, CORE_TEST_IDS.retryButton]) {
       expect({ id, reaches: reachesTheNativeTree(screen.getByTestId(id)) }).toEqual({
         id,
         reaches: true,
@@ -952,26 +969,32 @@ describe('DocumentScreen, the test ids', () => {
 
   it('are on an element that reaches the native tree while the document opens, when it cannot be opened, and when it is not found', async () => {
     const loading = renderDocument();
-    expect(reachesTheNativeTree(screen.getByTestId(TEST_IDS.documentLoading))).toBe(true);
+    expect(reachesTheNativeTree(screen.getByTestId(DOCUMENTS_TEST_IDS.documentLoading))).toBe(true);
     await opened();
     loading.unmount();
 
     const fakes = aWorld();
     fakes.documents.failure = notFound();
     renderDocument(PACK.id, { fakes });
-    expect(reachesTheNativeTree(await screen.findByTestId(TEST_IDS.documentError))).toBe(true);
+    expect(reachesTheNativeTree(await screen.findByTestId(DOCUMENTS_TEST_IDS.documentError))).toBe(
+      true,
+    );
   });
 
   it('has the id of the loading file on an element that reaches the native tree', async () => {
     renderDocument();
     await opened();
 
-    expect(reachesTheNativeTree(screen.getByTestId(TEST_IDS.documentPdfLoading))).toBe(true);
+    expect(reachesTheNativeTree(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdfLoading))).toBe(
+      true,
+    );
   });
 
   it('has the id of a document that is not found on the text that says so', () => {
     renderDocument(' ');
 
-    expect(reachesTheNativeTree(screen.getByTestId(TEST_IDS.documentNotFound))).toBe(true);
+    expect(reachesTheNativeTree(screen.getByTestId(DOCUMENTS_TEST_IDS.documentNotFound))).toBe(
+      true,
+    );
   });
 });

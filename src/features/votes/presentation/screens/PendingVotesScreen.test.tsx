@@ -1,18 +1,11 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { storageReadFailed, storageWriteFailed } from '@core/domain/errors/StorageError';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import {
-  TEST_IDS,
-  acknowledgeTestId,
-  openVoteMeetingTestId,
-  pendingVoteTestId,
-  rejectedVoteTestId,
-} from '@core/presentation/testIds';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
 import { createFakes } from '@testing/application/createFakes';
 import {
@@ -28,6 +21,14 @@ import { renderScreen } from '@testing/presentation/renderScreen';
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
 import { PendingVotesScreen } from './PendingVotesScreen';
+import {
+  acknowledgeTestId,
+  openVoteMeetingTestId,
+  pendingVoteTestId,
+  rejectedVoteTestId,
+  VOTES_TEST_IDS,
+} from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 const R1 = aResolutionId('r1');
 const R2 = aResolutionId('r2');
@@ -75,22 +76,22 @@ describe('PendingVotesScreen', () => {
     const fakes = createFakes();
     fakes.outbox.seed(FIRST);
     renderPending({ fakes });
-    expect(screen.getByTestId(TEST_IDS.pendingVotesLoading)).toBeTruthy();
+    expect(screen.getByTestId(VOTES_TEST_IDS.pendingVotesLoading)).toBeTruthy();
 
-    await screen.findByTestId(TEST_IDS.pendingVotesScreen);
+    await screen.findByTestId(VOTES_TEST_IDS.pendingVotesScreen);
 
-    expect(screen.queryByTestId(TEST_IDS.pendingVotesLoading)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesLoading)).toBeNull();
   });
 
   it('says no vote is waiting when the outbox is empty', async () => {
     const { t } = renderPending();
 
-    const empty = await screen.findByTestId(TEST_IDS.pendingVotesEmpty);
+    const empty = await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty);
 
     expect(within(empty).getByText(t('pendingVotes.empty'))).toBeTruthy();
     expect(screen.getByText(t('pendingVotes.explanation'))).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.pendingVotesWaiting)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.pendingVotesRejected)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesWaiting)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesRejected)).toBeNull();
   });
 
   describe('the votes that wait', () => {
@@ -98,9 +99,9 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seed(FIRST, SECOND);
       const { t, format } = renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
 
-      const section = screen.getByTestId(TEST_IDS.pendingVotesWaiting);
+      const section = screen.getByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
       const rows = within(section).getAllByTestId(/^pending-vote-/);
 
       expect(rows.map((row) => row.props.testID)).toEqual([
@@ -115,14 +116,14 @@ describe('PendingVotesScreen', () => {
       expect(
         within(first).getByText(t('pendingVotes.castAt', { date: format.dateTime(at(-5000)) })),
       ).toBeTruthy();
-      expect(screen.queryByTestId(TEST_IDS.pendingVotesRejected)).toBeNull();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesRejected)).toBeNull();
     });
 
     it('lead to the meeting they were cast in', async () => {
       const fakes = createFakes();
       fakes.outbox.seed(FIRST, SECOND);
       const { onOpenMeeting, t } = renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
 
       fireEvent.press(screen.getByTestId(openVoteMeetingTestId(R2)));
 
@@ -141,7 +142,7 @@ describe('PendingVotesScreen', () => {
         aPendingVote(aVote({ resolutionId: R2, voterId: aUserId('user-2') })),
       );
       renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
 
       expect(screen.queryByTestId(pendingVoteTestId(R2))).toBeNull();
       expect(screen.getByTestId(pendingVoteTestId(R1))).toBeTruthy();
@@ -153,12 +154,12 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seed(FIRST, REJECTED);
       const { t, format } = renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.pendingVotesRejected);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesRejected);
 
       const row = screen.getByTestId(rejectedVoteTestId(R3));
 
       expect(
-        within(screen.getByTestId(TEST_IDS.pendingVotesRejected)).getByRole('header', {
+        within(screen.getByTestId(VOTES_TEST_IDS.pendingVotesRejected)).getByRole('header', {
           name: t('pendingVotes.rejected'),
         }),
       ).toBeTruthy();
@@ -201,7 +202,7 @@ describe('PendingVotesScreen', () => {
       await waitFor(() => {
         expect(screen.queryByTestId(rejectedVoteTestId(R3))).toBeNull();
       });
-      expect(screen.queryByTestId(TEST_IDS.pendingVotesRejected)).toBeNull();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.pendingVotesRejected)).toBeNull();
       expect(fakes.outbox.snapshot().map((entry) => entry.vote.resolutionId)).toEqual([R1]);
       expect(screen.getByTestId(pendingVoteTestId(R1))).toBeTruthy();
     });
@@ -246,9 +247,9 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seed(FIRST);
       renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
 
-      expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeNull();
     });
 
     it.each([
@@ -268,7 +269,7 @@ describe('PendingVotesScreen', () => {
           fakes.outbox.seedUnreadable(USER, `k${index}`);
         renderPending({ fakes, language });
 
-        const notice = await screen.findByTestId(TEST_IDS.unreadableVotes);
+        const notice = await screen.findByTestId(VOTES_TEST_IDS.unreadableVotes);
 
         expect(notice).toHaveTextContent(text, { exact: false });
       },
@@ -281,19 +282,19 @@ describe('PendingVotesScreen', () => {
       renderPending({ fakes });
 
       expect(await screen.findByTestId(pendingVoteTestId(R1))).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+      expect(screen.getByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeTruthy();
     });
 
     it('does not delete them by itself: the screen can be left and opened again, they are still there', async () => {
       const fakes = createFakes();
       fakes.outbox.seedUnreadable(USER, 'k1');
       const first = renderPending({ fakes });
-      await screen.findByTestId(TEST_IDS.unreadableVotes);
+      await screen.findByTestId(VOTES_TEST_IDS.unreadableVotes);
       first.unmount();
 
       renderPending({ fakes });
 
-      expect(await screen.findByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+      expect(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeTruthy();
       expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
     });
 
@@ -303,7 +304,7 @@ describe('PendingVotesScreen', () => {
       fakes.outbox.seedUnreadable(USER, 'k2');
       const { t, format } = renderPending({ fakes });
 
-      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+      fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotesDiscard));
 
       expect(screen.getByRole('header', { name: t('pendingVotes.discardTitle') })).toBeTruthy();
       expect(
@@ -316,12 +317,12 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seedUnreadable(USER, 'k1');
       renderPending({ fakes });
-      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+      fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotesDiscard));
 
-      fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesCancel));
+      fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.unreadableVotesCancel));
 
       expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
-      expect(screen.getByTestId(TEST_IDS.unreadableVotes)).toBeTruthy();
+      expect(screen.getByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeTruthy();
     });
 
     it('deletes them once the user confirms, and the notice goes', async () => {
@@ -329,15 +330,15 @@ describe('PendingVotesScreen', () => {
       fakes.outbox.seed(FIRST);
       fakes.outbox.seedUnreadable(USER, 'k1');
       renderPending({ fakes });
-      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+      fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotesDiscard));
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+        fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.unreadableVotesConfirm));
       });
       await settle();
 
       await waitFor(() => {
-        expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+        expect(screen.queryByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeNull();
       });
       expect(fakes.outbox.unreadableSnapshot()).toEqual([]);
       expect(fakes.outbox.snapshot()).toEqual([FIRST]);
@@ -348,25 +349,25 @@ describe('PendingVotesScreen', () => {
       fakes.outbox.seedUnreadable(USER, 'k1');
       fakes.outbox.discardFailure = storageWriteFailed();
       const { t } = renderPending({ fakes });
-      fireEvent.press(await screen.findByTestId(TEST_IDS.unreadableVotesDiscard));
+      fireEvent.press(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotesDiscard));
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+        fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.unreadableVotesConfirm));
       });
       await settle();
 
-      expect(await screen.findByTestId(TEST_IDS.unreadableVotesError)).toHaveTextContent(
+      expect(await screen.findByTestId(VOTES_TEST_IDS.unreadableVotesError)).toHaveTextContent(
         t('pendingVotes.discardFailed'),
       );
       expect(fakes.outbox.unreadableSnapshot()).toHaveLength(1);
 
       fakes.outbox.discardFailure = undefined;
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.unreadableVotesConfirm));
+        fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.unreadableVotesConfirm));
       });
       await settle();
       await waitFor(() => {
-        expect(screen.queryByTestId(TEST_IDS.unreadableVotes)).toBeNull();
+        expect(screen.queryByTestId(VOTES_TEST_IDS.unreadableVotes)).toBeNull();
       });
     });
   });
@@ -378,7 +379,7 @@ describe('PendingVotesScreen', () => {
       fakes.outbox.listFailure = storageReadFailed();
       const { t } = renderPending({ fakes });
 
-      const error = await screen.findByTestId(TEST_IDS.pendingVotesError, undefined, {
+      const error = await screen.findByTestId(VOTES_TEST_IDS.pendingVotesError, undefined, {
         timeout: 10_000,
       });
       expect(within(error).getByText(t('errors.storageReadFailed'))).toBeTruthy();
@@ -392,10 +393,10 @@ describe('PendingVotesScreen', () => {
     it('sends the user to the lock screen, without a retry, when the app is locked', async () => {
       const fakes = createFakes();
       fakes.appLock.lock();
-      const { uiStore } = renderPending({ fakes });
+      const { accessStore } = renderPending({ fakes });
 
       await waitFor(() => {
-        expect(uiStore.getState().access).toBe(ACCESS.Locked);
+        expect(accessStore.getState().access).toBe(ACCESS.Locked);
       });
     });
   });
@@ -403,11 +404,11 @@ describe('PendingVotesScreen', () => {
   it('asks the outbox again when the user pulls to refresh', async () => {
     const fakes = createFakes();
     renderPending({ fakes });
-    await screen.findByTestId(TEST_IDS.pendingVotesEmpty);
+    await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty);
     fakes.outbox.seed(FIRST);
 
     await act(async () => {
-      screen.getByTestId(TEST_IDS.pendingVotesScreen).props.refreshControl.props.onRefresh();
+      screen.getByTestId(VOTES_TEST_IDS.pendingVotesScreen).props.refreshControl.props.onRefresh();
     });
     await settle();
 
@@ -416,14 +417,14 @@ describe('PendingVotesScreen', () => {
 
   it('shows the banner area and, in the mock configuration, the demo switch', async () => {
     const { uiStore, t } = renderPending({ demo: true });
-    await screen.findByTestId(TEST_IDS.pendingVotesEmpty);
+    await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty);
 
     act(() => {
       uiStore.getState().setConnectivity('offline');
     });
 
-    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
-    expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+    expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+    expect(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeTruthy();
   });
 
   describe('in each language', () => {
@@ -431,7 +432,7 @@ describe('PendingVotesScreen', () => {
       const fakes = createFakes();
       fakes.outbox.seed(FIRST, REJECTED);
       const { t } = renderPending({ fakes, language });
-      await screen.findByTestId(TEST_IDS.pendingVotesWaiting);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesWaiting);
 
       expect(screen.getByRole('header', { name: t('pendingVotes.waiting') })).toBeTruthy();
       expect(screen.getByRole('header', { name: t('pendingVotes.rejected') })).toBeTruthy();
@@ -441,7 +442,7 @@ describe('PendingVotesScreen', () => {
 
     it('shows the explanation of the page in French, with the text of the French resource', async () => {
       const { t } = renderPending({ language: 'fr' });
-      await screen.findByTestId(TEST_IDS.pendingVotesEmpty);
+      await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty);
 
       expect(screen.getByText(t('pendingVotes.explanation'))).toBeTruthy();
     });

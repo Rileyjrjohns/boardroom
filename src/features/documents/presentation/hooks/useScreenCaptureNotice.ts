@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import type { UseCases } from '@composition/shell/services/AppServices';
-import { useSessionOpen } from '@composition/shell/state/useSessionOpen';
 import type { DocumentId } from '@core/domain/value-objects/ids';
-import { CAPTURE_NOTICE_KEYS } from '@core/presentation/i18n/translationKeys';
 import type { TranslationKey } from '@core/presentation/i18n/translationKeys';
 import { useIsScreenFocused } from '@core/presentation/navigation/useIsScreenFocused';
+import { useSessionOpen } from '@features/auth/presentation/state/useSessionOpen';
+
+import { CAPTURE_NOTICE_KEYS } from '../i18n/documentMessageKeys';
+import { useDocumentsServices } from '../services/DocumentsServices';
+import type { DocumentsServices } from '../services/DocumentsServices';
 
 /** A capture of the screen the user has to be told about. */
 export interface CaptureNotice {
@@ -37,7 +38,7 @@ class CaptureWatch {
   private stopWatching: (() => void) | undefined;
 
   constructor(
-    private readonly useCases: Pick<UseCases, 'observeScreenCapture'>,
+    private readonly useCases: Pick<DocumentsServices, 'observeScreenCapture'>,
     private readonly documentId: DocumentId,
   ) {}
 
@@ -102,7 +103,7 @@ class CaptureWatch {
  * The subscription lasts as long as the screen is shown to the user, and ends when it is not.
  */
 export function useScreenCaptureNotice(documentId: DocumentId): CaptureNoticeState {
-  const { useCases } = useAppServices();
+  const useCases = useDocumentsServices();
   const sessionOpen = useSessionOpen();
   const focused = useIsScreenFocused();
   const shown = sessionOpen && focused;

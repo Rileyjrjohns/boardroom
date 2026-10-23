@@ -1,6 +1,6 @@
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { SCREEN_PROTECTION_ERROR_CODE } from '@core/domain/errors/ScreenProtectionError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@features/documents/domain/errors/ScreenProtectionError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@core/domain/errors/ValidationError';
 

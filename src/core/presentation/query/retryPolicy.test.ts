@@ -1,10 +1,15 @@
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { ERROR_CATALOG } from '@composition/shell/errorCatalog';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@core/domain/errors/ValidationError';
 
 import { QueryFailure } from './QueryFailure';
-import { MAX_QUERY_RETRIES, retryDelay, shouldRetry } from './retryPolicy';
+import { MAX_QUERY_RETRIES, retryDelay, shouldRetry as shouldRetryWith } from './retryPolicy';
+
+/** The policy of the app: the catalog of the composition says which codes a retry can fix. */
+const shouldRetry = (failureCount: number, error: unknown): boolean =>
+  shouldRetryWith(failureCount, error, ERROR_CATALOG);
 
 const RETRYABLE = [
   REPOSITORY_ERROR_CODE.NetworkUnavailable,
