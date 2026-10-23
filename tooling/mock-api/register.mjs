@@ -1,6 +1,6 @@
 // Lets Node run the TypeScript sources of the app directly, with no dependency and no build, for
 // `npm run mock:api`. Node 24 strips the types itself; what it does not do is resolve the
-// `@domain/*`-style aliases of tsconfig.json and the extensionless imports of the sources, which is
+// `@core/*`-style aliases of tsconfig.json and the extensionless imports of the sources, which is
 // all this hook adds. It is loaded with `node --import ./tooling/mock-api/register.mjs`.
 //
 // The aliases are read from tsconfig.json, their single source of truth: TypeScript, Metro, ESLint
@@ -21,7 +21,7 @@ const CANDIDATES = ['.ts', '/index.ts'];
 const paths = JSON.parse(fs.readFileSync(path.join(ROOT, 'tsconfig.json'), 'utf8')).compilerOptions
   .paths;
 
-/** `@domain/` and the folder it stands for, for every alias of tsconfig.json. */
+/** `@core/` and the folder it stands for, for every alias of tsconfig.json. */
 const aliases = Object.entries(paths).map(([alias, [target]]) => [
   alias.replace(/\*$/, ''),
   path.join(ROOT, (target ?? '').replace(/\*$/, '')),

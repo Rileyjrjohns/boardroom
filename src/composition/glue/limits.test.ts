@@ -1,0 +1,230 @@
+import {
+  VALIDATION_FIELD,
+  VALIDATION_RULE,
+  validationError,
+} from '@core/domain/errors/ValidationError';
+import type { ValidationField } from '@core/domain/errors/ValidationError';
+import { err } from '@core/domain/shared/Result';
+import type { Result } from '@core/domain/shared/Result';
+import { durationFromMillis } from '@core/domain/value-objects/Duration';
+import { parseInstant } from '@core/domain/value-objects/Instant';
+import { parsePageCursor } from '@core/domain/value-objects/PageCursor';
+import { createPageRequest } from '@core/domain/value-objects/PageRequest';
+import {
+  parseAgendaItemId,
+  parseDocumentId,
+  parseMeetingId,
+  parseResolutionId,
+  parseUserId,
+} from '@core/domain/value-objects/ids';
+import { createUser } from '@features/auth/domain/entities/User';
+import { parseEmailAddress } from '@features/auth/domain/value-objects/EmailAddress';
+import { parseDocumentLocation } from '@features/documents/domain/value-objects/DocumentLocation';
+import { createAgendaItem } from '@features/meetings/domain/entities/AgendaItem';
+import { CONFIDENTIALITY_LEVEL, createDocument } from '@features/meetings/domain/entities/Document';
+import { createMeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
+import {
+  PARTICIPANT_ROLE,
+  createParticipant,
+} from '@features/meetings/domain/entities/Participant';
+import { RESOLUTION_STATUS, createResolution } from '@features/meetings/domain/entities/Resolution';
+import { restorePendingVote } from '@features/votes/domain/entities/OutboxVote';
+import {
+  NOW,
+  aDocumentId,
+  aMeetingId,
+  aResolutionId,
+  aUserId,
+  aVote,
+  anAgendaItemId,
+  anEmail,
+} from '@testing/domain/builders';
+
+// Every limit of the domain, at its exact value: the maximum is accepted, one more is rejected
+// (and, for a number, the minimum is accepted and one less is rejected).
+
+type Check = Result<unknown, unknown>;
+
+const LONG_TEXTS: readonly [string, (length: number) => Check, number, ValidationField][] = [
+  [
+    'an email address',
+    (n) => parseEmailAddress(`${'a'.repeat(n - '@b.co'.length)}@b.co`),
+    254,
+    VALIDATION_FIELD.Email,
+  ],
+  [
+    'a document location',
+    (n) => parseDocumentLocation('a'.repeat(n)),
+    2048,
+    VALIDATION_FIELD.DocumentLocation,
+  ],
+  ['a page cursor', (n) => parsePageCursor('a'.repeat(n)), 512, VALIDATION_FIELD.PageCursor],
+  ['a user id', (n) => parseUserId('a'.repeat(n)), 128, VALIDATION_FIELD.UserId],
+  ['a meeting id', (n) => parseMeetingId('a'.repeat(n)), 128, VALIDATION_FIELD.MeetingId],
+  [
+    'an agenda item id',
+    (n) => parseAgendaItemId('a'.repeat(n)),
+    128,
+    VALIDATION_FIELD.AgendaItemId,
+  ],
+  ['a resolution id', (n) => parseResolutionId('a'.repeat(n)), 128, VALIDATION_FIELD.ResolutionId],
+  ['a document id', (n) => parseDocumentId('a'.repeat(n)), 128, VALIDATION_FIELD.DocumentId],
+  [
+    'the name of a user',
+    (n) => createUser({ id: aUserId(), fullName: 'a'.repeat(n), email: anEmail() }),
+    200,
+    VALIDATION_FIELD.FullName,
+  ],
+  [
+    'the name of a participant',
+    (n) =>
+      createParticipant({
+        userId: aUserId(),
+        fullName: 'a'.repeat(n),
+        role: PARTICIPANT_ROLE.Member,
+      }),
+    200,
+    VALIDATION_FIELD.FullName,
+  ],
+  [
+    'the title of a document',
+    (n) =>
+      createDocument({
+        id: aDocumentId(),
+        title: 'a'.repeat(n),
+        confidentiality: CONFIDENTIALITY_LEVEL.Internal,
+        pageCount: 1,
+      }),
+    300,
+    VALIDATION_FIELD.Title,
+  ],
+  [
+    'the title of a resolution',
+    (n) =>
+      createResolution({
+        id: aResolutionId(),
+        title: 'a'.repeat(n),
+        description: 'd',
+        status: RESOLUTION_STATUS.Open,
+      }),
+    300,
+    VALIDATION_FIELD.Title,
+  ],
+  [
+    'the description of a resolution',
+    (n) =>
+      createResolution({
+        id: aResolutionId(),
+        title: 't',
+        description: 'a'.repeat(n),
+        status: RESOLUTION_STATUS.Open,
+      }),
+    5000,
+    VALIDATION_FIELD.Description,
+  ],
+  [
+    'the title of an agenda item',
+    (n) => createAgendaItem({ id: anAgendaItemId(), position: 1, title: 'a'.repeat(n) }),
+    300,
+    VALIDATION_FIELD.Title,
+  ],
+  [
+    'the description of an agenda item',
+    (n) =>
+      createAgendaItem({
+        id: anAgendaItemId(),
+        position: 1,
+        title: 't',
+        description: 'a'.repeat(n),
+      }),
+    5000,
+    VALIDATION_FIELD.Description,
+  ],
+  [
+    'the title of a meeting',
+    (n) =>
+      createMeetingSummary({
+        id: aMeetingId(),
+        title: 'a'.repeat(n),
+        scheduledAt: NOW,
+        location: 'l',
+      }),
+    300,
+    VALIDATION_FIELD.Title,
+  ],
+  [
+    'the location of a meeting',
+    (n) =>
+      createMeetingSummary({
+        id: aMeetingId(),
+        title: 't',
+        scheduledAt: NOW,
+        location: 'a'.repeat(n),
+      }),
+    300,
+    VALIDATION_FIELD.Location,
+  ],
+];
+
+const NUMBERS: readonly [string, (value: number) => Check, number, number, ValidationField][] = [
+  [
+    'the position of an agenda item',
+    (position) => createAgendaItem({ id: anAgendaItemId(), position, title: 't' }),
+    1,
+    1000,
+    VALIDATION_FIELD.Position,
+  ],
+  [
+    'the page count of a document',
+    (pageCount) =>
+      createDocument({
+        id: aDocumentId(),
+        title: 't',
+        confidentiality: CONFIDENTIALITY_LEVEL.Internal,
+        pageCount,
+      }),
+    1,
+    10_000,
+    VALIDATION_FIELD.PageCount,
+  ],
+  [
+    'the attempts of a pending vote',
+    (attempts) => restorePendingVote({ vote: aVote(), enqueuedAt: NOW, attempts }),
+    0,
+    1_000_000,
+    VALIDATION_FIELD.AttemptCount,
+  ],
+  [
+    'the size of a page',
+    (limit) => createPageRequest({ limit }),
+    1,
+    50,
+    VALIDATION_FIELD.PageLimit,
+  ],
+  ['a duration', durationFromMillis, 0, 3_153_600_000_000, VALIDATION_FIELD.Duration],
+  ['an instant', parseInstant, 0, 8_640_000_000_000_000, VALIDATION_FIELD.Instant],
+];
+
+describe.each(LONG_TEXTS)('the length of %s', (_name, build, maximum, field) => {
+  it(`accepts ${maximum} characters`, () => {
+    expect(build(maximum).ok).toBe(true);
+  });
+
+  it(`rejects ${maximum + 1} characters as too long`, () => {
+    expect(build(maximum + 1)).toEqual(err(validationError(field, VALIDATION_RULE.TooLong)));
+  });
+});
+
+describe.each(NUMBERS)('%s', (_name, build, minimum, maximum, field) => {
+  it(`accepts ${minimum} and ${maximum}`, () => {
+    expect(build(minimum).ok).toBe(true);
+    expect(build(maximum).ok).toBe(true);
+  });
+
+  it(`rejects ${minimum - 1} and ${maximum + 1}`, () => {
+    const outOfRange = err(validationError(field, VALIDATION_RULE.OutOfRange));
+
+    expect(build(minimum - 1)).toEqual(outOfRange);
+    expect(build(maximum + 1)).toEqual(outOfRange);
+  });
+});

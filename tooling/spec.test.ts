@@ -1,30 +1,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { createAgendaItem } from '../src/domain/entities/AgendaItem';
-import { CONFIDENTIALITY_LEVEL, createDocument } from '../src/domain/entities/Document';
-import { createMeetingSummary } from '../src/domain/entities/MeetingSummary';
-import { PARTICIPANT_ROLE, createParticipant } from '../src/domain/entities/Participant';
-import { RESOLUTION_STATUS, createResolution } from '../src/domain/entities/Resolution';
-import { createUser } from '../src/domain/entities/User';
-import { createVote } from '../src/domain/entities/Vote';
-import { restorePendingVote } from '../src/domain/entities/OutboxVote';
-import { durationFromMillis } from '../src/domain/value-objects/Duration';
-import { parseEmailAddress } from '../src/domain/value-objects/EmailAddress';
+import { createAgendaItem } from '../src/features/meetings/domain/entities/AgendaItem';
+import {
+  CONFIDENTIALITY_LEVEL,
+  createDocument,
+} from '../src/features/meetings/domain/entities/Document';
+import { createMeetingSummary } from '../src/features/meetings/domain/entities/MeetingSummary';
+import {
+  PARTICIPANT_ROLE,
+  createParticipant,
+} from '../src/features/meetings/domain/entities/Participant';
+import {
+  RESOLUTION_STATUS,
+  createResolution,
+} from '../src/features/meetings/domain/entities/Resolution';
+import { createUser } from '../src/features/auth/domain/entities/User';
+import { createVote } from '../src/features/votes/domain/entities/Vote';
+import { restorePendingVote } from '../src/features/votes/domain/entities/OutboxVote';
+import { durationFromMillis } from '../src/core/domain/value-objects/Duration';
+import { parseEmailAddress } from '../src/features/auth/domain/value-objects/EmailAddress';
 import {
   parseAgendaItemId,
   parseDocumentId,
   parseMeetingId,
   parseResolutionId,
   parseUserId,
-} from '../src/domain/value-objects/ids';
-import { parseInstant } from '../src/domain/value-objects/Instant';
-import { parseDocumentLocation } from '../src/domain/value-objects/DocumentLocation';
-import { parsePageCursor } from '../src/domain/value-objects/PageCursor';
-import { createPageRequest } from '../src/domain/value-objects/PageRequest';
-import { VOTE_CHOICE } from '../src/domain/value-objects/VoteChoice';
-import { ROUTES, ROUTE_PARAMS } from '../src/presentation/navigation/routes';
-import * as testIds from '../src/presentation/testIds';
+} from '../src/core/domain/value-objects/ids';
+import { parseInstant } from '../src/core/domain/value-objects/Instant';
+import { parseDocumentLocation } from '../src/features/documents/domain/value-objects/DocumentLocation';
+import { parsePageCursor } from '../src/core/domain/value-objects/PageCursor';
+import { createPageRequest } from '../src/core/domain/value-objects/PageRequest';
+import { VOTE_CHOICE } from '../src/features/meetings/domain/value-objects/VoteChoice';
+import { ROUTES, ROUTE_PARAMS } from '../src/core/presentation/navigation/routes';
+import * as testIds from '../src/core/presentation/testIds';
 
 import {
   ROOT,
@@ -34,7 +43,8 @@ import {
   parametersOfRoute,
   portsIn,
   routesOfApp,
-  sourceFilesUnder,
+  sharedApplicationFiles,
+  sourceFilesOfLayer,
   useCaseNamesIn,
 } from './specCode';
 import {
@@ -215,26 +225,23 @@ const ENUMERATION_SOURCES: readonly {
   readonly document: SpecDocument;
   readonly files: readonly string[];
 }[] = [
-  { document: spec.domain, files: sourceFilesUnder('src/domain') },
-  { document: spec.ports, files: sourceFilesUnder('src/application/ports') },
+  { document: spec.domain, files: sourceFilesOfLayer('domain') },
+  { document: spec.ports, files: sourceFilesOfLayer('application', 'ports') },
   {
     document: spec.useCases,
-    files: [
-      ...sourceFilesUnder('src/application/shared'),
-      ...sourceFilesUnder('src/application/use-cases'),
-    ],
+    files: [...sharedApplicationFiles(), ...sourceFilesOfLayer('application', 'use-cases')],
   },
   {
     document: spec.screens,
     files: [
-      path.join(ROOT, 'src/presentation/state/uiStore.tsx'),
-      path.join(ROOT, 'src/presentation/hooks/resolutionVote.ts'),
+      path.join(ROOT, 'src/composition/shell/state/uiStore.tsx'),
+      path.join(ROOT, 'src/features/votes/presentation/hooks/resolutionVote.ts'),
     ],
   },
 ];
 
 const ERROR_CODE_CONSTANT = /_ERROR_CODE$/;
-const errorCodeConstants = enumerationsIn(sourceFilesUnder('src/domain/errors')).filter(
+const errorCodeConstants = enumerationsIn(sourceFilesOfLayer('domain', 'errors')).filter(
   ({ name }) => ERROR_CODE_CONSTANT.test(name),
 );
 const ERROR_CODES: readonly string[] = errorCodeConstants.flatMap(({ values }) => values);
@@ -281,7 +288,7 @@ describe('the enumerations and the error codes', () => {
   });
 
   it('documents the other enumerations of the domain in tables of the kind `Value`', () => {
-    const names = enumerationsIn(sourceFilesUnder('src/domain'))
+    const names = enumerationsIn(sourceFilesOfLayer('domain'))
       .map(({ name }) => name)
       .filter((name) => !ERROR_CODE_CONSTANT.test(name));
     const valueTables = tablesOfKind(spec.domain, TABLE_KIND.Value).map((table) => table.subject);
@@ -295,10 +302,10 @@ describe('the enumerations and the error codes', () => {
 // ---------------------------------------------------------------------------------------------
 
 describe('the use cases', () => {
-  const inCode = useCaseNamesIn(sourceFilesUnder('src/application/use-cases'));
+  const inCode = useCaseNamesIn(sourceFilesOfLayer('application', 'use-cases'));
   const indexTables = tablesOfKind(spec.useCases, TABLE_KIND.UseCase);
   const inSpec = indexTables.flatMap(identifiersOf);
-  const portNames = portsIn(sourceFilesUnder('src/application/ports')).map(({ name }) => name);
+  const portNames = portsIn(sourceFilesOfLayer('application', 'ports')).map(({ name }) => name);
 
   it('are found in the code', () => {
     expect(inCode.length).toBeGreaterThanOrEqual(15);
@@ -368,7 +375,7 @@ function parameterNames(cell: string): string[] {
 }
 
 describe('the ports', () => {
-  const inCode = portsIn(sourceFilesUnder('src/application/ports'));
+  const inCode = portsIn(sourceFilesOfLayer('application', 'ports'));
   const indexTables = tablesOfKind(spec.ports, TABLE_KIND.Port);
   const operationTables = tablesOfKind(spec.ports, TABLE_KIND.Operation);
 
@@ -650,7 +657,7 @@ describe('the limits', () => {
 });
 
 describe('the settings', () => {
-  const config = loadModule(path.join(ROOT, 'src/di/config.ts'));
+  const config = loadModule(path.join(ROOT, 'src/composition/container/config.ts'));
   const rows = rowsOf(tablesOfKind(spec.useCases, TABLE_KIND.Setting));
 
   it('are documented', () => {
@@ -667,7 +674,7 @@ describe('the settings', () => {
 });
 
 describe('the constants of the application', () => {
-  const inCode = numericConstantsIn(sourceFilesUnder('src/application/shared'));
+  const inCode = numericConstantsIn(sharedApplicationFiles());
   const tables = tablesOfKind(spec.useCases, TABLE_KIND.Constant);
   const rows = rowsOf(tables);
 

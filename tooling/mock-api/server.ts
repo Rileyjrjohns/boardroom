@@ -2,23 +2,23 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 
-import { isErr, ok } from '@domain/shared/Result';
-import type { Result } from '@domain/shared/Result';
-import { durationFromMillis } from '@domain/value-objects/Duration';
-import type { Duration } from '@domain/value-objects/Duration';
-import type { Clock } from '@application/ports/Clock';
-import { SystemClock } from '@infrastructure/clock/SystemClock';
-import { timerSleep } from '@infrastructure/clock/sleep';
+import { InMemoryBackend } from '@composition/dev/in-memory/InMemoryBackend';
+import { SimulatedNetwork } from '@composition/dev/in-memory/SimulatedNetwork';
+import { buildSeed } from '@composition/dev/in-memory/seed';
+import { API_ERROR_CODE, MockApi } from '@composition/dev/mock-api/MockApi';
+import type { Clock } from '@core/application/ports/Clock';
+import { isErr, ok } from '@core/domain/shared/Result';
+import type { Result } from '@core/domain/shared/Result';
+import { durationFromMillis } from '@core/domain/value-objects/Duration';
+import type { Duration } from '@core/domain/value-objects/Duration';
+import { SystemClock } from '@core/infrastructure/clock/SystemClock';
+import { timerSleep } from '@core/infrastructure/clock/sleep';
 import {
   HTTP_HEADER,
   HTTP_METHOD,
   HTTP_STATUS,
   MEDIA_TYPE_JSON,
-} from '@infrastructure/http/protocol';
-import { InMemoryBackend } from '@infrastructure/in-memory/InMemoryBackend';
-import { buildSeed } from '@infrastructure/in-memory/seed';
-import { SimulatedNetwork } from '@infrastructure/in-memory/SimulatedNetwork';
-import { API_ERROR_CODE, MockApi } from '@infrastructure/mock-api/MockApi';
+} from '@core/infrastructure/http/protocol';
 
 // The mock API as a program: the routes of `MockApi`, over the `http` module of Node, serving the
 // same simulated server and the same seed as the mock configuration of the app. It holds no rule of

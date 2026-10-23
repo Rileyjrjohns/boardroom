@@ -11,7 +11,7 @@ Almost all the state a screen shows is data that belongs to a server: lists with
 
 - **TanStack Query 5** for server state. A query function calls a use case and throws a `QueryFailure` that wraps the error of its `Result`, so a failed query keeps the data of its last success next to the error and the retry policy can read the code (network and unexpected errors twice with a backoff, the others never). One factory builds the query keys. One place, the `QueryCache` and `MutationCache` of the query client, ends a session for the whole app. A mutation is never retried and is dropped from memory as soon as nothing observes it.
 - **Zustand 5** for interface state, with a handful of fields (`meetingsPeriod`, `access` and its epoch, `sessionEndedBy`, `connectivity`, `privacyCover`, `syncSummary`, `localDataResetNotice`). The store and the query client are created per app instance and handed down by context: no module-level store, so tests are isolated.
-- Both libraries may be imported by `src/presentation` only (a lint rule). The other layers know nothing of them.
+- Both libraries may be imported by the presentation folders only (a lint rule). The other layers know nothing of them.
 
 ## Consequences
 

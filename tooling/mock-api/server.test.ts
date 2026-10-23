@@ -1,29 +1,29 @@
 import type { AddressInfo } from 'node:net';
 
-import { FakeClock } from '@application/testing/FakeClock';
-import { FakeMonitoring } from '@application/testing/FakeMonitoring';
-import { findResolution } from '@domain/entities/Meeting';
-import { RESOLUTION_STATUS } from '@domain/entities/Resolution';
-import { VOTING_ERROR_CODE } from '@domain/errors/VotingError';
-import { REPOSITORY_ERROR_CODE } from '@domain/errors/RepositoryError';
-import { checkVotingEligibility } from '@domain/policies/votingEligibility';
-import { aDuration, aVote, NOW } from '@domain/testing/builders';
-import { isErr } from '@domain/shared/Result';
-import { createVote } from '@domain/entities/Vote';
-import { VOTE_CHOICE } from '@domain/value-objects/VoteChoice';
-import { MEETING_PERIOD } from '@domain/value-objects/MeetingPeriod';
-import { HttpAuthSession } from '@infrastructure/http/HttpAuthSession';
-import { HttpClient } from '@infrastructure/http/HttpClient';
-import { HttpDocumentRepository } from '@infrastructure/http/HttpDocumentRepository';
-import { HttpMeetingRepository } from '@infrastructure/http/HttpMeetingRepository';
-import { HttpVoteRepository } from '@infrastructure/http/HttpVoteRepository';
-import { HTTP_HEADER, HTTP_STATUS } from '@infrastructure/http/protocol';
-import { DEMO_PASSWORD } from '@infrastructure/in-memory/seed';
-import { SessionVault } from '@infrastructure/secure-storage/SessionVault';
-import { MemorySecureStorage } from '@infrastructure/testing/MemorySecureStorage';
-import { testFileStore } from '@infrastructure/testing/testFiles';
-import { createPageRequest } from '@domain/value-objects/PageRequest';
-import { parseEmailAddress } from '@domain/value-objects/EmailAddress';
+import { DEMO_PASSWORD } from '@composition/dev/in-memory/seed';
+import { FakeClock } from '@core/application/testing/FakeClock';
+import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
+import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
+import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { isErr } from '@core/domain/shared/Result';
+import { createPageRequest } from '@core/domain/value-objects/PageRequest';
+import { HttpClient } from '@core/infrastructure/http/HttpClient';
+import { HTTP_HEADER, HTTP_STATUS } from '@core/infrastructure/http/protocol';
+import { MemorySecureStorage } from '@core/infrastructure/testing/MemorySecureStorage';
+import { testFileStore } from '@core/infrastructure/testing/testFiles';
+import { parseEmailAddress } from '@features/auth/domain/value-objects/EmailAddress';
+import { HttpAuthSession } from '@features/auth/infrastructure/HttpAuthSession';
+import { SessionVault } from '@features/auth/infrastructure/SessionVault';
+import { HttpDocumentRepository } from '@features/documents/infrastructure/HttpDocumentRepository';
+import { findResolution } from '@features/meetings/domain/entities/Meeting';
+import { RESOLUTION_STATUS } from '@features/meetings/domain/entities/Resolution';
+import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
+import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
+import { HttpMeetingRepository } from '@features/meetings/infrastructure/HttpMeetingRepository';
+import { createVote } from '@features/votes/domain/entities/Vote';
+import { checkVotingEligibility } from '@features/votes/domain/policies/votingEligibility';
+import { HttpVoteRepository } from '@features/votes/infrastructure/HttpVoteRepository';
+import { aDuration, aVote, NOW } from '@testing/domain/builders';
 
 import { createMockApiServer } from './server';
 import type { MockApiServer } from './server';
@@ -31,7 +31,7 @@ import type { MockApiServer } from './server';
 // The mock API as a program, started on a port of its own (the system picks a free one), and used
 // the way the app uses it: through the real HTTP adapters over the real `fetch` of Node, with
 // nothing replaced between the client and the server. The routes themselves are checked in
-// src/infrastructure/mock-api/MockApi.test.ts; what this file adds is the translation between Node
+// src/composition/dev/mock-api/MockApi.test.ts; what this file adds is the translation between Node
 // and the `Request` and `Response` of the API, and that the whole path works.
 
 const clock = new FakeClock(NOW);

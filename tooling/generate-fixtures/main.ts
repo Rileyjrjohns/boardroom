@@ -3,11 +3,11 @@ import path from 'node:path';
 
 import { format, resolveConfig } from 'prettier';
 
-import { parseInstant } from '@domain/value-objects/Instant';
-import { toMeetingWire } from '@infrastructure/http/dto/meetingDto';
-import { toVoteRequestWire } from '@infrastructure/http/dto/voteDto';
-import { toIsoString } from '@infrastructure/http/dto/wire';
-import { loadFixtures } from '@infrastructure/in-memory/fixtures/loadFixtures';
+import { loadFixtures } from '@composition/dev/in-memory/fixtures/loadFixtures';
+import { parseInstant } from '@core/domain/value-objects/Instant';
+import { toIsoString } from '@core/infrastructure/http/dto/wire';
+import { toMeetingWire } from '@features/meetings/infrastructure/dto/meetingDto';
+import { toVoteRequestWire } from '@features/votes/infrastructure/dto/voteDto';
 
 import { buildSeed } from './buildSeed';
 

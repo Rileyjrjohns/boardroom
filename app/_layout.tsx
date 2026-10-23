@@ -1,13 +1,13 @@
-import { startContainer } from '@di/createContainer';
-import { AppStatusBar } from '@presentation/components/AppStatusBar';
-import { I18nProvider } from '@presentation/i18n/I18nProvider';
-import { AppNavigator } from '@presentation/navigation/AppNavigator';
-import { StartupGate } from '@presentation/services/StartupGate';
-import { SessionController } from '@presentation/session/SessionController';
-import type { StartApp } from '@presentation/services/StartupGate';
+import { startContainer } from '@composition/container/createContainer';
+import { AppNavigator } from '@composition/shell/navigation/AppNavigator';
+import { StartupGate } from '@composition/shell/services/StartupGate';
+import type { StartApp } from '@composition/shell/services/StartupGate';
+import { SessionController } from '@composition/shell/session/SessionController';
+import { AppStatusBar } from '@core/presentation/components/AppStatusBar';
+import { I18nProvider } from '@core/presentation/i18n/I18nProvider';
 
 // The screen shown when a screen fails while it renders. expo-router looks for this export.
-export { AppErrorBoundary as ErrorBoundary } from '@presentation/navigation/AppErrorBoundary';
+export { AppErrorBoundary as ErrorBoundary } from '@composition/shell/navigation/AppErrorBoundary';
 
 /**
  * The one place that reads the environment. Metro replaces these exact expressions with their
@@ -29,9 +29,10 @@ const startApp: StartApp = (biometricPromptText) =>
 
 // Root layout. It starts the composition root once (the gate shows a translated loading state, then
 // the screens, or the reason the app cannot start) and hands it to the providers of the
-// presentation layer, which is the only link between the two: the layer never imports `@di`. The
-// session controller follows who is signed in and the life of the app, and the navigator shows the
-// screens the user can reach. The `app/` folder stays free of business logic.
+// presentation layer, which is the only link between the two: the layer never imports the container
+// (`@composition/container`). The session controller follows who is signed in and the life of the
+// app, and the navigator shows the screens the user can reach. The `app/` folder stays free of
+// business logic.
 export default function RootLayout() {
   return (
     <>

@@ -38,16 +38,23 @@ const SUMMARY: CoverageSummary = {
   },
   // Two files in the domain, whose counts are not the mean of their percentages: 2 of 4 is 50 %,
   // and the mean of 100 % and 33.33 % is 66.67 %.
-  '/work/repo/src/domain/entities/Meeting.ts': file(1, 1),
-  '/work/repo/src/domain/entities/Vote.ts': file(1, 3),
-  '/work/repo/src/application/use-cases/CastVote.ts': file(9, 10),
-  '/work/repo/src/infrastructure/http/HttpClient.ts': file(80, 100),
-  '/work/repo/src/presentation/screens/MeetingsScreen.tsx': file(3, 4),
-  '/work/repo/src/di/createContainer.ts': file(7, 8),
+  '/work/repo/src/features/meetings/domain/entities/Meeting.ts': file(1, 1),
+  '/work/repo/src/features/votes/domain/entities/Vote.ts': file(1, 3),
+  '/work/repo/src/features/votes/application/use-cases/CastVote.ts': file(9, 10),
+  '/work/repo/src/core/infrastructure/http/HttpClient.ts': file(80, 100),
+  '/work/repo/src/features/meetings/presentation/screens/MeetingsScreen.tsx': file(3, 4),
+  '/work/repo/src/composition/container/createContainer.ts': file(7, 8),
   // A folder whose name starts like a layer, and a file outside src: in no row.
-  '/work/repo/src/domain-extra/Other.ts': file(0, 50),
+  '/work/repo/src/core/domain-extra/Other.ts': file(0, 50),
   '/work/repo/tooling/tool.ts': file(0, 50),
 };
+
+/** The labels of the rows of the layers, as the table writes them (the label in backticks). */
+const DOMAIN = '`src/{core,features/*}/domain`';
+const APPLICATION = '`src/{core,features/*}/application`';
+const INFRASTRUCTURE = '`src/{core,features/*}/infrastructure`';
+const PRESENTATION = '`src/{core,features/*}/presentation`';
+const COMPOSITION = '`src/composition`';
 
 const lines = (table: string): string[] => table.split('\n');
 
@@ -88,11 +95,11 @@ describe('buildCoverageTable', () => {
 
     expect(labels).toEqual([
       'Total (src)',
-      '`src/domain`',
-      '`src/application`',
-      '`src/infrastructure`',
-      '`src/presentation`',
-      '`src/di`',
+      DOMAIN,
+      APPLICATION,
+      INFRASTRUCTURE,
+      PRESENTATION,
+      COMPOSITION,
     ]);
   });
 
@@ -108,8 +115,8 @@ describe('buildCoverageTable', () => {
   });
 
   it('computes a layer from the counts of its files, not from the mean of their percentages', () => {
-    expect(rowOf(table, '`src/domain`')).toEqual([
-      '`src/domain`',
+    expect(rowOf(table, DOMAIN)).toEqual([
+      DOMAIN,
       '50.00 %',
       '50.00 %',
       '50.00 %',
@@ -119,15 +126,15 @@ describe('buildCoverageTable', () => {
   });
 
   it('puts each file in its layer, and only in it', () => {
-    expect(rowOf(table, '`src/application`').slice(1, 5)).toEqual(Array(4).fill('90.00 %'));
-    expect(rowOf(table, '`src/infrastructure`').slice(1, 5)).toEqual(Array(4).fill('80.00 %'));
-    expect(rowOf(table, '`src/presentation`').slice(1, 5)).toEqual(Array(4).fill('75.00 %'));
-    expect(rowOf(table, '`src/di`').slice(1, 5)).toEqual(Array(4).fill('87.50 %'));
+    expect(rowOf(table, APPLICATION).slice(1, 5)).toEqual(Array(4).fill('90.00 %'));
+    expect(rowOf(table, INFRASTRUCTURE).slice(1, 5)).toEqual(Array(4).fill('80.00 %'));
+    expect(rowOf(table, PRESENTATION).slice(1, 5)).toEqual(Array(4).fill('75.00 %'));
+    expect(rowOf(table, COMPOSITION).slice(1, 5)).toEqual(Array(4).fill('87.50 %'));
   });
 
   it('gives the gate of each row: 70 for the total, 90 for domain and application, none for the others', () => {
-    const gates = SCOPES.map(({ label, folder }) => {
-      const cells = rowOf(table, folder === null ? label : `\`${label}\``);
+    const gates = SCOPES.map(({ label, folders }) => {
+      const cells = rowOf(table, folders === null ? label : `\`${label}\``);
       return cells[5];
     });
 
@@ -137,22 +144,22 @@ describe('buildCoverageTable', () => {
   it('cuts a figure to two decimals instead of rounding it, so that a layer under its gate never shows it', () => {
     const justUnder: CoverageSummary = {
       total: SUMMARY['total'] as CoverageSummary[string],
-      '/work/repo/src/domain/Meeting.ts': file(89996, 100000),
-      '/work/repo/src/application/CastVote.ts': file(2, 3),
+      '/work/repo/src/core/domain/Meeting.ts': file(89996, 100000),
+      '/work/repo/src/features/votes/application/CastVote.ts': file(2, 3),
     };
     const underTable = buildCoverageTable(justUnder);
 
-    expect(rowOf(underTable, '`src/domain`').slice(1, 5)).toEqual(Array(4).fill('89.99 %'));
-    expect(rowOf(underTable, '`src/application`').slice(1, 5)).toEqual(Array(4).fill('66.66 %'));
+    expect(rowOf(underTable, DOMAIN).slice(1, 5)).toEqual(Array(4).fill('89.99 %'));
+    expect(rowOf(underTable, APPLICATION).slice(1, 5)).toEqual(Array(4).fill('66.66 %'));
   });
 
   it('reads the Windows separators of the paths', () => {
     const windows: CoverageSummary = {
       total: SUMMARY['total'] as CoverageSummary[string],
-      'C:\\work\\repo\\src\\domain\\Meeting.ts': file(1, 4),
+      'C:\\work\\repo\\src\\core\\domain\\Meeting.ts': file(1, 4),
     };
 
-    expect(rowOf(buildCoverageTable(windows), '`src/domain`').slice(1, 5)).toEqual(
+    expect(rowOf(buildCoverageTable(windows), DOMAIN).slice(1, 5)).toEqual(
       Array(4).fill('25.00 %'),
     );
   });
@@ -169,7 +176,7 @@ describe('buildCoverageTable', () => {
     const emptyTable = buildCoverageTable(empty);
 
     expect(rowOf(emptyTable, 'Total (src)')).toEqual(['Total (src)', '-', '-', '-', '-', '70 %']);
-    expect(rowOf(emptyTable, '`src/domain`')).toEqual(['`src/domain`', '-', '-', '-', '-', '90 %']);
+    expect(rowOf(emptyTable, DOMAIN)).toEqual([DOMAIN, '-', '-', '-', '-', '90 %']);
   });
 
   it('refuses a summary that has no total', () => {
@@ -189,15 +196,41 @@ describe('the gates of the table', () => {
     lines: percent,
   });
 
-  it.each(SCOPES.filter(({ folder }) => folder !== null))(
+  /** The folders of a row, with `*` replaced by every feature that is on the disk. */
+  const foldersOf = (folders: readonly string[]): string[] =>
+    folders.flatMap((folder) =>
+      folder.includes('*')
+        ? fs
+            .readdirSync(path.join(ROOT, folder.split('*')[0] ?? ''), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => folder.replace('*', entry.name))
+        : [folder],
+    );
+
+  it.each(SCOPES.filter(({ folders }) => folders !== null))(
     'agree with coverageThreshold of jest.config.js for $label',
-    ({ folder, gate }) => {
-      expect(coverageThreshold[`./${folder}/`]).toEqual(gate === null ? undefined : gateOf(gate));
+    ({ folders, gate }) => {
+      const existing = foldersOf(folders ?? []).filter((folder) =>
+        fs.existsSync(path.join(ROOT, folder)),
+      );
+
+      expect(existing.length).toBeGreaterThan(0);
+      for (const folder of existing) {
+        // A folder that has no source file yet has no gate: Jest would fail on a path it has no data for.
+        const hasGate = coverageThreshold[`./${folder}/`] !== undefined;
+        if (gate === null) expect(hasGate).toBe(false);
+        else if (hasGate) expect(coverageThreshold[`./${folder}/`]).toEqual(gateOf(gate));
+      }
+      if (gate !== null) {
+        expect(
+          existing.filter((folder) => coverageThreshold[`./${folder}/`] !== undefined),
+        ).not.toHaveLength(0);
+      }
     },
   );
 
   it('agree with the global gate of jest.config.js for the total', () => {
-    const total = SCOPES.find(({ folder }) => folder === null);
+    const total = SCOPES.find(({ folders }) => folders === null);
 
     expect(coverageThreshold['global']).toEqual(gateOf(total?.gate ?? NaN));
   });

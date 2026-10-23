@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { redirectSystemPath } from '../app/+native-intent';
-import { ROUTES, ROUTE_NAMES, ROUTE_PARAMS } from '../src/presentation/navigation/routes';
+import { ROUTES, ROUTE_NAMES, ROUTE_PARAMS } from '../src/core/presentation/navigation/routes';
 
 // The routes are files under app/, and the code refers to them by constants. A constant that points
 // at a file that does not exist would navigate nowhere, and nothing else would notice.

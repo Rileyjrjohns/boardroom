@@ -9,7 +9,7 @@ The use cases depend on ports. Something has to build the real adapters, wire th
 
 ## Decision
 
-`src/di` is the only place where ports meet adapters, by manual constructor injection with typed `deps` objects: no container library, no lookup by name, no decorators, no module-level instance.
+`src/composition/container` is the only place where ports meet adapters, by manual constructor injection with typed `deps` objects: no container library, no lookup by name, no decorators, no module-level instance.
 
 - `createContainer(config, runtime)` builds a whole independent object graph and returns `Promise<Result<Container, ContainerError>>`; it never rejects. `startContainer` first parses the raw settings.
 - The configuration is a discriminated union, `mock` or `http`, validated in one place (`parseConfiguration`); each invalid setting is a start error with its own code. The ports of each configuration are built by `mockPorts.ts` and `httpPorts.ts`; `wireUseCases.ts` is the same for both.

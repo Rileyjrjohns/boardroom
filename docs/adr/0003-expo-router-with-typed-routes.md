@@ -13,7 +13,7 @@ expo-router (file-based routes on top of React Navigation) with `experiments.typ
 
 - `app/` holds route files that only mount a screen of the presentation layer, plus `_layout.tsx` (the root layout, the one place that reads the environment and starts the composition root) and `+native-intent.tsx`.
 - `AppNavigator` uses `Stack.Protected` with one guard per state of access: the sign-in route exists for a signed-out user, the lock route for a locked app, the others for an open app. A screen whose guard is false is not in the stack, so no link reaches it and the history cannot return to it.
-- The routes are written once in `presentation/navigation/routes.ts`; `tooling/routes.test.ts` fails when a constant names a file that does not exist.
+- The routes are written once in `src/core/presentation/navigation/routes.ts`; `tooling/routes.test.ts` fails when a constant names a file that does not exist.
 - The route tests mount the real route files (`tooling/app-routes/`) over the fakes of the ports.
 
 ## Consequences

@@ -1,15 +1,33 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { en } from '../src/presentation/i18n/resources/en';
-import * as tokens from '../src/presentation/theme/tokens';
+import { en } from '../src/core/presentation/i18n/resources/en';
+import * as tokens from '../src/core/presentation/theme/tokens';
 
 // Things the presentation layer declares for its screens to use: design tokens and translation
 // keys. One that no screen uses is dead weight that the documentation would have to explain, so it
-// is removed. These tests read the sources, which is why they live with the tooling.
+// is removed. The screens are in the presentation folders of the core and of every feature, in the
+// app shell (src/composition/shell) and in the routes (app/). These tests read the sources, which is
+// why they live with the tooling.
 
 const ROOT = path.resolve(__dirname, '..');
-const SOURCE_FOLDERS = ['app', path.join('src', 'presentation')];
+const FEATURES_FOLDER = path.join('src', 'features');
+
+/** The presentation folders of the core and of every feature, the app shell and the routes. */
+function sourceFolders(): string[] {
+  const features = fs
+    .readdirSync(path.join(ROOT, FEATURES_FOLDER), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(FEATURES_FOLDER, entry.name, 'presentation'));
+  return [
+    'app',
+    path.join('src', 'core', 'presentation'),
+    ...features,
+    path.join('src', 'composition', 'shell'),
+  ].filter((folder) => fs.existsSync(path.join(ROOT, folder)));
+}
+
+const SOURCE_FOLDERS = sourceFolders();
 const SOURCE_FILE = /\.tsx?$/;
 const TEST_FILE = /\.(test|spec)\.tsx?$/;
 const TEST_SUPPORT_FOLDER = `${path.sep}testing${path.sep}`;

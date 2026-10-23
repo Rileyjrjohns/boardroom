@@ -1,6 +1,6 @@
 import type { AddressInfo } from 'node:net';
 
-import { DEMO_PASSWORD } from '@infrastructure/in-memory/seed';
+import { DEMO_PASSWORD } from '@composition/dev/in-memory/seed';
 
 import { createMockApiServer } from './server';
 

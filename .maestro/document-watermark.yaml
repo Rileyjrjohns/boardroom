@@ -9,8 +9,8 @@
 # the same three assertions fail there, so they are Android-only. The watermark was checked on iOS
 # on a simulator screenshot instead (the tiles are drawn, slanted, above the PDF). What the tiles
 # say, that they are drawn above the PDF and that they never take a touch are also checked in Jest,
-# on the real composition root (`src/presentation/navigation/rootLayout.documents.test.tsx` and
-# `src/presentation/components/DocumentWatermark.test.tsx`).
+# on the real composition root (`src/composition/shell/navigation/rootLayout.documents.test.tsx` and
+# `src/features/documents/presentation/components/DocumentWatermark.test.tsx`).
 #
 # The window of a protected screen is flagged secure on Android, so `adb screencap` returns nothing
 # here: Maestro screenshots of this screen are empty, which is the protection working. On iOS a

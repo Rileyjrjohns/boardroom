@@ -1,46 +1,81 @@
 # Architecture
 
-The code is organised in layers, and dependencies only point inwards, toward the domain. The rule is not a convention: it is checked by the linter on every commit (see [How the toolchain enforces it](#how-the-toolchain-enforces-it) and [ADR 0001](adr/0001-hexagonal-architecture-with-enforced-boundaries.md)). The ports and the adapters that implement them are drawn in the [README](../README.md#ports-and-adapters), and every port is specified in [the shared spec](spec/ports.md).
+The code is organised feature first, and inside each feature in layers, and dependencies only point inwards, toward the domain. The rule is not a convention: it is checked by the linter on every commit (see [How the toolchain enforces it](#how-the-toolchain-enforces-it) and [ADR 0001](adr/0001-hexagonal-architecture-with-enforced-boundaries.md)). The ports and the adapters that implement them are drawn in the [README](../README.md#ports-and-adapters), and every port is specified in [the shared spec](spec/ports.md).
+
+## The layout
+
+```text
+app/                       expo-router route files (thin)
+src/
+  core/                    the shared kernel: no rule of a feature
+    domain/                  Result, ids, Instant, Page, the errors, the cache age
+    application/             ports (Clock, Monitoring, Connectivity), the offline policy
+    infrastructure/          HTTP client, persistence machinery, files, secure storage, clock, monitoring
+    presentation/            theme, shared components, i18n, query client, test ids
+  features/
+    auth/                    who the user is: the account, the session, the app lock
+    meetings/                the meetings, their agenda, resolutions, participants and documents
+    documents/               opening a document, the watermark, the screen protection
+    votes/                   casting a vote, the outbox, synchronising it
+      domain/  application/  infrastructure/  presentation/     the layers of every feature
+  composition/             the composition: the only place that knows every feature
+    container/               the composition root: configurations, ports wiring, use cases
+    persistence/             the schema of the database of the whole file, and its migrations
+    device/                  the seams of the phone
+    dev/                     the simulated world of the mock configuration (fixtures, mock API)
+    shell/                   the app shell: navigation, providers, root state and services
+    glue/                    the tests that need every feature
+  testing/                 test support that serves several scopes (builders, fakes, render helpers)
+```
+
+`src/core`, each folder of `src/features` and `src/composition` have a `README.md`. `src/composition` is the composition of the application (the `lib/app` of the Flutter twin): the root `app/` folder is reserved to expo-router, so it cannot be called `app`. The test support next to the code it serves (`testing` folders) and the shared one (`src/testing`) follow one rule: only tests and other test support import them.
+
+The dependencies between the features are not enforced yet. They are meant to go one way (`auth` <- `meetings` <- `documents` and `votes`, everything on `core`, nothing on `composition`); the imports that still go the other way are the ones the next step inverts with ports.
 
 ## Layers and the dependency rule
+
+The layers below are the same in the core and in every feature: the folder `domain` of `src/core` and of each feature is the layer `domain`, and so on.
 
 ```mermaid
 flowchart TD
     app["<b>app/</b><br/>expo-router route files"]
     presentation["<b>presentation</b><br/>screens, hooks, TanStack Query, Zustand, i18n, theme"]
-    di["<b>di</b><br/>composition root: two configurations, mock and http"]
+    container["<b>container</b><br/>composition root: two configurations, mock and http"]
     infrastructure["<b>infrastructure</b><br/>adapters: HTTP, SQLite, secure storage, device, in-memory"]
     application["<b>application</b><br/>use cases and ports"]
     domain["<b>domain</b><br/>entities, value objects, policies, errors, Result"]
 
     app --> presentation
-    app --> di
+    app --> container
     presentation --> application
     presentation --> domain
-    di --> infrastructure
-    di --> application
-    di --> domain
+    container --> infrastructure
+    container --> application
+    container --> domain
     infrastructure --> application
     infrastructure --> domain
     application --> domain
 ```
 
-An arrow is an allowed import. `domain` imports nothing. `application` declares the ports (the interfaces to the outside world: repositories, caches, the outbox, the biometric gate, the clock, the screen protection) and `infrastructure` implements them, which is why the arrow points from the adapters to the ports and never the other way: a use case does not know that an adapter exists. `presentation` never imports `infrastructure` or `di`: it declares the shape of the services it needs and receives them from the root layout. `di` is the one place where ports meet adapters.
+An arrow is an allowed import. `domain` imports nothing. `application` declares the ports (the interfaces to the outside world: repositories, caches, the outbox, the biometric gate, the clock, the screen protection) and `infrastructure` implements them, which is why the arrow points from the adapters to the ports and never the other way: a use case does not know that an adapter exists. `presentation` never imports `infrastructure` or `container`: it declares the shape of the services it needs and receives them from the root layout. `container` is the one place where ports meet adapters.
 
-| Folder                | Role                                                                                           | May import                                                                                           |
-| --------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `app/`                | expo-router route files. Thin: they mount screens. The root layout builds the composition root | `presentation`, `di`, `assets/`, external modules (not TanStack Query nor Zustand)                   |
-| `src/domain/`         | Entities, value objects, business rules, business errors                                       | `domain`. No external module at all                                                                  |
-| `src/application/`    | Use cases and ports (interfaces)                                                               | `domain`, `application`. No external module at all                                                   |
-| `src/infrastructure/` | Adapters implementing the ports: in-memory, HTTP, SQLite, secure storage, device               | `domain`, `application`, `infrastructure`, external modules (not TanStack Query nor Zustand)         |
-| `src/presentation/`   | Screens, components, hooks, stores, i18n, theme tokens                                         | `domain`, `application`, `presentation`, `assets/`, external modules. Never `infrastructure` or `di` |
-| `src/di/`             | The single composition root that wires ports to adapters with manual typed injection           | `domain`, `application`, `infrastructure`, `di`. No external module at all. Never `presentation`     |
+| Folder                                                                        | Role                                                                                           | May import                                                                                                  |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `app/`                                                                        | expo-router route files. Thin: they mount screens. The root layout builds the composition root | `presentation`, `container`, `assets/`, external modules (not TanStack Query nor Zustand)                   |
+| `domain` (`src/core/domain`, `src/features/*/domain`)                         | Entities, value objects, business rules, business errors                                       | `domain`. No external module at all                                                                         |
+| `application` (`src/core/application`, `src/features/*/application`)          | Use cases and ports (interfaces)                                                               | `domain`, `application`. No external module at all                                                          |
+| `infrastructure` (`src/core/infrastructure`, `src/features/*/infrastructure`) | Adapters implementing the ports: HTTP, SQLite, secure storage, device, in-memory caches        | `domain`, `application`, `infrastructure`, external modules (not TanStack Query nor Zustand)                |
+| `presentation` (`src/core/presentation`, `src/features/*/presentation`)       | Screens, components, hooks, i18n, theme tokens                                                 | `domain`, `application`, `presentation`, `assets/`, external modules. Never `infrastructure` or `container` |
+| `src/composition/container`                                                   | The single composition root that wires ports to adapters with manual typed injection           | `domain`, `application`, `infrastructure`, `container`. No external module at all. Never `presentation`     |
+| `src/composition/dev`, `device`, `persistence`                                | The simulated server of the mock configuration, the seams of the phone, the database schema    | The rules of `infrastructure`                                                                               |
+| `src/composition/shell`                                                       | The app shell: navigation, providers, root state and services                                  | The rules of `presentation`                                                                                 |
+| `src/composition/glue`, `src/testing/*`                                       | Tests that need every feature, and test support that serves several scopes                     | The rules of the layer they stand for (`application` for the glue)                                          |
 
-Three extra rules: the `zod` package and the native modules of the device (`expo-sqlite`, `expo-secure-store`, `expo-crypto`, `expo-file-system`, `expo-local-authentication`, `expo-network`) may only be imported from `src/infrastructure` (`expo-file-system` from one file of it, `src/infrastructure/files/ExpoFileVolume.ts`, and `react-native-pdf` from one component of the presentation, `src/presentation/components/PdfViewer.tsx`), `@tanstack/react-query` and `zustand` (server state and interface state) may only be imported from `src/presentation`, the Sentry SDK (`@sentry/*`) from one file, the adapter of the `Monitoring` port (`src/infrastructure/monitoring/SentryMonitoring.ts`), and `fetch` is called by one module, the HTTP client (`src/infrastructure/http/HttpClient.ts`). The local native module `modules/screen-protection` is imported by `src/infrastructure/native` alone, with one exception, its secure view (see [The secure view](native-module.md#the-secure-view)).
+Three extra rules: the `zod` package and the native modules of the device (`expo-sqlite`, `expo-secure-store`, `expo-crypto`, `expo-file-system`, `expo-local-authentication`, `expo-network`) may only be imported from an infrastructure folder (`expo-file-system` from one file of it, `src/core/infrastructure/files/ExpoFileVolume.ts`, and `react-native-pdf` from one component of the presentation, `src/features/documents/presentation/components/PdfViewer.tsx`), `@tanstack/react-query` and `zustand` (server state and interface state) may only be imported from a presentation folder, the Sentry SDK (`@sentry/*`) from one file, the adapter of the `Monitoring` port (`src/core/infrastructure/monitoring/SentryMonitoring.ts`), and `fetch` is called by one module, the HTTP client (`src/core/infrastructure/http/HttpClient.ts`). The local native module `modules/screen-protection` is imported by `src/features/documents/infrastructure/native` alone, with one exception, its secure view (see [The secure view](native-module.md#the-secure-view)).
 
 Everything else in the repository (`package.json`, the configs, `tooling/`, scripts) is tooling. Code under `app/` and `src/` cannot import it.
 
-Path aliases map to the matching `src` folder: `@domain/*`, `@application/*`, `@infrastructure/*`, `@presentation/*` and `@di/*`. They resolve in TypeScript, Metro, Jest and ESLint.
+Path aliases map to the matching `src` folder: `@core/*`, `@features/*`, `@composition/*` and `@testing/*`. They resolve in TypeScript, Metro, Jest and ESLint. A file imports another of its own layer (in the same scope) by a relative path, and anything else by an alias.
 
 ## One use case, end to end: casting a vote offline, then synced
 
@@ -111,7 +146,7 @@ What to read in it:
 
 ## How the toolchain enforces it
 
-- **ESLint, with `eslint-plugin-boundaries`** (`eslint.config.mjs`): every file under `app/` and `src/` belongs to a layer, and a layer may only import the layers it is allowed to. Imports of external packages are checked too: `domain`, `application` and `di` import none; `zod` and the native modules of the device only `infrastructure`; TanStack Query and Zustand only `presentation`; the local native module only `src/infrastructure/native` (and its secure view, one presentation component); the Sentry SDK only its adapter; `fetch` only the HTTP client. Production code cannot import a `testing` folder.
+- **ESLint, with `eslint-plugin-boundaries`** (`eslint.config.mjs`): every file under `app/` and `src/` belongs to a layer, and a layer may only import the layers it is allowed to. Imports of external packages are checked too: `domain`, `application` and `container` import none; `zod` and the native modules of the device only `infrastructure`; TanStack Query and Zustand only `presentation`; the local native module only `src/features/documents/infrastructure/native` (and its secure view, one presentation component); the Sentry SDK only its adapter; `fetch` only the HTTP client. Production code cannot import a `testing` folder.
 - **Purity of the inner layers.** In `domain` and `application`, `throw` is forbidden (every failure is an error `Result`), so is every read of the system clock (time comes from the `Clock` port), and so are the ambient globals that reach the runtime (`process`, `window`, `fetch`, timers, `console`).
 - **TypeScript at its strictest.** `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, and `checkJs` for the JS configs. Translation keys, the maps from error codes to texts, and (once the dev server has run) the routes are typed.
 - **No magic strings.** Lint rejects text, colours and test ids written inline in the UI code; they are translations, theme tokens and constants (see [No magic strings](conventions.md#no-magic-strings)).
@@ -128,23 +163,23 @@ The complete list of rules is in [How the rule is enforced](#how-the-rule-is-enf
 - A layer alias that does not resolve to a file is rejected instead of being mistaken for an external package. Aliases are resolved from an absolute tsconfig path, so ESLint gives the same result from any working directory.
 - Type-only imports are checked like any other import, and so are `import('x')` types, `typeof import('x')`, `import x = require('x')`, `jest.mock` and the other Jest module calls, and `require.resolve`.
 - `import()`, `require()`, the Jest module calls and `require.resolve` only accept a string literal under `app/` and `src/`, because a specifier built at runtime cannot be checked (`no-restricted-syntax`). `/// <reference path="..." />` is rejected as well.
-- Packages are imported by name, never through a path in `node_modules` (`no-restricted-imports`), and every imported package must be declared in `package.json`, development dependencies being reserved to tests, test support (the `testing` folders, which hold the render helper of the screens) and tooling (`import/no-extraneous-dependencies`). `zod` is a dependency, and only `src/infrastructure` may import it.
-- `src/domain` and `src/application` cannot use the ambient globals that reach the runtime environment: `process`, `window`, `document`, `fetch`, `localStorage`, timers, `console` and similar (`no-restricted-globals`). Their tests are exempt.
-- In the production code of `src/domain` and `src/application`, `throw` is forbidden (every failure is an error `Result`) and so is every read of the system clock: `Date.now()`, `new Date()` without an argument, `Date()` called as a function, and `performance.now()` (time comes from the `Clock` port). `new Date(millis)` stays allowed, it is a conversion (`no-restricted-syntax`). Tests and the `testing` folders are exempt.
+- Packages are imported by name, never through a path in `node_modules` (`no-restricted-imports`), and every imported package must be declared in `package.json`, development dependencies being reserved to tests, test support (the `testing` folders, which hold the render helper of the screens) and tooling (`import/no-extraneous-dependencies`). `zod` is a dependency, and only the infrastructure folders may import it.
+- The `domain` and `application` folders cannot use the ambient globals that reach the runtime environment: `process`, `window`, `document`, `fetch`, `localStorage`, timers, `console` and similar (`no-restricted-globals`). Their tests are exempt.
+- In the production code of the `domain` and `application` folders, `throw` is forbidden (every failure is an error `Result`) and so is every read of the system clock: `Date.now()`, `new Date()` without an argument, `Date()` called as a function, and `performance.now()` (time comes from the `Clock` port). `new Date(millis)` stays allowed, it is a conversion (`no-restricted-syntax`). Tests and the `testing` folders are exempt.
 - Production code cannot import from a `testing` folder, whether through a relative path or an alias, a type import or a re-export (`no-restricted-imports`). Tests and other test support can. A dynamic `import()` or a `require` of a `testing` folder is not detected by this rule.
 - `no-restricted-syntax` and `no-restricted-imports` apply to a set of files as a whole: in a flat config a later block replaces the options of an earlier one instead of merging them. `eslint.config.mjs` builds the options of each block with `restrictSyntax` and `restrictImports`, which always carry the restrictions that apply to every file (the computed module specifiers), and `tooling/lint-rules.test.ts` checks that none is lost for any set of files.
-- `@tanstack/**` and `zustand` (and their subpaths) are rejected outside `src/presentation`, by a dependency policy with its own message (`tooling/lint-rules.test.ts` checks it for every layer and for the route files).
-- `expo-sqlite`, `expo-secure-store`, `expo-crypto`, `expo-local-authentication` and `expo-network` (and their subpaths) are rejected outside `src/infrastructure`, by a dependency policy of the same kind: the other layers reach the device through a port. `expo-file-system` is further limited to one file, `src/infrastructure/files/ExpoFileVolume.ts`, and `react-native-pdf` to one component, `src/presentation/components/PdfViewer.tsx`, by a `no-restricted-imports` pattern each (`tooling/lint-rules.test.ts` checks both, and that each exempt file keeps the other restrictions).
-- The local native module `modules/screen-protection` is rejected everywhere but `src/infrastructure/native`: a dependency policy refuses it to every other layer, and a restricted-imports pattern keeps the rest of the infrastructure, tests and test support included, out of it. The one exception is `src/presentation/components/SecureContent.tsx`, which may import the secure view from the entry point and nothing else of the module (`tooling/lint-rules.test.ts` checks both sides).
-- `fetch` is called by one module, `src/infrastructure/http/HttpClient.ts`: the bare global is rejected everywhere else in `app/` and `src/` (tests and test support excepted), and the forms that get round the rule (`globalThis.fetch`, `global.fetch`, `window.fetch`, `self.fetch`) are rejected everywhere, the client included.
-- The Sentry SDK (`@sentry/**`) is imported by one file, `src/infrastructure/monitoring/SentryMonitoring.ts`, the adapter of the `Monitoring` port: a dependency policy refuses it to the other layers, and a restricted-imports pattern keeps the rest of the infrastructure, tests and test support included, out of it.
+- `@tanstack/**` and `zustand` (and their subpaths) are rejected outside the presentation folders, by a dependency policy with its own message (`tooling/lint-rules.test.ts` checks it for every layer and for the route files).
+- `expo-sqlite`, `expo-secure-store`, `expo-crypto`, `expo-local-authentication` and `expo-network` (and their subpaths) are rejected outside the infrastructure folders, by a dependency policy of the same kind: the other layers reach the device through a port. `expo-file-system` is further limited to one file, `src/core/infrastructure/files/ExpoFileVolume.ts`, and `react-native-pdf` to one component, `src/features/documents/presentation/components/PdfViewer.tsx`, by a `no-restricted-imports` pattern each (`tooling/lint-rules.test.ts` checks both, and that each exempt file keeps the other restrictions).
+- The local native module `modules/screen-protection` is rejected everywhere but `src/features/documents/infrastructure/native`: a dependency policy refuses it to every other layer, and a restricted-imports pattern keeps the rest of the infrastructure, tests and test support included, out of it. The one exception is `src/features/documents/presentation/components/SecureContent.tsx`, which may import the secure view from the entry point and nothing else of the module (`tooling/lint-rules.test.ts` checks both sides).
+- `fetch` is called by one module, `src/core/infrastructure/http/HttpClient.ts`: the bare global is rejected everywhere else in `app/` and `src/` (tests and test support excepted), and the forms that get round the rule (`globalThis.fetch`, `global.fetch`, `window.fetch`, `self.fetch`) are rejected everywhere, the client included.
+- The Sentry SDK (`@sentry/**`) is imported by one file, `src/core/infrastructure/monitoring/SentryMonitoring.ts`, the adapter of the `Monitoring` port: a dependency policy refuses it to the other layers, and a restricted-imports pattern keeps the rest of the infrastructure, tests and test support included, out of it.
 - `.mts` and `.cts` files are linted with the TypeScript parser like `.ts` files.
 
 Known limit: an aliased `require` (`const r = require; r('x')`) cannot be detected by a lint rule.
 
 ## Composition root
 
-`src/di` is the one place where ports meet adapters, by manual, typed constructor injection: no container library, no lookup by name, no module-level instance. It imports no external module: the device adapters are built in `src/infrastructure` (`createExpoPlatform`), and `di` only calls them.
+`src/composition/container` is the one place where ports meet adapters, by manual, typed constructor injection: no container library, no lookup by name, no module-level instance. It imports no external module: the device adapters are built in `src/composition/device` (`createExpoPlatform`), and the container only calls them.
 
 | File                              | Role                                                                                                                                                                                                                                                                         |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -178,7 +213,7 @@ The two configurations differ as follows.
 
 The mock configuration carries what varies between demos, each with its default in `config.ts`: whether the demo user is signed in at start (in which case the app starts unlocked, as after a sign-in; otherwise it starts locked, as after a cold start; the default is **signed out**, and only a test asks for the other), the latency of the server and the lifetime of its sessions. The http configuration carries the address of the API, the request timeout and the passcode fallback. **Every setting is validated in one place, `parseConfiguration`, and an invalid one is a start error with a code of its own:** `missingApiBaseUrl`, `invalidApiBaseUrl` (not an `http` or `https` URL of a host, or one with credentials, a query or a fragment), `insecureApiBaseUrl` (`http` outside a development build for a host that is not this machine), `invalidRequestTimeout` (not a whole number of milliseconds from 1 to 60 seconds) and `invalidBiometricFallback` (not a yes or a no). The wiring of the ports reads them from the configuration and imports none of them. The one setting that is not validated there is the address of the crash reporter: `createMonitoring` checks it and falls back on the console, since monitoring must not decide whether the app starts.
 
-**Where the environment is read.** The settings are `EXPO_PUBLIC_BOARDROOM_ADAPTERS`, `EXPO_PUBLIC_BOARDROOM_API_BASE_URL` and `EXPO_PUBLIC_SENTRY_DSN` (the address of the crash reporter, optional), and they are read once each, in `app/_layout.tsx`, and nowhere else: Metro replaces the exact expression `process.env.EXPO_PUBLIC_...` with its value when it bundles, `domain`, `application` and `di` take no external input (`di` imports no external module), and the layout is the entry point that starts the container. The raw values go to `startContainer` together with whether this is a development build (the layout reads `__DEV__`; `di` reads no global), which parses and validates them: a missing or empty adapters value means `mock` in a development build and is the error `missingAdaptersSetting` in any other, so that a release build never starts on the simulated server because a variable was forgotten; anything unknown is `invalidAdaptersSetting`. When the container cannot be built, the layout shows `StartupFailureScreen` with the technical code, instead of the app. `tooling/environment.test.ts` fails if a second place reads the environment, or if a variable is missing from `.env.example`.
+**Where the environment is read.** The settings are `EXPO_PUBLIC_BOARDROOM_ADAPTERS`, `EXPO_PUBLIC_BOARDROOM_API_BASE_URL` and `EXPO_PUBLIC_SENTRY_DSN` (the address of the crash reporter, optional), and they are read once each, in `app/_layout.tsx`, and nowhere else: Metro replaces the exact expression `process.env.EXPO_PUBLIC_...` with its value when it bundles, `domain`, `application` and `container` take no external input (`container` imports no external module), and the layout is the entry point that starts the container. The raw values go to `startContainer` together with whether this is a development build (the layout reads `__DEV__`; the container reads no global), which parses and validates them: a missing or empty adapters value means `mock` in a development build and is the error `missingAdaptersSetting` in any other, so that a release build never starts on the simulated server because a variable was forgotten; anything unknown is `invalidAdaptersSetting`. When the container cannot be built, the layout shows `StartupFailureScreen` with the technical code, instead of the app. `tooling/environment.test.ts` fails if a second place reads the environment, or if a variable is missing from `.env.example`.
 
 ## Tech stack
 
@@ -211,40 +246,42 @@ docs/                     the documentation (README.md is its index) and api.md,
   spec/                   the shared specification (domain, ports, use cases, screens) and the fixtures of the demo data
 locales/                  fr.json: the Info.plist strings of the iOS project in French (Face ID text)
 src/
-  domain/                 entities, value-objects, policies, errors, shared (Result, Brand)
-    testing/                builders of fixtures for the tests (test support)
-  application/            ports, use-cases (by feature), shared (offline policy, session, the codes that end a session or that a retry can fix)
-    testing/                fakes of the ports, and the contract suites in contracts/ (test support)
-  infrastructure/
-    in-memory/            the simulated server, the in-memory caches, outbox, auth, biometrics, screen protection, the seed (fixtures/ loads the files of docs/spec/fixtures and shifts their dates to the clock)
-    http/                 the client, the schemas and mappers (dto/), the repositories, the session adapter, the constants of the API
-    mock-api/             the routes of the API over the simulated server (MockApi): shared by the HTTP tests and by npm run mock:api
-    files/                the FileStore seam over a volume of files, and the volume of a device (expo-file-system)
-    documents/            the name of the file of a download and how a download is kept, shared by both document repositories
-    pdf/                  the tiny PDF writer of the demo content, and the check of the signature of a file
-    persistence/          the SQL seam, the migrations, the SQLite caches (and the format of their rows) and outbox, the unlocking of the encrypted database, its key and generations, and the record of a reset
-    secure-storage/       the key-value seam over the keychain, and the vault of the session
-    biometrics/           the biometric gate over the device
-    connectivity/         the connectivity over the device, and over the simulated network
+  core/                   the shared kernel (README.md): what every feature uses and none owns
+    domain/                 shared (Result, Brand, constants, validation), errors (all of them, for now), value-objects (ids, Instant, Duration, Page), policies/cacheAge
+    application/            ports (Clock, Monitoring, Connectivity, types/), offline/ (the offline policy), retryableCodes, use-cases/ObserveConnectivity
+    infrastructure/
+      http/                 the client, the constants of the API, the gateway errors, the checks of an answer, dto/wire
+      persistence/          the SQL seam, the openers, the unlocking of the encrypted database, its key and generations, the record of a reset, the migration runner
+      files/                the FileStore seam over a volume of files, and the volume of a device (expo-file-system)
+      secure-storage/       the key-value seam over the keychain
+      connectivity/         the connectivity over the device (expo-network)
+      clock/                SystemClock, the sleep behind the simulated latency
+      monitoring/           ConsoleMonitoring, and SentryMonitoring (the one file that imports the Sentry SDK)
+      shared/               copies, results, the bounded-time wrapper, the queue that runs jobs in order, the listeners of an adapter, the paths of a flawed payload
+      testing/              the Node SQLite engine, files and secure storage, doubles of the device (test support)
+    presentation/           the shared interface
+      components/           buttons, dialogs, states, banners, fields (the demo switch included)
+      i18n/                 translations, language detection, provider, maps from codes to translation keys
+      theme/                design tokens (colours, spacing, font sizes, touch target)
+      query/                query client and its session handling, query keys, the Result to query convention, the tuning of retries, error codes
+      format/               dates, times and numbers for the locale of the user, and the provider that shares them
+      accessibility/        what the screen reader is told (announcements)
+      platform/             the platform checks, spelled once
+      navigation/           the routes, the focus of a screen
+      testIds.ts            the test ids shared with the end-to-end flows
+  features/               one folder per feature (README.md in each), each with domain/, application/, infrastructure/ and presentation/
+    auth/                 who the user is: User, Session, the app lock, the session guards, HttpAuthSession, SessionVault, the biometrics, the sign-in and lock screens
+    meetings/             the meetings: entities, ListMeetings, GetMeeting, loadMeeting, the HTTP repository, the SQLite and in-memory caches, the list and detail screens
+    documents/            opening a document: DocumentLocation, Watermark, OpenDocument, CloseDocument, ObserveScreenCapture, the screen protection (coordinator, native adapter), the document cache and content on disk, the document screen
+    votes/                casting a vote: Vote, OutboxVote, CastVote, SyncPendingVotes, the outbox (SQLite, in-memory), the HTTP repository, the vote dialog and the pending votes screen
+  composition/            the composition: the one place that knows every feature (README.md)
+    container/            composition root: configuration, ports, wiring, the choice of the monitoring, container
+    persistence/          the schema (table and column names) and the migrations of the database of the whole file
     device/               the real device (expo-sqlite, expo-secure-store, expo-crypto, expo-local-authentication, expo-network, the local module ScreenProtection)
-    native/               the adapter of the ScreenProtection port over the local native module, and the one place that imports the module
-    clock/                SystemClock, the sleep behind the simulated latency
-    monitoring/           ConsoleMonitoring, and SentryMonitoring (the one file that imports the Sentry SDK)
-    shared/               copies, results, the bounded-time wrapper, the queue that runs jobs in order, the listeners of an adapter, the paths of a flawed payload, the schemas of a rejected vote
-    testing/              the Node SQLite engine, MSW and the HTTP world, doubles of the device (test support)
-  presentation/           screens, components, hooks
-    i18n/                 translations, language detection, provider, maps from codes to translation keys
-    theme/                design tokens (colours, spacing, font sizes, touch target)
-    query/                query client and its session handling, query keys, the Result to query convention, the tuning of retries, error codes
-    services/             the use cases and settings the screens need (context), the providers of the app, the gate that starts it
-    session/              the controller of the session and of the life of the app: restoring it, the lock and the check of the session on the way back and on a timer, the privacy cover, the connection, the synchronisation of the votes
-    state/                the interface store (Zustand)
-    format/               dates, times and numbers for the locale of the user, and the provider that shares them
-    accessibility/        what the screen reader is told (announcements)
-    platform/             the platform checks, spelled once
-    navigation/           routes, the navigator (protected screens), opening a meeting, a document or the pending votes, the error boundary
-    testing/              render helpers (a screen, a hook, the whole navigator), the AppState driver, query client tracker and fixtures for the screens (test support)
-  di/                     composition root: configuration, ports, wiring, the choice of the monitoring, container
+    dev/                  the simulated world of the mock configuration: in-memory/ (the simulated server, its seed and fixtures, the repositories and auth over it), mock-api/ (the routes of the API over the simulated server: shared by the HTTP tests and by npm run mock:api), pdf/ (the tiny PDF writer of the demo content)
+    shell/                the app shell: navigation (the navigator, protected screens, the error boundary, the system links), services (the use cases and settings the screens need, the providers of the app, the gate that starts it), session (the controller of the session and of the life of the app: the lock and the privacy cover on the way back, the connection), state (the interface store), the header actions
+    glue/                 the tests that need every feature at once (the values that are stored, the limits, the security scenarios)
+  testing/                test support that serves several scopes: builders of fixtures, the fakes assembled for the use cases, the HTTP world, the render helpers (test support)
 assets/                   app icons (Expo template placeholders)
 modules/screen-protection/ the local Expo module ScreenProtection: Swift, Kotlin and its TypeScript entry (see "Native module: ScreenProtection")
 plugins/                  the local config plugin that puts the iOS project on the scene life cycle (to delete with SDK 58)
@@ -272,9 +309,9 @@ Each feature crosses the layers. The table says what the user gets and where to 
 | Offline reading        | A meeting or a document already seen opens without a connection, dated "Showing saved data from ..."                                                                                                                    | `loadWithCacheFallback` (the offline policy); `MeetingCache`, `DocumentCache`; `SqliteMeetingCache`, `SqliteDocumentCache`; `StatusBanner`                                                                                      |
 | Offline voting         | A vote cast offline is saved on the device, sent when the connection returns, and never lost or counted twice; a rejected vote is explained                                                                             | `VoteOutbox`, `SyncPendingVotes`, the idempotency key; `SqliteVoteOutbox`; `PendingVotesScreen`, `useVoteSync`                                                                                                                  |
 | Confidential documents | A PDF with the name, the email and the time of the reader drawn over every document; confidential ones (and copies served from the cache) on a protected screen where the platform allows; a notice on a screen capture | `OpenDocument`, `CloseDocument`, `ObserveScreenCapture`, `ScreenProtectionCoordinator`, `Watermark`; `NativeScreenProtection`, `modules/screen-protection`; `DocumentScreen`, `SecureContent`, `PdfViewer`, `DocumentWatermark` |
-| Encrypted local data   | The caches and the outbox are encrypted at rest; the key is in the keychain or keystore; a lost key resets the data and tells the user                                                                                  | `src/infrastructure/persistence` (`protectedDatabase`, `databaseKey`, `migrations`), `ExpoSecureStorage`; `StatusBanner`                                                                                                        |
-| French and English     | Every text in both languages, following the device and the per-app language setting; dates and counts formatted for the locale                                                                                          | `src/presentation/i18n`, `locales/fr.json`, the `expo-localization` plugin                                                                                                                                                      |
+| Encrypted local data   | The caches and the outbox are encrypted at rest; the key is in the keychain or keystore; a lost key resets the data and tells the user                                                                                  | `src/core/infrastructure/persistence` (`protectedDatabase`, `databaseKey`), `src/composition/persistence` (`migrations`), `ExpoSecureStorage`; `StatusBanner`                                                                   |
+| French and English     | Every text in both languages, following the device and the per-app language setting; dates and counts formatted for the locale                                                                                          | `src/core/presentation/i18n`, `locales/fr.json`, the `expo-localization` plugin                                                                                                                                                 |
 | Accessibility          | Roles and states on the controls, announcements for what appears on its own, contrast checked by a test, 44 point targets                                                                                               | `LiveText`, `useAnnounce`, `SegmentedControl`, `theme/tokens.ts`                                                                                                                                                                |
-| Failure handling       | Every failure has a message and, when asking again can help, a retry; a screen that crashes is replaced; a build that cannot start says why                                                                             | `AppErrorBoundary`, `StartupFailureScreen`, `QueryFailure`, the `Result` errors of `src/domain/errors`                                                                                                                          |
+| Failure handling       | Every failure has a message and, when asking again can help, a retry; a screen that crashes is replaced; a build that cannot start says why                                                                             | `AppErrorBoundary`, `StartupFailureScreen`, `QueryFailure`, the `Result` errors of `src/core/domain/errors`                                                                                                                     |
 | Error reporting        | Crash and error reports, scrubbed to identifiers and codes, when the build has a Sentry address; the console otherwise                                                                                                  | `Monitoring` port, `SentryMonitoring`, `createMonitoring`, `ConsoleMonitoring`                                                                                                                                                  |
 | Demo and mock server   | Two demo accounts, a switch that cuts the simulated network, and a mock API that can be run on a laptop                                                                                                                 | `InMemoryBackend`, `seed`, `DemoControls`; `MockApi`, `tooling/mock-api`                                                                                                                                                        |
