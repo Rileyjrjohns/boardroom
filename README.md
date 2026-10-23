@@ -3,7 +3,7 @@
 [![CI](https://github.com/Rileyjrjohns/boardroom/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Rileyjrjohns/boardroom/actions/workflows/ci.yml)
 
 Boardroom is a React Native app for board-of-directors governance: members read the papers of their meetings, vote on resolutions, and keep working when the network does not.
-It is built to show how a mobile codebase is structured, secured, tested and shipped like a product: hexagonal layers whose dependency rule is a lint error, an offline vote that is queued in a durable outbox and can neither be lost nor counted twice, and a security model with its limits written down.
+It is built to show how a mobile codebase is structured, secured, tested and shipped like a product: features organised in hexagonal layers whose dependency rules are lint errors, an offline vote that is queued in a durable outbox and can neither be lost nor counted twice, and a security model with its limits written down.
 The server is simulated and the data is fictional (a generic board, invented people); the business rules, the encrypted persistence of the `http` configuration, the security and the tooling are real.
 
 ![The app in use: sign in, open a meeting, vote offline, read a protected document](docs/media/demo.gif)
@@ -14,27 +14,40 @@ The server is simulated and the data is fictional (a generic board, invented peo
 
 ## Ports and adapters
 
-The use cases are the centre and know only ports, which are interfaces owned by the application layer of their feature (or of the shared kernel). An arrow from a port to an adapter reads "is implemented by", and each port has one per configuration (`mock` or `http`); the composition root is the one place that chooses them.
+The code is organised by feature (`src/features/auth`, `meetings`, `documents`, `votes`, over a shared `src/core`), and inside each of them by layer. The use cases are the centre of each feature and know only ports, which are interfaces owned by the application layer of their feature (or of the shared kernel). An arrow from a port to an adapter reads "is implemented by", and each port has one per configuration (`mock` or `http`); `src/composition` is the one place that chooses them, and the only one that knows every feature.
 
 ```mermaid
 flowchart LR
     screens["<b>Screens and hooks</b><br/>presentation, expo-router<br/>(driving side)"]
-    root["<b>Composition root</b> (src/composition)<br/>builds the adapters of one configuration,<br/>wires the use cases"]
+    root["<b>Composition</b> (src/composition)<br/>builds the adapters of one configuration,<br/>wires the use cases and the links<br/>between features"]
 
-    subgraph core["Application layer"]
+    subgraph app["Application layers, by the feature that owns each port"]
         usecases{{"<b>Use cases</b><br/>SignIn, ListMeetings, CastVote,<br/>SyncPendingVotes, OpenDocument, ..."}}
-        subgraph ports["Ports"]
-            MR["MeetingRepository"]
-            DR["DocumentRepository"]
-            VR["VoteRepository"]
-            AS["AuthSession"]
-            CA["MeetingCache, DocumentCache"]
-            VO["VoteOutbox"]
-            BG["BiometricGate"]
-            CO["Connectivity"]
-            SP["ScreenProtection"]
+        subgraph corep["core"]
             CK["Clock"]
             MO["Monitoring"]
+            CO["Connectivity"]
+            SG["SessionGate"]
+        end
+        subgraph authp["auth"]
+            AS["AuthSession"]
+            BG["BiometricGate"]
+            SDP["SessionDataPurger"]
+        end
+        subgraph meetp["meetings"]
+            MR["MeetingRepository"]
+            MC["MeetingCache"]
+            MDE["MeetingDocumentEvictor"]
+        end
+        subgraph docp["documents"]
+            DR["DocumentRepository"]
+            DC["DocumentCache"]
+            SP["ScreenProtection"]
+        end
+        subgraph votep["votes"]
+            VR["VoteRepository"]
+            VO["VoteOutbox"]
+            RVS["RecordedVoteSink"]
         end
     end
 
@@ -51,15 +64,28 @@ flowchart LR
         CON["<b>Console</b>"]
     end
 
+    subgraph links["Links between features, implemented where the owner cannot import"]
+        AGATE["AuthSessionGate (auth)"]
+        PURGE["MeetingCachePurger (meetings)<br/>DocumentCachePurger (documents)"]
+        EVICT["DocumentCacheEvictor (documents)"]
+        REC["MeetingCacheVoteRecorder (composition)"]
+    end
+
     screens --> usecases
-    usecases --> ports
+    usecases --> app
     root -. "use cases" .-> screens
     root -. "builds and injects" .-> adapters
+    root -. "wires" .-> links
 
-    MR & DR & VR & AS & CA & VO & BG & CO -->|mock| MEM
+    SG --> AGATE
+    SDP --> PURGE
+    MDE --> EVICT
+    RVS --> REC
+
+    MR & DR & VR & AS & MC & DC & VO & BG & CO -->|mock| MEM
     MR & DR & VR & AS -->|http| HTTP
     AS -->|http, session and token| SEC
-    CA & VO -->|http| SQL
+    MC & DC & VO -->|http| SQL
     BG -->|http| BIO
     CO -->|http| NET
     SP --> NAT
@@ -68,7 +94,7 @@ flowchart LR
     MO -->|no DSN| CON
 ```
 
-The `mock` configuration is the app against the in-memory adapters; the `http` configuration is the app against the real ones. `ScreenProtection` is a concern of the device, so both configurations use the local native module when the build has it. The detail is in [Architecture](docs/architecture.md), and every port is specified in [docs/spec/ports.md](docs/spec/ports.md).
+The `mock` configuration is the app against the in-memory adapters; the `http` configuration is the app against the real ones. `ScreenProtection` is a concern of the device, so both configurations use the local native module when the build has it. The features depend on each other along one graph and never in a cycle: `auth` on nothing, `meetings` on `auth`, `documents` and `votes` on both, everything on `core`, and a feature never imports another's infrastructure nor the composition. Where a feature needs something of one it may not import, it declares a port (the bottom-right of the diagram), another feature implements it and the composition wires them. The detail is in [Architecture](docs/architecture.md), the decision in [ADR 0015](docs/adr/0015-feature-first-hexagonal-architecture-with-links-inverted-through-the-composition.md), and every port is specified in [docs/spec/ports.md](docs/spec/ports.md).
 
 ## Run it in 2 minutes
 
@@ -85,19 +111,19 @@ A development client is needed once: the app contains native code that Expo Go d
 
 ## Tech choices
 
-| Area         | Choice                                                                  | Why                                                                                                                                                                                    |
-| ------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Architecture | Hexagonal, boundaries checked by `eslint-plugin-boundaries`             | The dependency rule fails the build instead of living in a diagram ([ADR 0001](docs/adr/0001-hexagonal-architecture-with-enforced-boundaries.md))                                      |
-| Runtime      | Expo SDK 57, React Native 0.86, development client                      | Native configuration is code (`app.config.ts`, config plugins) and `ios/` and `android/` are generated ([ADR 0002](docs/adr/0002-expo-continuous-native-generation-and-dev-client.md)) |
-| Errors       | A `Result` type, no exception across layers                             | Every failure is a value the caller must handle ([ADR 0008](docs/adr/0008-result-type-instead-of-exceptions.md))                                                                       |
-| State        | TanStack Query for server state, Zustand for the little interface state | A cache and its retries are not hand-written, and server data is never copied into a store ([ADR 0004](docs/adr/0004-tanstack-query-and-zustand-rather-than-redux.md))                 |
-| Navigation   | expo-router, typed routes, protected screens                            | A locked or signed-out app has no route to a meeting, so no deep link reaches one ([ADR 0003](docs/adr/0003-expo-router-with-typed-routes.md))                                         |
-| Offline      | SQLite with SQLCipher, a vote outbox, the offline policy in use cases   | A write never needs the network at the moment of the action, and the policy is testable without a device ([ADR 0005](docs/adr/0005-offline-first-with-a-sqlite-outbox.md))             |
-| HTTP         | The global `fetch` behind one client, zod at the adapter only           | Wire data is validated where it enters, and the inner layers import no package ([ADR 0010](docs/adr/0010-zod-at-the-adapter-boundary-only.md))                                         |
-| Wiring       | Manual injection in one composition root                                | The whole graph is readable in a few files and the compiler checks it ([ADR 0009](docs/adr/0009-manual-dependency-injection-in-one-composition-root.md))                               |
-| Native code  | A local module on the Expo Modules API                                  | Screen protection without hand-patched native projects ([ADR 0006](docs/adr/0006-expo-modules-api-for-screen-protection.md))                                                           |
-| i18n         | i18next, English and French, typed keys                                 | Every text is translated from the first screen and a literal in the UI is a lint error ([ADR 0011](docs/adr/0011-i18n-from-the-first-screen-with-typed-keys.md))                       |
-| Delivery     | EAS with GitHub Actions, Sentry, Fastlane as the alternative            | Builds and updates without a Mac to maintain ([ADR 0007](docs/adr/0007-eas-as-the-default-delivery-pipeline.md))                                                                       |
+| Area         | Choice                                                                    | Why                                                                                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Architecture | Feature-first hexagonal, boundaries checked by `eslint-plugin-boundaries` | The dependency rule fails the build instead of living in a diagram ([ADR 0015](docs/adr/0015-feature-first-hexagonal-architecture-with-links-inverted-through-the-composition.md))     |
+| Runtime      | Expo SDK 57, React Native 0.86, development client                        | Native configuration is code (`app.config.ts`, config plugins) and `ios/` and `android/` are generated ([ADR 0002](docs/adr/0002-expo-continuous-native-generation-and-dev-client.md)) |
+| Errors       | A `Result` type, no exception across layers                               | Every failure is a value the caller must handle ([ADR 0008](docs/adr/0008-result-type-instead-of-exceptions.md))                                                                       |
+| State        | TanStack Query for server state, Zustand for the little interface state   | A cache and its retries are not hand-written, and server data is never copied into a store ([ADR 0004](docs/adr/0004-tanstack-query-and-zustand-rather-than-redux.md))                 |
+| Navigation   | expo-router, typed routes, protected screens                              | A locked or signed-out app has no route to a meeting, so no deep link reaches one ([ADR 0003](docs/adr/0003-expo-router-with-typed-routes.md))                                         |
+| Offline      | SQLite with SQLCipher, a vote outbox, the offline policy in use cases     | A write never needs the network at the moment of the action, and the policy is testable without a device ([ADR 0005](docs/adr/0005-offline-first-with-a-sqlite-outbox.md))             |
+| HTTP         | The global `fetch` behind one client, zod at the adapter only             | Wire data is validated where it enters, and the inner layers import no package ([ADR 0010](docs/adr/0010-zod-at-the-adapter-boundary-only.md))                                         |
+| Wiring       | Manual injection in one composition root                                  | The whole graph is readable in a few files and the compiler checks it ([ADR 0009](docs/adr/0009-manual-dependency-injection-in-one-composition-root.md))                               |
+| Native code  | A local module on the Expo Modules API                                    | Screen protection without hand-patched native projects ([ADR 0006](docs/adr/0006-expo-modules-api-for-screen-protection.md))                                                           |
+| i18n         | i18next, English and French, typed keys                                   | Every text is translated from the first screen and a literal in the UI is a lint error ([ADR 0011](docs/adr/0011-i18n-from-the-first-screen-with-typed-keys.md))                       |
+| Delivery     | EAS with GitHub Actions, Sentry, Fastlane as the alternative              | Builds and updates without a Mac to maintain ([ADR 0007](docs/adr/0007-eas-as-the-default-delivery-pipeline.md))                                                                       |
 
 ## Testing strategy
 
@@ -117,7 +143,7 @@ For a live native app the default is brownfield, not a rewrite: React Native scr
 
 ## Read on
 
-- [Architecture decision records](docs/adr/README.md): fourteen short pages, from the hexagonal architecture to why the no-backend demo runs on in-memory adapters ([ADR 0014](docs/adr/0014-in-memory-adapters-for-the-no-backend-demo.md)).
+- [Architecture decision records](docs/adr/README.md): fifteen short pages, from the hexagonal architecture to why the no-backend demo runs on in-memory adapters ([ADR 0014](docs/adr/0014-in-memory-adapters-for-the-no-backend-demo.md)).
 - [The shared specification](docs/spec/README.md): the domain, the use cases, the ports, the screens and the demo data, independent of any framework, and checked against the code by a test.
 - [Security](docs/security.md), [the native module](docs/native-module.md), [CI/CD](docs/ci-cd.md), [design in depth](docs/design-in-depth.md), [conventions](docs/conventions.md), [the HTTP API](docs/api.md): the full index is [docs/README.md](docs/README.md).
 

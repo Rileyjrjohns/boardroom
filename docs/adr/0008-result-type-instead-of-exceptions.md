@@ -11,7 +11,7 @@ In this app almost every failure is expected and has a meaning for the user: the
 
 Every operation of `domain` and `application` that can fail returns `Result<T, E>` (`src/core/domain/shared/Result.ts`, a few lines, no dependency), or `Promise<Result<T, E>>`.
 
-- The error is plain data: a `code` taken from a const object plus the fields that matter, grouped by concern in `src/core/domain/errors`. It carries no text, because the translation happens in the presentation, and its `cause` never holds personal data.
+- The error is plain data: a `code` taken from a const object plus the fields that matter, grouped by concern: the families of the core in `src/core/domain/errors`, each feature's in its own `domain/errors` (see [0015](0015-feature-first-hexagonal-architecture-with-links-inverted-through-the-composition.md)). It carries no text, because the translation happens in the presentation, and its `cause` never holds personal data.
 - Production code of `domain` and `application` never throws: a lint rule forbids `throw` there (tests and `testing` folders may).
 - The contract of every port says that an adapter never throws and never rejects, and settles in bounded time. An adapter turns whatever its library does into an error `Result` (the HTTP client, the SQLite and file adapters, the native wrappers). `createContainer` never rejects either: a native module that fails to load is `platformUnavailable`.
 - At the border with TanStack Query, a query function throws a `QueryFailure` that wraps the error of the `Result`, so the failed query keeps its last data and exposes a typed code (see [0004](0004-tanstack-query-and-zustand-rather-than-redux.md)).

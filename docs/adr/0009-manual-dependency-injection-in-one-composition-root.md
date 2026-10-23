@@ -16,7 +16,7 @@ The use cases depend on ports. Something has to build the real adapters, wire th
 - The few objects that hold something in memory (`AppLock`, `ScreenProtectionCoordinator`, `CastVote`, `SyncPendingVotes`) are created once there and shared, and the wiring says why.
 - `ContainerRuntime` replaces the clock, the monitoring, the sleep and the device in a test.
 - The environment is read once, in `app/_layout.tsx`. A missing or empty adapters setting means `mock` in a development build and is the error `missingAdaptersSetting` in any other, so a release build that was not told what it talks to does not start.
-- Presentation never imports `di`. It declares the shape it needs (`AppServices`) and the container satisfies it structurally. `di` imports no external package.
+- Presentation never imports `di`. Each feature declares the shape it needs (`MeetingsServices` and its relatives, aggregated by the shell as `AppServices`) and the container satisfies it structurally. `di` imports no external package.
 
 ## Consequences
 
