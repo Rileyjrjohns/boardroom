@@ -5,6 +5,8 @@ import expoConfig from 'eslint-config-expo/flat.js';
 import prettierConfig from 'eslint-config-prettier/flat';
 import boundaries from 'eslint-plugin-boundaries';
 
+import { FEATURE_GRAPH, featureGraphPolicies } from './tooling/featureGraph.mjs';
+
 /**
  * Architecture, enforced by eslint-plugin-boundaries (v7 settings and rules).
  *
@@ -19,6 +21,16 @@ import boundaries from 'eslint-plugin-boundaries';
  *   infrastructure  -> domain, application, infrastructure, the spec fixtures
  *   presentation    -> domain, application, presentation, assets
  *   container       -> domain, application, infrastructure, container
+ *
+ * Every folder of a layer also belongs to its scope: `core`, `feature` (with the capture group
+ * `feature`, the name of the feature), `composition` or `testing`. The scopes carry the second
+ * rule, the graph of the features (`FEATURE_GRAPH` in tooling/featureGraph.mjs), which holds for the
+ * production code:
+ *
+ *   core            -> no feature, not the composition
+ *   feature         -> the core, the features the graph names for it (their domain, application and
+ *                      presentation, never their infrastructure), never the composition
+ *   composition     -> everything, through the rules of its layer
  *
  * domain, application and container import no external module at all. app, infrastructure and
  * presentation may import external modules, except `zod` and the native modules of the device
@@ -93,6 +105,50 @@ const ELEMENTS = {
   ],
   container: ['src/composition/container'],
 };
+
+/**
+ * The scope of a folder of `ELEMENTS`: where in src/ it is. A feature is the folder
+ * `src/features/<feature>`, and the name of the feature is captured (`feature`), so that the
+ * policies of the graph can say "this feature" and "another feature".
+ */
+const SCOPE_OF_FOLDER = [
+  { scope: 'core', prefix: 'src/core/' },
+  { scope: 'feature', prefix: 'src/features/*/' },
+  { scope: 'composition', prefix: 'src/composition/' },
+  { scope: 'testing', prefix: 'src/testing/' },
+];
+
+/** The capture group of the folders of a feature: its name. */
+const FEATURE_CAPTURE = ['feature'];
+
+/** @param {string} folder */
+function scopeOf(folder) {
+  const found = SCOPE_OF_FOLDER.find(({ prefix }) => folder.startsWith(prefix));
+  if (found === undefined) throw new Error(`The folder ${folder} is in no scope of src/.`);
+  return found.scope;
+}
+
+/**
+ * The elements of the folders of `ELEMENTS`: one for the layer, then one for the scope, over the
+ * same folder. A file is of both types (`types`), the layer first (`type`), and carries the name of
+ * the feature when it is in one.
+ */
+function folderElements() {
+  /** @param {string} type @param {string} folder */
+  const describe = (type, folder) => ({
+    type,
+    pattern: folder,
+    ...(folder.includes('*') ? { capture: FEATURE_CAPTURE } : {}),
+    partialMatch: false,
+  });
+  const folders = Object.entries(ELEMENTS).flatMap(([layer, patterns]) =>
+    patterns.map((folder) => ({ layer, folder })),
+  );
+  return [
+    ...folders.map(({ layer, folder }) => describe(layer, folder)),
+    ...folders.map(({ folder }) => describe(scopeOf(folder), folder)),
+  ];
+}
 
 const SOURCE_EXTENSIONS = 'js,jsx,mjs,cjs,ts,tsx,mts,cts';
 const TYPESCRIPT_EXTENSIONS = 'ts,tsx,mts,cts';
@@ -296,6 +352,17 @@ const dependencyPolicies = [
     },
     message: 'This layer alias does not resolve to a file.',
   },
+];
+
+/**
+ * The options of `boundaries/dependencies` for a set of policies. Everything is forbidden that no
+ * policy allows, and node_modules and the Node.js core modules are checked as well as local files.
+ * @param {readonly object[]} policies
+ * @returns {['error', { default: 'disallow', checkAllOrigins: boolean, policies: readonly object[] }]}
+ */
+const dependencyRule = (policies) => [
+  'error',
+  { default: 'disallow', checkAllOrigins: true, policies },
 ];
 
 /** Jest APIs that take a module specifier. They load a module like `require` does. */
@@ -880,17 +947,16 @@ export default defineConfig([
       // (micromatch ignores them unless a pattern names them). A file that is not an app, a layer
       // or an asset is therefore an unknown file, and importing it is rejected.
       'boundaries/include': ['**/*', '**/.*', '**/.*/**'],
+      // A folder of a layer is of two types, its layer and its scope (see `folderElements`): the
+      // elements of a file are not reduced to the first one that matches.
+      'boundaries/elements-single-match': false,
       // Patterns are matched against the full path from the root, not only its tail.
       'boundaries/elements': [
         { type: 'app', pattern: 'app', partialMatch: false },
         { type: 'assets', pattern: 'assets', partialMatch: false },
         { type: NATIVE_MODULE_ELEMENT, pattern: 'modules', partialMatch: false },
         { type: SPEC_FIXTURES_ELEMENT, pattern: SPEC_FIXTURES_FOLDER, partialMatch: false },
-        ...Object.entries(ELEMENTS).map(([type, patterns]) => ({
-          type,
-          pattern: patterns,
-          partialMatch: false,
-        })),
+        ...folderElements(),
       ],
       'boundaries/additional-dependency-nodes': additionalDependencyNodes,
     },
@@ -905,15 +971,7 @@ export default defineConfig([
       'boundaries/no-unknown-files': 'error',
       // Importing a local file that is not part of a known element is an error.
       'boundaries/no-unknown-dependencies': 'error',
-      'boundaries/dependencies': [
-        'error',
-        {
-          default: 'disallow',
-          // Also check node_modules and Node.js core imports, not only local files.
-          checkAllOrigins: true,
-          policies: dependencyPolicies,
-        },
-      ],
+      'boundaries/dependencies': dependencyRule(dependencyPolicies),
       'no-restricted-syntax': restrictSyntax(),
       // Packages are imported by name, never by their location in node_modules.
       'no-restricted-imports': restrictImports(
@@ -921,6 +979,20 @@ export default defineConfig([
         PDF_VIEWER_IMPORT_PATTERN,
         SENTRY_IMPORT_PATTERN,
       ),
+    },
+  },
+
+  {
+    // The graph of the features holds for production code: tests and test support are held to the
+    // rules of the layers only, so that a test may import the feature it needs to set the scene
+    // (the options of a rule are replaced, not merged: this block carries every policy).
+    files: APPLICATION_CODE,
+    ignores: [...TEST_FILES, ...TEST_SUPPORT_FILES],
+    rules: {
+      'boundaries/dependencies': dependencyRule([
+        ...dependencyPolicies,
+        ...featureGraphPolicies(FEATURE_GRAPH),
+      ]),
     },
   },
 

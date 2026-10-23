@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
+import { FEATURE_GRAPH, featureGraphPolicies, findCycle, graphProblems } from './featureGraph.mjs';
+
 // Checks what the ESLint configuration accepts and rejects: in UI code, no hardcoded user-facing
 // text, no raw colour, no raw test ID; in domain and application code, no `throw` and no read of the
 // system clock; in production code, no import of test support; in every TypeScript file, no `any` and
@@ -981,6 +983,238 @@ const rejectedAnyEverywhere = typeSafetyCases(rejectedAny);
 const rejectedTsCommentsEverywhere = typeSafetyCases(rejectedTsComments);
 const acceptedTypeSafety = typeSafetyCases(acceptedTsComments);
 
+// ---------------------------------------------------------------------------------------------
+// The graph of the features
+// ---------------------------------------------------------------------------------------------
+
+/** A real module of each layer of each feature: a snippet imports it, so that the path resolves. */
+const FEATURE_MODULES: Record<string, Record<string, string>> = {
+  auth: {
+    domain: '@features/auth/domain/entities/User',
+    application: '@features/auth/application/session/AppLock',
+    presentation: '@features/auth/presentation/hooks/useCurrentUser',
+    infrastructure: '@features/auth/infrastructure/HttpAuthSession',
+  },
+  meetings: {
+    domain: '@features/meetings/domain/entities/Meeting',
+    application: '@features/meetings/application/loadMeeting',
+    presentation: '@features/meetings/presentation/components/badgeTones',
+    infrastructure: '@features/meetings/infrastructure/HttpMeetingRepository',
+  },
+  documents: {
+    domain: '@features/documents/domain/value-objects/Watermark',
+    application: '@features/documents/application/ScreenProtectionCoordinator',
+    presentation: '@features/documents/presentation/components/CaptureNotice',
+    infrastructure: '@features/documents/infrastructure/pdfSignature',
+  },
+  votes: {
+    domain: '@features/votes/domain/entities/Vote',
+    application: '@features/votes/application/ports/VoteOutbox',
+    presentation: '@features/votes/presentation/hooks/resolutionVote',
+    infrastructure: '@features/votes/infrastructure/rejectionSchemas',
+  },
+};
+
+const FEATURES = Object.keys(FEATURE_GRAPH);
+/** The layers one feature may import of another along an edge of the graph, from the same layer. */
+const SHARED_LAYERS = ['domain', 'application', 'presentation'] as const;
+const CORE_MODULES = {
+  domain: '@core/domain/shared/Result',
+  application: '@core/application/ports/Clock',
+  presentation: '@core/presentation/theme/tokens',
+  infrastructure: '@core/infrastructure/shared/attempt',
+} as const;
+const COMPOSITION_MODULE = '@composition/shell/errorCatalog';
+const COMPOSITION_GLUE_MODULE = '@composition/glue/retryableCodes';
+
+/** The extension of a snippet in a layer: the presentation is the only one that holds JSX. */
+const sampleOf = (feature: string, layer: string): string =>
+  `src/features/${feature}/${layer}/Sample.ts`;
+
+/** A snippet that imports a module, and uses it. */
+const importing = (specifier: string): string =>
+  `import * as target from '${specifier}';\nexport const used = target;`;
+
+const moduleOf = (feature: string, layer: string): string => {
+  const specifier = FEATURE_MODULES[feature]?.[layer];
+  if (specifier === undefined) throw new Error(`No module for ${feature}/${layer}.`);
+  return specifier;
+};
+
+interface FeaturePair {
+  readonly from: string;
+  readonly to: string;
+}
+
+const allPairs: FeaturePair[] = FEATURES.flatMap((from) =>
+  FEATURES.filter((to) => to !== from).map((to) => ({ from, to })),
+);
+const edgesOfTheGraph = allPairs.filter(({ from, to }) => to in (FEATURE_GRAPH[from] ?? {}));
+const pairsOutsideTheGraph = allPairs.filter(
+  ({ from, to }) => !(to in (FEATURE_GRAPH[from] ?? {})),
+);
+
+const label = ({ from, to }: FeaturePair, layer: string): string =>
+  `${layer} of ${to} from ${from}`;
+
+/** From a feature, the shared layers of the features it depends on: along an edge. */
+const acceptedAlongTheGraph = edgesOfTheGraph.flatMap((pair) =>
+  SHARED_LAYERS.map(
+    (layer) =>
+      [
+        label(pair, layer),
+        register(sampleOf(pair.from, layer), importing(moduleOf(pair.to, layer))),
+      ] as [string, Snippet],
+  ),
+);
+
+/** Features that the graph does not name for the importing one, layer by layer. */
+const rejectedOutsideTheGraph = pairsOutsideTheGraph.flatMap((pair) =>
+  SHARED_LAYERS.map(
+    (layer) =>
+      [
+        label(pair, layer),
+        register(sampleOf(pair.from, layer), importing(moduleOf(pair.to, layer))),
+      ] as [string, Snippet],
+  ),
+);
+
+/** The infrastructure of another feature, never, along an edge or not. */
+const rejectedInfrastructure = allPairs.map(
+  (pair) =>
+    [
+      `infrastructure of ${pair.to} from ${pair.from}`,
+      register(
+        sampleOf(pair.from, 'infrastructure'),
+        importing(moduleOf(pair.to, 'infrastructure')),
+      ),
+    ] as [string, Snippet],
+);
+
+/** A feature reaches its own infrastructure and the core, as the rules of the layers say. */
+const acceptedInsideTheFeature = FEATURES.map(
+  (feature) =>
+    [
+      `the infrastructure of ${feature} from its own infrastructure`,
+      register(sampleOf(feature, 'infrastructure'), importing(moduleOf(feature, 'infrastructure'))),
+    ] as [string, Snippet],
+);
+const acceptedCoreByFeatures = FEATURES.flatMap((feature) =>
+  (['domain', 'application', 'presentation', 'infrastructure'] as const).map(
+    (layer) =>
+      [
+        `the ${layer} of the core from ${feature}`,
+        register(sampleOf(feature, layer), importing(CORE_MODULES[layer])),
+      ] as [string, Snippet],
+  ),
+);
+
+/** The core imports no feature, whatever the layer. */
+const rejectedFromTheCore = FEATURES.flatMap((feature) =>
+  SHARED_LAYERS.map(
+    (layer) =>
+      [
+        `the ${layer} of ${feature} from the core`,
+        register(`src/core/${layer}/Sample.ts`, importing(moduleOf(feature, layer))),
+      ] as [string, Snippet],
+  ),
+);
+const rejectedCoreToComposition = [
+  [
+    'the shell from the shared components',
+    register('src/core/presentation/components/Sample.ts', importing(COMPOSITION_MODULE)),
+  ],
+  [
+    'the glue from the offline policy',
+    register('src/core/application/offline/Sample.ts', importing(COMPOSITION_GLUE_MODULE)),
+  ],
+] as [string, Snippet][];
+
+/** A feature never imports the composition. */
+const rejectedToTheComposition = FEATURES.flatMap((feature) =>
+  (['presentation', 'application'] as const).map(
+    (layer) =>
+      [
+        `the composition from the ${layer} of ${feature}`,
+        register(
+          sampleOf(feature, layer),
+          importing(layer === 'presentation' ? COMPOSITION_MODULE : COMPOSITION_GLUE_MODULE),
+        ),
+      ] as [string, Snippet],
+  ),
+);
+
+/** The composition sees every feature: through the rules of its own layers. */
+const acceptedFromTheComposition = [
+  ...FEATURES.map(
+    (feature) =>
+      [
+        `the presentation of ${feature} from the shell`,
+        register('src/composition/shell/Sample.ts', importing(moduleOf(feature, 'presentation'))),
+      ] as [string, Snippet],
+  ),
+  ...FEATURES.map(
+    (feature) =>
+      [
+        `the application of ${feature} from the glue`,
+        register('src/composition/glue/Sample.ts', importing(moduleOf(feature, 'application'))),
+      ] as [string, Snippet],
+  ),
+  ...FEATURES.map(
+    (feature) =>
+      [
+        `the infrastructure of ${feature} from the container`,
+        register(DI, importing(moduleOf(feature, 'infrastructure'))),
+      ] as [string, Snippet],
+  ),
+  ...FEATURES.map(
+    (feature) =>
+      [
+        `the infrastructure of ${feature} from the persistence of the composition`,
+        register(
+          'src/composition/persistence/Sample.ts',
+          importing(moduleOf(feature, 'infrastructure')),
+        ),
+      ] as [string, Snippet],
+  ),
+] as [string, Snippet][];
+
+/** Tests and test support are held to the rules of the layers, not to the graph. */
+const acceptedByTests = [
+  [
+    'a test of the application of auth importing the application of votes',
+    register(
+      'src/features/auth/application/session/Sample.test.ts',
+      importing(moduleOf('votes', 'application')),
+    ),
+  ],
+  [
+    'test support of the domain of meetings importing the domain of votes',
+    register(
+      'src/features/meetings/domain/testing/sample.ts',
+      importing(moduleOf('votes', 'domain')),
+    ),
+  ],
+  [
+    'a test of the core importing the application of a feature',
+    register(
+      'src/core/application/offline/Sample.test.ts',
+      importing(moduleOf('auth', 'application')),
+    ),
+  ],
+] as [string, Snippet][];
+
+/** The layers still hold in a test: a test of the domain imports no application. */
+const rejectedByLayersInTests = [
+  [
+    'a test of the domain of auth importing the application of auth',
+    register(
+      'src/features/auth/domain/entities/Sample.test.ts',
+      importing(moduleOf('auth', 'application')),
+    ),
+  ],
+] as [string, Snippet][];
+
 let findings: Finding[][] = [];
 
 beforeAll(() => {
@@ -1044,7 +1278,7 @@ function named(cases: [string, Snippet][], name: string): Snippet {
 }
 
 describe('UI code lint rules', () => {
-  describe('in src/presentation', () => {
+  describe('in the presentation folders', () => {
     it.each(rejected)('rejects %s', (_name, snippet) => {
       expect(reported(snippet).length).toBeGreaterThan(0);
     });
@@ -1125,13 +1359,13 @@ describe('UI code lint rules', () => {
 
 describe('Domain, application and test support lint rules', () => {
   describe('in domain and application code', () => {
-    describe.each(Object.entries(rejectedCore))('in src/%s', (_layer, cases) => {
+    describe.each(Object.entries(rejectedCore))('in the %s folders', (_layer, cases) => {
       it.each(cases)('rejects %s', (_name, snippet) => {
         expect(reported(snippet).length).toBeGreaterThan(0);
       });
     });
 
-    describe.each(Object.entries(acceptedCore))('in src/%s', (_layer, cases) => {
+    describe.each(Object.entries(acceptedCore))('in the %s folders', (_layer, cases) => {
       it.each(cases)('accepts %s', (_name, snippet) => {
         expect(reported(snippet)).toEqual([]);
       });
@@ -1202,6 +1436,105 @@ describe('Domain, application and test support lint rules', () => {
           message: expect.stringContaining('not by a path inside node_modules'),
         }),
       ]);
+    });
+  });
+});
+
+describe('The graph of the features lint rules', () => {
+  const MESSAGE = 'FEATURE_GRAPH in tooling/featureGraph.mjs';
+
+  it.each(acceptedAlongTheGraph)('accepts the %s, along an edge of the graph', (_name, snippet) => {
+    expect(reportedBoundaries(snippet)).toEqual([]);
+  });
+
+  it.each(rejectedOutsideTheGraph)(
+    'rejects the %s, which the graph does not name, and points at the graph',
+    (_name, snippet) => {
+      expect(reportedBoundaries(snippet).map(({ message }) => message)).toEqual([
+        expect.stringContaining(MESSAGE),
+      ]);
+    },
+  );
+
+  it.each(rejectedInfrastructure)(
+    'rejects the %s: an adapter is chosen by the composition',
+    (_name, snippet) => {
+      expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
+        expect.stringContaining('never imports the infrastructure of another feature'),
+      );
+    },
+  );
+
+  it.each(acceptedInsideTheFeature)('accepts the %s', (_name, snippet) => {
+    expect(reportedBoundaries(snippet)).toEqual([]);
+  });
+
+  it.each(acceptedCoreByFeatures)('accepts %s', (_name, snippet) => {
+    expect(reportedBoundaries(snippet)).toEqual([]);
+  });
+
+  it.each(rejectedFromTheCore)('rejects %s: the core imports no feature', (_name, snippet) => {
+    expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
+      expect.stringContaining('The core imports no feature and not the composition'),
+    );
+  });
+
+  it.each(rejectedCoreToComposition)(
+    'rejects %s: the core imports no composition',
+    (_name, snippet) => {
+      expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
+        expect.stringContaining('The core imports no feature and not the composition'),
+      );
+    },
+  );
+
+  it.each(rejectedToTheComposition)('rejects %s: a feature never imports it', (_name, snippet) => {
+    expect(reportedBoundaries(snippet).map(({ message }) => message)).toContainEqual(
+      expect.stringContaining('A feature never imports the composition'),
+    );
+  });
+
+  it.each(acceptedFromTheComposition)(
+    'accepts %s: the composition sees every feature',
+    (_name, snippet) => {
+      expect(reportedBoundaries(snippet)).toEqual([]);
+    },
+  );
+
+  it.each(acceptedByTests)('accepts %s: tests are not held to the graph', (_name, snippet) => {
+    expect(reportedBoundaries(snippet)).toEqual([]);
+  });
+
+  it.each(rejectedByLayersInTests)('still rejects %s: the layers hold', (_name, snippet) => {
+    expect(reportedBoundaries(snippet)).not.toEqual([]);
+  });
+
+  describe('the graph itself', () => {
+    it('is valid', () => {
+      expect(graphProblems(FEATURE_GRAPH)).toEqual([]);
+    });
+
+    it('turns into the policies of the rules, in order: the features, then the core, then the composition', () => {
+      const policies = featureGraphPolicies(FEATURE_GRAPH);
+
+      expect(policies).toHaveLength(FEATURES.length * 2 + 2);
+    });
+
+    it('is refused when it has a cycle, a feature that depends on itself or an edge to nothing', () => {
+      const cyclic = { a: { b: 'because' }, b: { c: 'because' }, c: { a: 'because' } };
+
+      expect(findCycle(cyclic)).toEqual(['a', 'b', 'c', 'a']);
+      expect(graphProblems(cyclic)).toEqual([expect.stringContaining('a -> b -> c -> a')]);
+      expect(() => featureGraphPolicies(cyclic)).toThrow('cycle');
+      expect(() => featureGraphPolicies({ a: { a: 'itself' } })).toThrow('depends on itself');
+      expect(() => featureGraphPolicies({ a: { nothing: 'unknown' } })).toThrow('no feature');
+    });
+
+    it('accepts a graph without cycle, a feature that two others depend on included', () => {
+      const diamond = { a: {}, b: { a: 'x' }, c: { a: 'x' }, d: { b: 'x', c: 'x' } };
+
+      expect(findCycle(diamond)).toBeUndefined();
+      expect(graphProblems(diamond)).toEqual([]);
     });
   });
 });
