@@ -1,11 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, View } from 'react-native';
 
-import { isRetryableCode } from '@core/application/retryableCodes';
-
-import { MEETINGS_ERROR_KEYS } from '../i18n/translationKeys';
-import type { MeetingsErrorCode } from '../i18n/translationKeys';
-import { TEST_IDS } from '../testIds';
+import { useErrorCatalog } from '../errors/ErrorCatalog';
+import { CORE_TEST_IDS } from '../testIds';
 import { colors, fontSizes, spacing } from '../theme/tokens';
 
 import { Button } from './Button';
@@ -13,7 +10,7 @@ import { LiveText } from './LiveText';
 
 interface ErrorStateProps {
   /** The code of the error, which decides the message and whether trying again can help. */
-  readonly code: MeetingsErrorCode;
+  readonly code: string;
   /** Called by the retry button, which is shown only when trying again can help. */
   readonly onRetry?: () => void;
   readonly testID?: string;
@@ -26,12 +23,13 @@ interface ErrorStateProps {
  */
 export function ErrorState({ code, onRetry, testID }: ErrorStateProps) {
   const { t } = useTranslation();
+  const catalog = useErrorCatalog();
 
   return (
     <View style={styles.container} {...(testID === undefined ? {} : { testID })}>
-      <LiveText message={t(MEETINGS_ERROR_KEYS[code])} style={styles.message} />
-      {isRetryableCode(code) && onRetry !== undefined ? (
-        <Button title={t('states.retry')} onPress={onRetry} testID={TEST_IDS.retryButton} />
+      <LiveText message={t(catalog.messageKeyOf(code))} style={styles.message} />
+      {catalog.isRetryableCode(code) && onRetry !== undefined ? (
+        <Button title={t('states.retry')} onPress={onRetry} testID={CORE_TEST_IDS.retryButton} />
       ) : null}
     </View>
   );

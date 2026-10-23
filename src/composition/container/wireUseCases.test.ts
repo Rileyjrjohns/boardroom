@@ -1,6 +1,6 @@
-import { appLocked } from '@core/domain/errors/AuthenticationError';
+import { appLocked } from '@features/auth/domain/errors/AuthenticationError';
 import { unexpected } from '@core/domain/errors/RepositoryError';
-import { VOTE_DELIVERY_ERROR_CODE } from '@core/domain/errors/VoteDeliveryError';
+import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createPageRequest } from '@core/domain/value-objects/PageRequest';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';

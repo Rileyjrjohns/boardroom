@@ -1,6 +1,6 @@
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import type { Instant } from '@core/domain/value-objects/Instant';
 import type { UserId } from '@core/domain/value-objects/ids';
 import { findParticipant } from '@features/meetings/domain/entities/Meeting';

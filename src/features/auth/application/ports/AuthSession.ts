@@ -1,4 +1,4 @@
-import type { InvalidCredentialsError } from '@core/domain/errors/AuthenticationError';
+import type { InvalidCredentialsError } from '@features/auth/domain/errors/AuthenticationError';
 import type { NetworkUnavailableError, UnexpectedError } from '@core/domain/errors/RepositoryError';
 import type {
   StorageReadFailedError,

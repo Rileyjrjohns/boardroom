@@ -1,6 +1,6 @@
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import { sessionChanged } from '@core/domain/errors/AuthenticationError';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
+import { sessionChanged } from '@features/auth/domain/errors/AuthenticationError';
+import type { SessionChangedError } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import type {
   NetworkUnavailableError,
@@ -11,9 +11,9 @@ import type {
   StorageReadFailedError,
   StorageWriteFailedError,
 } from '@core/domain/errors/StorageError';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
-import { isVotingError } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
+import { isVotingError } from '@features/votes/domain/errors/VotingError';
 import { err, isErr, isOk, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { ResolutionId, UserId } from '@core/domain/value-objects/ids';
@@ -26,9 +26,9 @@ import type {
 import { isPending, recordAttempt } from '@features/votes/domain/entities/OutboxVote';
 import type { PendingVote } from '@features/votes/domain/entities/OutboxVote';
 
+import type { RecordedVoteSink } from '../ports/RecordedVoteSink';
 import type { VoteOutbox } from '../ports/VoteOutbox';
 import type { VoteRepository } from '../ports/VoteRepository';
-import { recordVoteInCache } from '../recordVoteInCache';
 
 export interface SyncPendingVotesDeps extends RequireSessionDeps {
   readonly outbox: VoteOutbox;
@@ -38,6 +38,8 @@ export interface SyncPendingVotesDeps extends RequireSessionDeps {
    * given up (rejected as `voteUndeliverable`) instead of being retried for ever.
    */
   readonly maxAttempts: number;
+  /** Where a vote the server recorded is written into the cached meeting. */
+  readonly recordedVoteSink: RecordedVoteSink;
 }
 
 export const SYNC_OUTCOME = {
@@ -115,7 +117,7 @@ type Settlement =
  * rejected vote is never sent again.
  *
  * - Recorded by the server: removed from the outbox, reported in `synced`, and recorded on the
- *   cached copy of its meeting (`recordVoteInCache`).
+ *   cached copy of its meeting (through the `RecordedVoteSink`).
  * - Rejected for a business reason (closed, already voted, ...): sending it again would change
  *   nothing, so it is moved to the rejected state, with its reason, and reported in `rejected`. It
  *   stays in the outbox until the user acknowledges it (`AcknowledgeRejectedVote`).
@@ -267,7 +269,7 @@ export class SyncPendingVotes {
     const removed = await this.deps.outbox.remove(pending.vote.idempotencyKey);
     if (isErr(removed)) return { kind: SETTLEMENT.Interrupted, cause: removed.error };
 
-    await recordVoteInCache(this.deps, pending.vote);
+    await this.deps.recordedVoteSink.record(pending.vote);
     return { kind: SETTLEMENT.Synced };
   }
 

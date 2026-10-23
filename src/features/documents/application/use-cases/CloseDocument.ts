@@ -1,4 +1,4 @@
-import type { ScreenProtectionError } from '@core/domain/errors/ScreenProtectionError';
+import type { ScreenProtectionError } from '@features/documents/domain/errors/ScreenProtectionError';
 import type { Result } from '@core/domain/shared/Result';
 import type { DocumentId } from '@core/domain/value-objects/ids';
 

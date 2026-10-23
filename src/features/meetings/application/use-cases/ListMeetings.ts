@@ -3,21 +3,21 @@ import type { Loaded } from '@core/application/offline/Loaded';
 import { loadWithCacheFallback } from '@core/application/offline/loadWithCacheFallback';
 import type { CacheFallbackDeps } from '@core/application/offline/loadWithCacheFallback';
 import { LOG_ATTRIBUTE } from '@core/application/ports/Monitoring';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
 import type { GatewayError } from '@core/domain/errors/RepositoryError';
 import { isErr } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { Page } from '@core/domain/value-objects/Page';
 import type { PageRequest } from '@core/domain/value-objects/PageRequest';
+import type { SessionGateError } from '@features/auth/application/session/AuthSessionGate';
 import { requireSession } from '@features/auth/application/session/requireSession';
-import type { SessionRequiredError } from '@features/auth/application/session/requireSession';
+import type { RequireSessionDeps } from '@features/auth/application/session/requireSession';
 import type { MeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
 import type { MeetingPeriod } from '@features/meetings/domain/value-objects/MeetingPeriod';
 
 import type { MeetingCache, MeetingPageKey } from '../ports/MeetingCache';
 import type { MeetingRepository } from '../ports/MeetingRepository';
 
-export interface ListMeetingsDeps extends CacheFallbackDeps {
+export interface ListMeetingsDeps extends CacheFallbackDeps<SessionGateError>, RequireSessionDeps {
   readonly meetings: MeetingRepository;
   readonly meetingCache: MeetingCache;
 }
@@ -27,7 +27,7 @@ export interface ListMeetingsInput {
   readonly request: PageRequest;
 }
 
-export type ListMeetingsError = SessionRequiredError | SessionChangedError | GatewayError;
+export type ListMeetingsError = SessionGateError | GatewayError;
 
 /**
  * One page of the upcoming or the past meetings, for the first load, the pull to refresh and the

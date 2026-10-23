@@ -1,7 +1,7 @@
 import {
   screenProtectionFailed,
   screenProtectionUnsupported,
-} from '@core/domain/errors/ScreenProtectionError';
+} from '@features/documents/domain/errors/ScreenProtectionError';
 import { err, ok } from '@core/domain/shared/Result';
 import { SCREEN_CAPTURE_KIND } from '@features/documents/application/ports/ScreenProtection';
 import { describeScreenProtectionContract } from '@features/documents/application/testing/contracts/screenProtectionContract';

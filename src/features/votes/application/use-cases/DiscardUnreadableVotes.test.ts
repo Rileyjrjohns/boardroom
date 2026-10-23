@@ -4,7 +4,7 @@ import {
   notAuthenticated,
   sessionChanged,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import { storageWriteFailed } from '@core/domain/errors/StorageError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';

@@ -1,8 +1,8 @@
-import { MEETING_ROW_TEST_ID_PREFIX } from '@core/presentation/testIds';
 import type { MeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import type { MeetingPeriod } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import { MILLIS_PER_DAY, aMeetingId, aMeetingSummary, at } from '@testing/domain/builders';
+import { MEETING_ROW_TEST_ID_PREFIX } from '../testIds';
 
 // Test support, not production code: only tests import it (a lint rule enforces it).
 

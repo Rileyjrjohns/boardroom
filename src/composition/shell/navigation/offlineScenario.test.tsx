@@ -2,20 +2,10 @@ import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { AccessibilityInfo, Platform } from 'react-native';
 import { router } from 'expo-router';
 
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { err } from '@core/domain/shared/Result';
 import { createI18n } from '@core/presentation/i18n/createI18n';
-import {
-  TEST_IDS,
-  meetingRowTestId,
-  pendingVoteTestId,
-  rejectedVoteTestId,
-  resolutionTestId,
-  voteChoiceTestId,
-  voteNoticeTestId,
-  voteOutcomeTestId,
-} from '@core/presentation/testIds';
-import { withVoteRecorded } from '@features/meetings/domain/entities/Meeting';
+import { withVoteRecorded } from '@features/votes/domain/withVoteRecorded';
 import { RESOLUTION_STATUS } from '@features/meetings/domain/entities/Resolution';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
@@ -32,6 +22,21 @@ import { renderApp } from '@testing/presentation/renderApp';
 
 import { epochOf } from '../testing/accessEpoch';
 import { driveAppState } from '../testing/appState';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import {
+  meetingRowTestId,
+  resolutionTestId,
+  MEETINGS_TEST_IDS,
+} from '@features/meetings/presentation/testIds';
+import {
+  pendingVoteTestId,
+  rejectedVoteTestId,
+  voteChoiceTestId,
+  voteNoticeTestId,
+  voteOutcomeTestId,
+  VOTES_TEST_IDS,
+} from '@features/votes/presentation/testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The whole offline scenario of the demo, in the real navigator, with the switch of the demo
 // driving the connection exactly as it does in the running app: go offline, open a meeting already
@@ -80,9 +85,9 @@ function startOffline() {
 }
 
 async function signInAndOpenMeeting(): Promise<void> {
-  fireEvent.changeText(await screen.findByTestId(TEST_IDS.signInEmail), 'alice@example.com');
-  fireEvent.changeText(screen.getByTestId(TEST_IDS.signInPassword), 'secret');
-  await press(TEST_IDS.signInSubmit);
+  fireEvent.changeText(await screen.findByTestId(AUTH_TEST_IDS.signInEmail), 'alice@example.com');
+  fireEvent.changeText(screen.getByTestId(AUTH_TEST_IDS.signInPassword), 'secret');
+  await press(AUTH_TEST_IDS.signInSubmit);
   await press(meetingRowTestId(MEETING.id));
   await screen.findByTestId(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
 }
@@ -94,17 +99,17 @@ describe('the offline scenario', () => {
 
     // 1. The meeting has been seen: it is saved on the device.
     expect(fakes.meetingCache.isEmpty()).toBe(false);
-    expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
 
     // 2. The connection is cut with the switch of the demo: the banner says so.
-    await press(TEST_IDS.demoOfflineSwitch);
-    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
+    expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
     expect(fakes.network.online).toBe(false);
 
     // 3. The user votes: it is saved, and the detail says it is waiting, with the choice.
     await press(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.Against));
-    expect(screen.getByTestId(TEST_IDS.voteDialogOffline)).toBeTruthy();
-    await press(TEST_IDS.voteConfirm);
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogOffline)).toBeTruthy();
+    await press(VOTES_TEST_IDS.voteConfirm);
 
     const resolution = screen.getByTestId(resolutionTestId(RESOLUTION));
     expect(screen.getByTestId(voteOutcomeTestId(RESOLUTION))).toHaveTextContent(t('voting.queued'));
@@ -118,7 +123,7 @@ describe('the offline scenario', () => {
     expect(fakes.outbox.snapshot()).toHaveLength(1);
 
     // 4. The vote is in the list of the pending votes, and nowhere else.
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     expect(fakes.network.online).toBe(true);
     await settle();
 
@@ -126,7 +131,7 @@ describe('the offline scenario', () => {
     expect(fakes.votes.recordedVotes().map((vote) => vote.choice)).toEqual([VOTE_CHOICE.Against]);
     expect(fakes.outbox.snapshot()).toEqual([]);
     expect(
-      within(await screen.findByTestId(TEST_IDS.syncSummary)).getByText(
+      within(await screen.findByTestId(VOTES_TEST_IDS.syncSummary)).getByText(
         t('banner.sent', { count: 1, formattedCount: '1' }),
       ),
     ).toBeTruthy();
@@ -140,7 +145,7 @@ describe('the offline scenario', () => {
         t('meeting.resolutionYourVoteQueued', { choice: t('voteChoice.against') }),
       ),
     ).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
     // The vote is sent: "saved on this device" is no longer true, and is no longer said.
     expect(screen.queryByTestId(voteOutcomeTestId(RESOLUTION))).toBeNull();
     expect(screen.queryByText(t('voting.queued'))).toBeNull();
@@ -149,33 +154,35 @@ describe('the offline scenario', () => {
   it('shows the queued vote in the pending votes, with a badge in the header, until it is sent', async () => {
     const { fakes } = startOffline();
     await signInAndOpenMeeting();
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     await press(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
     act(() => {
       router.back();
     });
-    await screen.findByTestId(TEST_IDS.meetingsList);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
     await settle();
 
-    expect(within(screen.getByTestId(TEST_IDS.pendingVotesBadge)).getByText('1')).toBeTruthy();
-    await press(TEST_IDS.pendingVotesButton);
+    expect(
+      within(screen.getByTestId(VOTES_TEST_IDS.pendingVotesBadge)).getByText('1'),
+    ).toBeTruthy();
+    await press(VOTES_TEST_IDS.pendingVotesButton);
     expect(await screen.findByTestId(pendingVoteTestId(RESOLUTION))).toBeTruthy();
 
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     await settle();
 
     expect(screen.queryByTestId(pendingVoteTestId(RESOLUTION))).toBeNull();
-    expect(await screen.findByTestId(TEST_IDS.pendingVotesEmpty)).toBeTruthy();
+    expect(await screen.findByTestId(VOTES_TEST_IDS.pendingVotesEmpty)).toBeTruthy();
     expect(fakes.votes.recordedVotes()).toHaveLength(1);
   });
 
   it('tells the user a queued vote was rejected when the server refuses it, and lets them acknowledge it', async () => {
     const { fakes } = startOffline();
     await signInAndOpenMeeting();
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     await press(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
     // While the user was offline the voting closed.
     fakes.meetings.addMeeting(
       aMeeting({
@@ -193,11 +200,11 @@ describe('the offline scenario', () => {
     );
     fakes.votes.answerNext(err({ code: VOTING_ERROR_CODE.ResolutionClosed }));
 
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     await settle();
 
     expect(
-      within(await screen.findByTestId(TEST_IDS.syncSummary)).getByText(
+      within(await screen.findByTestId(VOTES_TEST_IDS.syncSummary)).getByText(
         t('banner.rejected', { count: 1, formattedCount: '1' }),
       ),
     ).toBeTruthy();
@@ -213,8 +220,8 @@ describe('the offline scenario', () => {
     act(() => {
       router.back();
     });
-    await screen.findByTestId(TEST_IDS.meetingsList);
-    await press(TEST_IDS.pendingVotesButton);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
+    await press(VOTES_TEST_IDS.pendingVotesButton);
     const row = await screen.findByTestId(rejectedVoteTestId(RESOLUTION));
     expect(within(row).getByText(t('voting.reason.resolutionClosed'))).toBeTruthy();
   });
@@ -226,7 +233,7 @@ describe('the offline scenario', () => {
     await signInAndOpenMeeting();
     announce.mockClear();
 
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
 
     // The list is still mounted under the detail, with a banner of its own saying the same thing.
     expect(announce.mock.calls.filter(([message]) => message === t('banner.offline'))).toHaveLength(
@@ -236,7 +243,7 @@ describe('the offline scenario', () => {
     act(() => {
       router.back();
     });
-    await screen.findByTestId(TEST_IDS.meetingsList);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
     await settle();
 
     // Back on the list: what it shows was already said, and is not said again.
@@ -248,52 +255,52 @@ describe('the offline scenario', () => {
   it('lets the demo bring the connection back from the sign-in screen, after a sign-out while offline', async () => {
     const { fakes } = startOffline();
     await signInAndOpenMeeting();
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     act(() => {
       router.back();
     });
-    await screen.findByTestId(TEST_IDS.meetingsList);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingsList);
 
-    await press(TEST_IDS.signOutButton);
-    await press(TEST_IDS.signOutConfirm);
+    await press(AUTH_TEST_IDS.signOutButton);
+    await press(AUTH_TEST_IDS.signOutConfirm);
 
     // Signed out and offline: the sign-in screen says so, and has the switch to undo it.
-    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
+    expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
     expect(fakes.network.online).toBe(false);
 
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
 
     expect(fakes.network.online).toBe(true);
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
   });
 
   it('lets the demo bring the connection back from the lock screen as well', async () => {
-    const { fakes, uiStore } = startOffline();
+    const { fakes, accessStore } = startOffline();
     await signInAndOpenMeeting();
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     act(() => {
-      uiStore.getState().locked(epochOf(uiStore));
+      accessStore.getState().locked(epochOf(accessStore));
     });
     fakes.appLock.lock();
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
-    await press(TEST_IDS.demoOfflineSwitch);
+    expect(await screen.findByTestId(AUTH_TEST_IDS.lockScreen)).toBeTruthy();
+    expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toBeTruthy();
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
 
     expect(fakes.network.online).toBe(true);
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
   });
 
   it('does not send a waiting vote while the app is locked, and sends it once the user unlocks', async () => {
-    const { fakes, uiStore } = startOffline();
+    const { fakes, accessStore } = startOffline();
     await signInAndOpenMeeting();
-    await press(TEST_IDS.demoOfflineSwitch);
+    await press(CORE_TEST_IDS.demoOfflineSwitch);
     await press(voteChoiceTestId(RESOLUTION, VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
     act(() => {
-      uiStore.getState().locked(epochOf(uiStore));
+      accessStore.getState().locked(epochOf(accessStore));
     });
     fakes.appLock.lock();
     await settle();
@@ -305,9 +312,9 @@ describe('the offline scenario', () => {
     await settle();
 
     expect(fakes.votes.recordedVotes()).toEqual([]);
-    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.lockScreen)).toBeTruthy();
 
-    await press(TEST_IDS.lockUnlock);
+    await press(AUTH_TEST_IDS.lockUnlock);
     await settle();
 
     expect(fakes.votes.recordedVotes()).toHaveLength(1);

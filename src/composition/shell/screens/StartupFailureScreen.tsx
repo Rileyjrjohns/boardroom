@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes, fontWeights, spacing } from '@core/presentation/theme/tokens';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
 
 interface StartupFailureScreenProps {
   /** The code of the error that stopped the composition root. A technical value, shown as is. */
@@ -19,7 +19,7 @@ export function StartupFailureScreen({ code }: StartupFailureScreenProps) {
   const { t } = useTranslation();
 
   return (
-    <View style={styles.screen} testID={TEST_IDS.startupFailure}>
+    <View style={styles.screen} testID={SHELL_TEST_IDS.startupFailure}>
       <Text accessibilityRole="header" style={styles.title}>
         {t('startup.title')}
       </Text>

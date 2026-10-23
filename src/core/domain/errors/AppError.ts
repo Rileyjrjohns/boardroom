@@ -1,30 +1,14 @@
-import type { AuthenticationError } from './AuthenticationError';
-import type { BiometricError } from './BiometricError';
-import type { RepositoryError } from './RepositoryError';
-import type { ScreenProtectionError } from './ScreenProtectionError';
-import type { StorageError } from './StorageError';
-import type { ValidationError } from './ValidationError';
-import type {
-  VoteInProgressError,
-  VoteNotRejectedError,
-  VotePreviouslyRejectedError,
-  VoteUndeliverableError,
-} from './VoteDeliveryError';
-import type { VotingError } from './VotingError';
-
 /**
- * Every error the domain defines. The `code` of each member is unique across the union (a test
- * checks it), so a union of errors from several concerns can be told apart by `code` alone.
+ * What every error of the app is: plain data with a `code`. The base is open on purpose: the core
+ * knows the families of errors it owns (the repository, the storage and the validation), and each
+ * feature declares its own (`AuthenticationError` and `BiometricError` in `auth`, `VotingError` and
+ * `VoteDeliveryError` in `votes`, `ScreenProtectionError` in `documents`). A use case that can
+ * fail with several of them says so in its own types, as a union of the families it meets.
+ *
+ * The `code` of each error is unique across every family of the app: the test of
+ * `src/composition/glue` that sees them all checks it, so that a union of errors from several
+ * concerns can be told apart by `code` alone.
  */
-export type AppError =
-  | ValidationError
-  | AuthenticationError
-  | RepositoryError
-  | VotingError
-  | BiometricError
-  | StorageError
-  | ScreenProtectionError
-  | VoteUndeliverableError
-  | VotePreviouslyRejectedError
-  | VoteInProgressError
-  | VoteNotRejectedError;
+export interface AppError {
+  readonly code: string;
+}

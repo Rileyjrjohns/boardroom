@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { useSessionOpen } from '@composition/shell/state/useSessionOpen';
 import { unwrapResult } from '@core/presentation/query/QueryFailure';
-import { queryKeys } from '@core/presentation/query/queryKeys';
+import { useSessionOpen } from '@features/auth/presentation/state/useSessionOpen';
 import type { OutboxContent } from '@features/votes/application/use-cases/ListPendingVotes';
+
+import { votesQueryKeys } from '../query/votesQueryKeys';
+import { useVotesServices } from '../services/VotesServices';
 
 /**
  * The votes of the signed-in user in the outbox: the ones waiting to be sent and the rejected ones.
@@ -13,12 +14,12 @@ import type { OutboxContent } from '@features/votes/application/use-cases/ListPe
  * those refreshes this key (see `useRefreshQueries`).
  */
 export function usePendingVotes() {
-  const { useCases } = useAppServices();
+  const { listPendingVotes } = useVotesServices();
   const open = useSessionOpen();
 
   return useQuery<OutboxContent, Error>({
-    queryKey: queryKeys.votes.pending(),
-    queryFn: async () => unwrapResult(await useCases.listPendingVotes.execute()),
+    queryKey: votesQueryKeys.pending(),
+    queryFn: async () => unwrapResult(await listPendingVotes.execute()),
     enabled: open,
   });
 }

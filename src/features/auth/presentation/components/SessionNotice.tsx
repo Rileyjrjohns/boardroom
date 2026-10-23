@@ -2,10 +2,11 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet } from 'react-native';
 
 import { LiveText } from '@core/presentation/components/LiveText';
-import { MEETINGS_ERROR_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes } from '@core/presentation/theme/tokens';
 import type { SessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+
+import { SESSION_ENDED_KEYS } from '../i18n/authMessageKeys';
+import { AUTH_TEST_IDS } from '../testIds';
 
 interface SessionNoticeProps {
   /** The failure that sent the user back to this screen. */
@@ -22,9 +23,9 @@ export function SessionNotice({ code }: SessionNoticeProps) {
 
   return (
     <LiveText
-      message={t(MEETINGS_ERROR_KEYS[code])}
+      message={t(SESSION_ENDED_KEYS[code])}
       style={styles.notice}
-      testID={TEST_IDS.sessionNotice}
+      testID={AUTH_TEST_IDS.sessionNotice}
     />
   );
 }

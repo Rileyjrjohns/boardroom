@@ -1,14 +1,15 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { useSessionOpen } from '@composition/shell/state/useSessionOpen';
 import { andThenAsync } from '@core/domain/shared/Result';
 import type { PageCursor } from '@core/domain/value-objects/PageCursor';
 import { createPageRequest } from '@core/domain/value-objects/PageRequest';
 import { unwrapResult } from '@core/presentation/query/QueryFailure';
-import { queryKeys } from '@core/presentation/query/queryKeys';
+import { useSessionOpen } from '@features/auth/presentation/state/useSessionOpen';
 import type { MeetingPeriod } from '@features/meetings/domain/value-objects/MeetingPeriod';
+
+import { meetingsQueryKeys } from '../query/meetingsQueryKeys';
+import { useMeetingsServices } from '../services/MeetingsServices';
 
 import { selectMeetingsListView } from './meetingPages';
 import type { MeetingsListView, MeetingsPage, MeetingsPages } from './meetingPages';
@@ -25,20 +26,16 @@ import type { MeetingsListView, MeetingsPage, MeetingsPages } from './meetingPag
  * user who pulls is at the top, and the next pages are asked for again as they scroll.
  */
 export function useMeetingsList(period: MeetingPeriod) {
-  const { useCases, settings } = useAppServices();
+  const { listMeetings, pageSize } = useMeetingsServices();
   const queryClient = useQueryClient();
   const open = useSessionOpen();
-  const { meetingsPageSize } = settings;
-  const queryKey = useMemo(
-    () => queryKeys.meetings.list(period, meetingsPageSize),
-    [period, meetingsPageSize],
-  );
+  const queryKey = useMemo(() => meetingsQueryKeys.list(period, pageSize), [period, pageSize]);
 
   const query = useInfiniteQuery<
     MeetingsPage,
     Error,
     MeetingsListView,
-    ReturnType<typeof queryKeys.meetings.list>,
+    ReturnType<typeof meetingsQueryKeys.list>,
     PageCursor | undefined
   >({
     queryKey,
@@ -47,10 +44,10 @@ export function useMeetingsList(period: MeetingPeriod) {
       unwrapResult(
         await andThenAsync(
           createPageRequest({
-            limit: meetingsPageSize,
+            limit: pageSize,
             ...(pageParam === undefined ? {} : { cursor: pageParam }),
           }),
-          (request) => useCases.listMeetings.execute({ period, request }),
+          (request) => listMeetings.execute({ period, request }),
         ),
       ),
     getNextPageParam: (lastPage) => lastPage.data.nextCursor,

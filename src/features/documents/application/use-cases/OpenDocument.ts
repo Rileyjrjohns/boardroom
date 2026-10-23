@@ -4,14 +4,14 @@ import type { DataSource, Loaded } from '@core/application/offline/Loaded';
 import { loadWithCacheFallback } from '@core/application/offline/loadWithCacheFallback';
 import type { CacheFallbackDeps } from '@core/application/offline/loadWithCacheFallback';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
 import type { RepositoryError } from '@core/domain/errors/RepositoryError';
-import type { ScreenProtectionError } from '@core/domain/errors/ScreenProtectionError';
+import type { ScreenProtectionError } from '@features/documents/domain/errors/ScreenProtectionError';
 import { isErr, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { DocumentId, UserId } from '@core/domain/value-objects/ids';
+import type { SessionGateError } from '@features/auth/application/session/AuthSessionGate';
 import { requireSameUser, requireSession } from '@features/auth/application/session/requireSession';
-import type { SessionRequiredError } from '@features/auth/application/session/requireSession';
+import type { RequireSessionDeps } from '@features/auth/application/session/requireSession';
 import type { DocumentLocation } from '@features/documents/domain/value-objects/DocumentLocation';
 import { createWatermark } from '@features/documents/domain/value-objects/Watermark';
 import type { Watermark } from '@features/documents/domain/value-objects/Watermark';
@@ -22,7 +22,7 @@ import type { DocumentCache, ViewableDocument } from '../ports/DocumentCache';
 import type { DocumentRepository } from '../ports/DocumentRepository';
 import type { ScreenProtectionCoordinator } from '../ScreenProtectionCoordinator';
 
-export interface OpenDocumentDeps extends CacheFallbackDeps {
+export interface OpenDocumentDeps extends CacheFallbackDeps<SessionGateError>, RequireSessionDeps {
   readonly documents: DocumentRepository;
   readonly documentCache: DocumentCache;
   /** The instance shared with `CloseDocument`. */
@@ -48,8 +48,7 @@ export interface OpenedDocument {
   readonly screenProtected: boolean;
 }
 
-export type OpenDocumentError =
-  SessionRequiredError | SessionChangedError | RepositoryError | ScreenProtectionError;
+export type OpenDocumentError = SessionGateError | RepositoryError | ScreenProtectionError;
 
 /**
  * Opens a document for reading. Requires a valid session, whose user owns the cached copy. Steps:
@@ -115,9 +114,7 @@ export class OpenDocument {
   private load(
     owner: UserId,
     documentId: DocumentId,
-  ): Promise<
-    Result<Loaded<ViewableDocument>, RepositoryError | SessionRequiredError | SessionChangedError>
-  > {
+  ): Promise<Result<Loaded<ViewableDocument>, RepositoryError | SessionGateError>> {
     const { documents, documentCache } = this.deps;
 
     return loadWithCacheFallback(this.deps, owner, {

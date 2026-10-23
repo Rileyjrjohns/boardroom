@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { COLUMN, OUTBOX_QUARANTINED, TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import type { Monitoring } from '@core/application/ports/Monitoring';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
@@ -8,7 +7,7 @@ import type {
   StorageReadFailedError,
   StorageWriteFailedError,
 } from '@core/domain/errors/StorageError';
-import type { RejectionReason } from '@core/domain/errors/VoteDeliveryError';
+import type { RejectionReason } from '@features/votes/domain/errors/VoteDeliveryError';
 import { andThen, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { parseInstant } from '@core/domain/value-objects/Instant';
@@ -43,6 +42,8 @@ import {
   rejectionReasonSchema,
 } from '../rejectionSchemas';
 
+import { OUTBOX_QUARANTINED, VOTE_COLUMN, VOTE_TABLE } from './schema';
+
 export interface SqliteVoteOutboxOptions {
   readonly database: SqlDatabase;
   readonly monitoring: Monitoring;
@@ -64,7 +65,7 @@ type DecodedRow =
   | { readonly kind: typeof ROW.Vote; readonly vote: OutboxVote }
   | { readonly kind: typeof ROW.Unreadable; readonly sequence: number; readonly known: boolean };
 
-const C = COLUMN;
+const C = VOTE_COLUMN;
 const COLUMNS = [
   C.Sequence,
   C.IdempotencyKey,
@@ -80,22 +81,22 @@ const COLUMNS = [
   C.RejectedAt,
 ].join(', ');
 
-const SELECT = `SELECT ${COLUMNS} FROM ${TABLE.OutboxVotes}`;
+const SELECT = `SELECT ${COLUMNS} FROM ${VOTE_TABLE.Outbox}`;
 const SELECT_BY_KEY = `${SELECT} WHERE ${C.IdempotencyKey} = ?`;
 const SELECT_BY_VOTER = `${SELECT} WHERE ${C.VoterId} = ? ORDER BY ${C.Sequence}`;
 const SELECT_BY_RESOLUTION = `${SELECT} WHERE ${C.VoterId} = ? AND ${C.ResolutionId} = ? ORDER BY ${C.Sequence}`;
-const INSERT = `INSERT INTO ${TABLE.OutboxVotes}
+const INSERT = `INSERT INTO ${VOTE_TABLE.Outbox}
   (${C.IdempotencyKey}, ${C.VoterId}, ${C.ResolutionId}, ${C.MeetingId}, ${C.Choice}, ${C.CastAt},
    ${C.EnqueuedAt}, ${C.Attempts}, ${C.Status})
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-const MARK_ATTEMPT = `UPDATE ${TABLE.OutboxVotes} SET ${C.Attempts} = ${C.Attempts} + 1
+const MARK_ATTEMPT = `UPDATE ${VOTE_TABLE.Outbox} SET ${C.Attempts} = ${C.Attempts} + 1
   WHERE ${C.IdempotencyKey} = ? AND ${C.Status} = ?`;
-const REJECT = `UPDATE ${TABLE.OutboxVotes}
+const REJECT = `UPDATE ${VOTE_TABLE.Outbox}
   SET ${C.Status} = ?, ${C.RejectionReason} = ?, ${C.RejectedAt} = ?
   WHERE ${C.IdempotencyKey} = ? AND ${C.Status} = ?`;
-const REMOVE = `DELETE FROM ${TABLE.OutboxVotes} WHERE ${C.IdempotencyKey} = ?`;
-const QUARANTINE = `UPDATE ${TABLE.OutboxVotes} SET ${C.Status} = ? WHERE ${C.Sequence} = ?`;
-const DISCARD_ROW = `DELETE FROM ${TABLE.OutboxVotes} WHERE ${C.Sequence} = ?`;
+const REMOVE = `DELETE FROM ${VOTE_TABLE.Outbox} WHERE ${C.IdempotencyKey} = ?`;
+const QUARANTINE = `UPDATE ${VOTE_TABLE.Outbox} SET ${C.Status} = ? WHERE ${C.Sequence} = ?`;
+const DISCARD_ROW = `DELETE FROM ${VOTE_TABLE.Outbox} WHERE ${C.Sequence} = ?`;
 
 /** The columns of a row, as the engine hands them over. */
 const rowSchema = z.object({

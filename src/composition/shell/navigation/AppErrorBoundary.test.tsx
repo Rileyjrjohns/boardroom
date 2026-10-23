@@ -7,10 +7,10 @@ import { StatusBar } from 'react-native';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { createI18n } from '@core/presentation/i18n/createI18n';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { statusBarStyle } from '@core/presentation/theme/tokens';
 
 import { AppErrorBoundary } from './AppErrorBoundary';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
 
 function LayoutWithBoundary(): ReactElement {
   return <Slot />;
@@ -37,7 +37,7 @@ describe('AppErrorBoundary', () => {
 
       render(<AppErrorBoundary error={new Error('boom')} retry={retry} />);
 
-      expect(screen.getByTestId(TEST_IDS.errorBoundary)).toBeTruthy();
+      expect(screen.getByTestId(SHELL_TEST_IDS.errorBoundary)).toBeTruthy();
       expect(screen.getByText(t('errors.unexpected'))).toBeTruthy();
       fireEvent.press(screen.getByRole('button', { name: t('states.retry') }));
       expect(retry).toHaveBeenCalledTimes(1);
@@ -67,7 +67,7 @@ describe('AppErrorBoundary', () => {
         index: FailingScreen,
       });
 
-      expect(screen.getByTestId(TEST_IDS.errorBoundary)).toBeTruthy();
+      expect(screen.getByTestId(SHELL_TEST_IDS.errorBoundary)).toBeTruthy();
       expect(screen.getByText(t('errors.unexpected'))).toBeTruthy();
       expect(screen.UNSAFE_getByType(StatusBar).props.barStyle).toBe(statusBarStyle);
     });

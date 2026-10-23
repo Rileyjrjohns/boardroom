@@ -4,12 +4,15 @@ import { renderRouter } from 'expo-router/testing-library';
 
 import { createI18n } from '@core/presentation/i18n/createI18n';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
-import { TEST_IDS, demoAccountTestId } from '@core/presentation/testIds';
 import {
   pdfProps,
   resetPdfStub,
 } from '@features/documents/presentation/testing/reactNativePdfStub';
 import { MEETING_ROW_TEST_ID_PATTERN } from '@features/meetings/presentation/testing/meetingFixtures';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { DOCUMENTS_TEST_IDS } from '@features/documents/presentation/testIds';
+import { MEETINGS_TEST_IDS } from '@features/meetings/presentation/testIds';
+import { demoAccountTestId, CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // Opening a document through the real root layout, the real route files and the real composition
 // root in its mock configuration: the simulated server makes a PDF for the document, the repository
@@ -37,7 +40,7 @@ afterEach(() => {
 
 async function signIn(): Promise<void> {
   fireEvent.press(await screen.findByTestId(demoAccountTestId(ALICE)));
-  fireEvent.press(screen.getByTestId(TEST_IDS.signInSubmit));
+  fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signInSubmit));
 }
 
 /** Signs in, and opens meetings in turn until one has a confidential document; returns its row. */
@@ -46,7 +49,7 @@ async function openAMeetingWithAConfidentialDocument(t: ReturnType<typeof create
   const rows = await screen.findAllByTestId(MEETING_ROW_TEST_ID_PATTERN);
   for (const row of rows.slice(0, 8)) {
     fireEvent.press(row);
-    await screen.findByTestId(TEST_IDS.meetingDetail);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
     const confidential = screen
       .queryAllByTestId(/^document-/)
       .find((document) => within(document).queryByText(t('confidentiality.confidential')) !== null);
@@ -70,20 +73,20 @@ describe('a document, with the real composition root', () => {
 
       fireEvent.press(row);
 
-      await screen.findByTestId(TEST_IDS.documentPdf);
+      await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf);
       expect(getPathname()).toMatch(/^\/documents\/.+-document-\d+$/);
       expect(pdfProps().source.uri).toMatch(
         new RegExp(`^${DOCUMENTS_DIRECTORY}[0-9a-f]{64}\\.pdf$`),
       );
-      expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toHaveTextContent(
+      expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toHaveTextContent(
         t('document.protectedBadge'),
       );
-      const [tile] = screen.getAllByTestId(TEST_IDS.documentWatermarkTile, {
+      const [tile] = screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
         includeHiddenElements: true,
       });
       expect(tile).toHaveTextContent('Alice Martin', { exact: false });
       expect(tile).toHaveTextContent(ALICE, { exact: false });
-      expect(screen.getByTestId(TEST_IDS.documentTitle)).toBeTruthy();
+      expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentTitle)).toBeTruthy();
     },
   );
 
@@ -93,21 +96,21 @@ describe('a document, with the real composition root', () => {
     const { getPathname } = renderRouter();
     const row = await openAMeetingWithAConfidentialDocument(t);
     fireEvent.press(row);
-    await screen.findByTestId(TEST_IDS.documentPdf);
+    await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf);
     const location = pdfProps().source.uri;
     act(() => {
       router.back();
     });
-    await screen.findByTestId(TEST_IDS.meetingDetail);
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
-    await screen.findByTestId(TEST_IDS.offlineBanner);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
+    await screen.findByTestId(CORE_TEST_IDS.offlineBanner);
 
     fireEvent.press(screen.getByTestId(row.props.testID as string));
 
-    await screen.findByTestId(TEST_IDS.documentPdf);
+    await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf);
     expect(getPathname()).toMatch(/^\/documents\//);
     expect(pdfProps().source.uri).toBe(location);
-    expect(screen.getByTestId(TEST_IDS.staleBanner)).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toBeTruthy();
+    expect(screen.getByTestId(CORE_TEST_IDS.staleBanner)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeTruthy();
   });
 });

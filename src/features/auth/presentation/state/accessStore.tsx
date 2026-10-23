@@ -3,15 +3,11 @@ import type { ReactNode } from 'react';
 import { createStore, useStore } from 'zustand';
 import type { StoreApi } from 'zustand';
 
-import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
-import type { ConnectivityStatus } from '@core/application/ports/Connectivity';
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
 import type { ValueOf } from '@core/domain/shared/constants';
 import type { SessionEndingCode } from '@features/auth/application/session/sessionPolicy';
 import { SESSION_RESTORE } from '@features/auth/application/use-cases/RestoreSession';
 import type { RestoredSession } from '@features/auth/application/use-cases/RestoreSession';
-import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
-import type { MeetingPeriod } from '@features/meetings/domain/value-objects/MeetingPeriod';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 
 /**
  * Where the user stands, which decides the screens they can reach (see `AppNavigator`). The
@@ -32,21 +28,13 @@ export const ACCESS = {
 
 export type Access = ValueOf<typeof ACCESS>;
 
-/** What a run of the synchronisation did that is worth telling the user. */
-export interface SyncSummary {
-  readonly synced: number;
-  readonly rejected: number;
-}
-
 /**
- * The state of the interface, and nothing else. Server data is not here (it is in the query cache)
- * and neither is state that belongs to one component (it is in `useState`). Every field below is
- * state that no query holds, that more than one place reads, and that is written from outside any
- * component (the query cache, the system's events), which is what a store is for:
+ * The state of access of the interface, which is `auth`'s: the other features and the shared
+ * components read it (the screens of the open app only run while it is `Unlocked`) and none writes
+ * it but through the transitions below. Every field is state that no query holds, that more than
+ * one place reads, and that is written from outside any component (the query cache, the system's
+ * events), which is what a store is for:
  *
- * - `meetingsPeriod`: which period of the meetings list is selected. Today only the list reads it,
- *   so a `useState` would do (the list stays mounted below the detail); it is here because it is
- *   the first piece of interface state, and the store is the pattern the stack mandates for it;
  * - `access`: where the user stands (see `ACCESS`). It is not derivable: no use case reports the
  *   lock, and the navigator, the lifecycle of the app and the failures that end a session all read
  *   or write it. A failure writes it from the query cache, outside any component. Its transitions
@@ -59,31 +47,13 @@ export interface SyncSummary {
  *   user who came after, and must neither be shown to them nor sign them out;
  * - `sessionEndedBy`: why the user was sent back to the sign-in or the lock screen, so that the
  *   screen can explain it. The cache that saw the failure has just been emptied and the screen that
- *   showed it has just been left, so neither can remember it;
- * - `connectivity`: what the device says about its connection. It is an event, not a request: the
- *   offline line of the banner (on the screens of the open app, and on the sign-in and lock
- *   screens) and the trigger of the synchronisation both follow it, and there is no query to
- *   cache it in;
- * - `privacyCover`: whether the content must be hidden, because the app is inactive or in the
- *   background (the app switcher takes its snapshot then), or because the lock has not yet been
- *   evaluated on the way back. Written by the events of the system, read by the root and by the
- *   dialogs, which are not inside the root's view;
- * - `syncSummary`: what the synchronisations sent or rejected, added up until the user dismisses
- *   it, so that a later run does not wipe what an earlier one told. A result that has to outlive
- *   the screen that happened to be showing when it came;
- * - `localDataResetNotice`: whether the user is still to be told that local data was reset (votes
- *   waiting on this device may have been lost). It is known when the app starts, shown on the
- *   screens of the open app, so after the next sign-in or unlock, and it stays until the user has
- *   read it. It is not forgotten when they leave the open app: it is owed to them, not to a
- *   session.
+ *   showed it has just been left, so neither can remember it. It is forgotten when the user leaves
+ *   the open app for another reason, or comes back.
  *
- * Everything that belongs to a session (`syncSummary`, `sessionEndedBy`) is forgotten when the
- * user leaves `Unlocked`, and the interface store never holds a name, an email or a vote.
+ * The store never holds a name, an email or a vote. What other features keep for the session (the
+ * summary of a synchronisation, say) they forget themselves when the epoch moves.
  */
-export interface UiState {
-  readonly meetingsPeriod: MeetingPeriod;
-  selectMeetingsPeriod(period: MeetingPeriod): void;
-
+export interface AccessState {
   readonly access: Access;
   /** Goes up every time `access` changes: see above. */
   readonly accessEpoch: number;
@@ -111,46 +81,24 @@ export interface UiState {
   endSession(code: SessionEndingCode, epoch: number): void;
   /** The code of the failure that sent the user to the sign-in or lock screen, if one did. */
   readonly sessionEndedBy: SessionEndingCode | undefined;
-
-  readonly connectivity: ConnectivityStatus;
-  setConnectivity(status: ConnectivityStatus): void;
-
-  readonly privacyCover: boolean;
-  setPrivacyCover(covered: boolean): void;
-
-  readonly syncSummary: SyncSummary | undefined;
-  /**
-   * Adds what a run sent or rejected to the summary being shown, for the epoch the run started
-   * under, while the app is open. A result for another epoch is dropped.
-   */
-  showSyncSummary(summary: SyncSummary, epoch: number): void;
-  dismissSyncSummary(): void;
-
-  readonly localDataResetNotice: boolean;
-  dismissLocalDataReset(): void;
 }
 
-export type UiStore = StoreApi<UiState>;
+export type AccessStore = StoreApi<AccessState>;
 
-export interface UiStoreOptions {
+export interface AccessStoreOptions {
   /** Where the user stands at the start. `Starting` for the app; a screen under test may skip it. */
   readonly access?: Access;
-  /** Whether the user is to be told that local data was reset. */
-  readonly localDataReset?: boolean;
 }
 
-/** What leaving the open app forgets. */
-const SESSION_FORGOTTEN = { syncSummary: undefined, sessionEndedBy: undefined } as const;
-
 /** A new store. Created per app instance and provided through context: no module-level store. */
-export function createUiStore(options: UiStoreOptions = {}): UiStore {
-  return createStore<UiState>()((set, get) => {
+export function createAccessStore(options: AccessStoreOptions = {}): AccessStore {
+  return createStore<AccessState>()((set, get) => {
     /** Changes where the user stands: a new epoch, and what the session left to tell is forgotten. */
-    const moveTo = (access: Access, extra: Partial<UiState> = {}): void => {
+    const moveTo = (access: Access, extra: Partial<AccessState> = {}): void => {
       set({
         access,
         accessEpoch: get().accessEpoch + 1,
-        ...SESSION_FORGOTTEN,
+        sessionEndedBy: undefined,
         ...extra,
       });
     };
@@ -159,11 +107,6 @@ export function createUiStore(options: UiStoreOptions = {}): UiStore {
       get().access === ACCESS.Unlocked && get().accessEpoch === epoch;
 
     return {
-      meetingsPeriod: MEETING_PERIOD.Upcoming,
-      selectMeetingsPeriod: (period) => {
-        set({ meetingsPeriod: period });
-      },
-
       access: options.access ?? ACCESS.Starting,
       accessEpoch: 0,
       sessionRestored: (status) => {
@@ -193,61 +136,29 @@ export function createUiStore(options: UiStoreOptions = {}): UiStore {
         });
       },
       sessionEndedBy: undefined,
-
-      connectivity: CONNECTIVITY_STATUS.Online,
-      setConnectivity: (status) => {
-        set({ connectivity: status });
-      },
-
-      privacyCover: false,
-      setPrivacyCover: (covered) => {
-        set({ privacyCover: covered });
-      },
-
-      syncSummary: undefined,
-      showSyncSummary: (summary, epoch) => {
-        // A result that comes after the user left the open app, or for the user before them, is not
-        // theirs to read.
-        if (!isCurrentOpenApp(epoch)) return;
-        const shown = get().syncSummary;
-        set({
-          syncSummary: {
-            synced: (shown?.synced ?? 0) + summary.synced,
-            rejected: (shown?.rejected ?? 0) + summary.rejected,
-          },
-        });
-      },
-      dismissSyncSummary: () => {
-        set({ syncSummary: undefined });
-      },
-
-      localDataResetNotice: options.localDataReset ?? false,
-      dismissLocalDataReset: () => {
-        set({ localDataResetNotice: false });
-      },
     };
   });
 }
 
-const UiStoreContext = createContext<UiStore | undefined>(undefined);
+const AccessStoreContext = createContext<AccessStore | undefined>(undefined);
 
-interface UiStoreProviderProps {
+interface AccessStoreProviderProps {
   /** The store to provide. Without one, a new store is created on the first render. */
-  readonly store?: UiStore;
+  readonly store?: AccessStore;
   readonly children: ReactNode;
 }
 
 /** Provides the store to the tree below, creating it once, on the first render, when none is given. */
-export function UiStoreProvider({ store: given, children }: UiStoreProviderProps) {
-  const [store] = useState(() => given ?? createUiStore());
-  return <UiStoreContext.Provider value={store}>{children}</UiStoreContext.Provider>;
+export function AccessStoreProvider({ store: given, children }: AccessStoreProviderProps) {
+  const [store] = useState(() => given ?? createAccessStore());
+  return <AccessStoreContext.Provider value={store}>{children}</AccessStoreContext.Provider>;
 }
 
 /** Reads a part of the state, and re-renders only when that part changes. */
-export function useUiStore<Selected>(selector: (state: UiState) => Selected): Selected {
-  const store = useContext(UiStoreContext);
+export function useAccessStore<Selected>(selector: (state: AccessState) => Selected): Selected {
+  const store = useContext(AccessStoreContext);
   if (store === undefined) {
-    throw new Error('useUiStore must be used inside a UiStoreProvider.');
+    throw new Error('useAccessStore must be used inside an AccessStoreProvider.');
   }
   return useStore(store, selector);
 }
@@ -256,10 +167,10 @@ export function useUiStore<Selected>(selector: (state: UiState) => Selected): Se
  * The store itself, for code that reads the state at the moment an event fires instead of when it
  * renders (the system's events, a callback that outlives a render).
  */
-export function useUiStoreApi(): UiStore {
-  const store = useContext(UiStoreContext);
+export function useAccessStoreApi(): AccessStore {
+  const store = useContext(AccessStoreContext);
   if (store === undefined) {
-    throw new Error('useUiStoreApi must be used inside a UiStoreProvider.');
+    throw new Error('useAccessStoreApi must be used inside an AccessStoreProvider.');
   }
   return store;
 }

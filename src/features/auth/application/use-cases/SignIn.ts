@@ -4,17 +4,16 @@ import { andThenAsync, isErr } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { Session } from '@features/auth/domain/entities/Session';
 import { createCredentials } from '@features/auth/domain/value-objects/Credentials';
-import type { DocumentCache } from '@features/documents/application/ports/DocumentCache';
-import type { MeetingCache } from '@features/meetings/application/ports/MeetingCache';
 
 import type { AuthSession, SignInFailure } from '../ports/AuthSession';
+import type { SessionDataPurger } from '../ports/SessionDataPurger';
 import type { AppLock } from '../session/AppLock';
 import { purgeCaches } from '../session/purgeCaches';
 
 export interface SignInDeps {
   readonly auth: AuthSession;
-  readonly meetingCache: MeetingCache;
-  readonly documentCache: DocumentCache;
+  /** Emptied once the credentials are accepted: see `purgeCaches`. */
+  readonly sessionDataPurgers: readonly SessionDataPurger[];
   readonly monitoring: Monitoring;
   /** The instance shared by every use case: see `AppLock`. */
   readonly appLock: AppLock;
@@ -32,7 +31,7 @@ export type SignInError = ValidationError | SignInFailure;
  * Signs a user in with an email and a password. A badly formed email or an empty password is a
  * `validation` error: the server is not called.
  *
- * Once the credentials are accepted, and before the new session is used by anything, both caches
+ * Once the credentials are accepted, and before the new session is used by anything, the caches
  * are emptied: whoever signed in before (a sign-out that never came, a session that expired while
  * the app was closed, a purge that failed) does not leave their content on the device for the new
  * user. This is also the retry of a purge that failed earlier. A purge that fails is captured and

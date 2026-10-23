@@ -4,11 +4,11 @@ import { StyleSheet, View } from 'react-native';
 import type { ResolutionId } from '@core/domain/value-objects/ids';
 import { Button } from '@core/presentation/components/Button';
 import { LiveText } from '@core/presentation/components/LiveText';
-import { ACKNOWLEDGE_ERROR_KEYS } from '@core/presentation/i18n/translationKeys';
-import { acknowledgeTestId } from '@core/presentation/testIds';
 import { colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
 
 import { useAcknowledgeRejectedVote } from '../hooks/useAcknowledgeRejectedVote';
+import { ACKNOWLEDGE_ERROR_KEYS } from '../i18n/voteMessageKeys';
+import { acknowledgeTestId } from '../testIds';
 
 interface AcknowledgeButtonProps {
   readonly resolutionId: ResolutionId;

@@ -1,9 +1,10 @@
 import { useMutation } from '@tanstack/react-query';
 import { useCallback, useRef } from 'react';
 
-import { useUiStoreApi } from '@composition/shell/state/uiStore';
 import type { UnexpectedError } from '@core/domain/errors/RepositoryError';
 import type { Result } from '@core/domain/shared/Result';
+
+import { useActionEpoch } from '../state/actionEpoch';
 
 import { failureOf, unwrapResult } from './QueryFailure';
 import type { CodedError, QueryFailure } from './QueryFailure';
@@ -18,7 +19,7 @@ export interface ResultMutationOptions<Input, Output, E extends CodedError> {
   readonly onSuccess?: (output: Output, input: Input, startedUnder: number) => void | Promise<void>;
   /**
    * Runs when the use case failed, with the error it returned, for what the failure leaves stale.
-   * Both callbacks are told the epoch of the access the action started under (see `uiStore`), for
+   * Both callbacks are told the epoch of the access the action started under (see `useActionEpoch`), for
    * the ones that move the user and must not do it for somebody else.
    */
   readonly onFailure?: (
@@ -53,7 +54,7 @@ export interface ResultMutation<Input, E extends CodedError> {
  * - a second `run` while one is under way is ignored, so a double tap acts once even before the
  *   screen has re-rendered;
  * - the keys of the queries that the action makes stale are refreshed from `onSuccess`, through
- *   the key factory (`queryKeys`), never optimistically: what the screen shows afterwards is what
+ *   the key factory of the feature that owns the query, never optimistically: what the screen shows afterwards is what
  *   the use cases answer;
  * - nothing of the action stays in memory once its screen is gone (`createQueryClient` drops a
  *   mutation as soon as nothing observes it);
@@ -65,7 +66,7 @@ export function useResultMutation<Input, Output, E extends CodedError>(
 ): ResultMutation<Input, E> {
   const running = useRef(false);
   const startedUnder = useRef(0);
-  const store = useUiStoreApi();
+  const readEpoch = useActionEpoch();
 
   const mutation = useMutation<Output, QueryFailure<E>, Input>({
     // The failure says which access the action started under: the user who left is not to end the
@@ -88,10 +89,10 @@ export function useResultMutation<Input, Output, E extends CodedError>(
     (input: Input) => {
       if (running.current) return;
       running.current = true;
-      startedUnder.current = store.getState().accessEpoch;
+      startedUnder.current = readEpoch();
       mutate(input);
     },
-    [mutate, store],
+    [mutate, readEpoch],
   );
 
   return {

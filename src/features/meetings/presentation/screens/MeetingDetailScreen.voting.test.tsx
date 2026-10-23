@@ -1,35 +1,26 @@
 import { act, fireEvent, screen, within } from '@testing-library/react-native';
 import { AccessibilityInfo, Modal, Platform } from 'react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import {
   biometricCancelled,
   biometricFailed,
   biometricLockedOut,
   biometricNotEnrolled,
   biometricUnavailable,
-} from '@core/domain/errors/BiometricError';
-import type { BiometricError } from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
+import type { BiometricError } from '@features/auth/domain/errors/BiometricError';
 import { unexpected } from '@core/domain/errors/RepositoryError';
 import { storageReadFailed, storageWriteFailed } from '@core/domain/errors/StorageError';
-import { voteUndeliverable } from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { voteUndeliverable } from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { err } from '@core/domain/shared/Result';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import type { TranslationKey } from '@core/presentation/i18n/translationKeys';
-import { queryKeys } from '@core/presentation/query/queryKeys';
-import {
-  TEST_IDS,
-  acknowledgeTestId,
-  voteChoiceTestId,
-  voteChoicesTestId,
-  voteNoticeTestId,
-  voteOutcomeTestId,
-  resolutionTestId,
-} from '@core/presentation/testIds';
+import { votesQueryKeys } from '@features/votes/presentation/query/votesQueryKeys';
 import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
-import { withVoteRecorded } from '@features/meetings/domain/entities/Meeting';
+import { withVoteRecorded } from '@features/votes/domain/withVoteRecorded';
 import { RESOLUTION_STATUS } from '@features/meetings/domain/entities/Resolution';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';
 import type { VoteChoice } from '@features/meetings/domain/value-objects/VoteChoice';
@@ -52,6 +43,16 @@ import { renderScreen } from '@testing/presentation/renderScreen';
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
 import { MeetingDetailScreen } from './MeetingDetailScreen';
+import { resolutionTestId, MEETINGS_TEST_IDS } from '../testIds';
+import {
+  acknowledgeTestId,
+  voteChoiceTestId,
+  voteChoicesTestId,
+  voteNoticeTestId,
+  voteOutcomeTestId,
+  VOTES_TEST_IDS,
+} from '@features/votes/presentation/testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 const noDocument = (): void => undefined;
 
@@ -154,7 +155,7 @@ async function findChoices() {
 async function chooseAndConfirm(choice: VoteChoice = VOTE_CHOICE.For): Promise<void> {
   await findChoices();
   await press(choiceId(choice));
-  await press(TEST_IDS.voteConfirm);
+  await press(VOTES_TEST_IDS.voteConfirm);
 }
 
 describe('who may vote', () => {
@@ -255,7 +256,9 @@ describe('who may vote', () => {
 
     fakes.clock.advance(2000);
     await act(async () => {
-      await screen.getByTestId(TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
+      await screen
+        .getByTestId(MEETINGS_TEST_IDS.meetingDetail)
+        .props.refreshControl.props.onRefresh();
     });
     await settle();
 
@@ -269,7 +272,7 @@ describe('who may vote', () => {
     fakes.outbox.listFailure = storageReadFailed();
     const { t } = renderMeeting(SINGLE, { fakes });
 
-    const error = await screen.findByTestId(TEST_IDS.votingError);
+    const error = await screen.findByTestId(VOTES_TEST_IDS.votingError);
 
     expect(within(error).getByText(t('errors.storageReadFailed'))).toBeTruthy();
     expect(screen.queryByText(t('meeting.resolutionNoVote'))).toBeNull();
@@ -280,13 +283,13 @@ describe('who may vote', () => {
     const fakes = createFakes();
     fakes.outbox.listFailure = storageReadFailed();
     const { t } = renderMeeting(SINGLE, { fakes });
-    await screen.findByTestId(TEST_IDS.votingError);
+    await screen.findByTestId(VOTES_TEST_IDS.votingError);
     fakes.outbox.listFailure = undefined;
 
-    await press(TEST_IDS.retryButton);
+    await press(CORE_TEST_IDS.retryButton);
 
     expect(await findChoices()).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.votingError)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.votingError)).toBeNull();
     expect(screen.queryByText(t('errors.storageReadFailed'))).toBeNull();
   });
 });
@@ -298,13 +301,13 @@ describe('the confirmation step', () => {
 
     await press(choiceId(VOTE_CHOICE.Against));
 
-    const dialog = screen.getByTestId(TEST_IDS.voteDialog);
+    const dialog = screen.getByTestId(VOTES_TEST_IDS.voteDialog);
     expect(within(dialog).getByRole('header', { name: t('voting.confirmTitle') })).toBeTruthy();
     expect(within(dialog).getByText('Approve the budget')).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.voteDialogChoice)).toHaveTextContent(
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogChoice)).toHaveTextContent(
       t('voting.confirmChoice', { choice: t('voteChoice.against') }),
     );
-    expect(screen.getByTestId(TEST_IDS.voteDialogFinal)).toHaveTextContent(
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogFinal)).toHaveTextContent(
       t('voting.confirmFinal'),
     );
     expect(within(dialog).getByText(t('voting.confirmBiometric'))).toBeTruthy();
@@ -327,9 +330,9 @@ describe('the confirmation step', () => {
     await findChoices();
     await press(choiceId(VOTE_CHOICE.For));
 
-    await press(TEST_IDS.voteCancel);
+    await press(VOTES_TEST_IDS.voteCancel);
 
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
     expect(fakes.votes.received).toEqual([]);
     expect(screen.getByTestId(choiceId(VOTE_CHOICE.For))).toBeTruthy();
   });
@@ -343,7 +346,7 @@ describe('the confirmation step', () => {
       screen.UNSAFE_getAllByType(Modal)[0]!.props.onRequestClose();
     });
 
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
     expect(fakes.votes.received).toEqual([]);
   });
 
@@ -354,7 +357,7 @@ describe('the confirmation step', () => {
 
     await press(choiceId(VOTE_CHOICE.For));
 
-    const dialog = screen.getByTestId(TEST_IDS.voteDialog);
+    const dialog = screen.getByTestId(VOTES_TEST_IDS.voteDialog);
     expect(dialog.props.accessibilityViewIsModal).toBe(true);
     expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus');
   });
@@ -368,7 +371,7 @@ describe('the confirmation step', () => {
 
     await press(choiceId(VOTE_CHOICE.For));
 
-    expect(screen.getByTestId(TEST_IDS.voteDialogOffline)).toHaveTextContent(
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogOffline)).toHaveTextContent(
       t('voting.confirmOffline'),
     );
   });
@@ -379,7 +382,7 @@ describe('the confirmation step', () => {
 
     await press(choiceId(VOTE_CHOICE.For));
 
-    expect(screen.queryByTestId(TEST_IDS.voteDialogOffline)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialogOffline)).toBeNull();
   });
 });
 
@@ -391,7 +394,7 @@ describe('a vote that is submitted', () => {
 
     expect(fakes.biometricGate.prompts).toEqual([BIOMETRIC_REASON.ConfirmVote]);
     expect(fakes.votes.recordedVotes().map((vote) => vote.choice)).toEqual([VOTE_CHOICE.Against]);
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
     expect(screen.getByTestId(voteOutcomeTestId(OPEN))).toHaveTextContent(t('voting.submitted'));
   });
 
@@ -436,16 +439,16 @@ describe('a vote that is submitted', () => {
       });
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId(TEST_IDS.voteConfirm));
-      fireEvent.press(screen.getByTestId(TEST_IDS.voteConfirm));
+      fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.voteConfirm));
+      fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.voteConfirm));
     });
     await settle();
-    fireEvent.press(screen.getByTestId(TEST_IDS.voteConfirm));
+    fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.voteConfirm));
 
     expect(fakes.biometricGate.prompts).toHaveLength(1);
     const confirm = screen.getByRole('button', { name: t('voting.confirming') });
     expect(confirm.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
-    expect(screen.getByTestId(TEST_IDS.voteCancel).props.accessibilityState).toMatchObject({
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteCancel).props.accessibilityState).toMatchObject({
       disabled: true,
     });
     await act(async () => {
@@ -464,13 +467,13 @@ describe('a vote that is submitted', () => {
       new Promise<void>((resolve) => {
         answer = resolve;
       });
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
     await act(async () => {
       screen.UNSAFE_getAllByType(Modal)[0]!.props.onRequestClose();
     });
 
-    expect(screen.getByTestId(TEST_IDS.voteDialog)).toBeTruthy();
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialog)).toBeTruthy();
     await act(async () => {
       answer();
     });
@@ -500,7 +503,7 @@ describe('a vote that is queued', () => {
       VOTE_CHOICE.Abstain,
     ]);
     expect(fakes.votes.recordedVotes()).toEqual([]);
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
   });
 
   it('shows "waiting to be sent" with the choice at once, and takes the choices away', async () => {
@@ -530,7 +533,7 @@ describe('a vote that is queued', () => {
     await chooseAndConfirm();
 
     const outbox = rendered.queryClient.getQueryData<{ pending: { vote: { choice: string } }[] }>(
-      queryKeys.votes.pending(),
+      votesQueryKeys.pending(),
     );
     expect(outbox?.pending.map((entry) => entry.vote.choice)).toEqual([VOTE_CHOICE.For]);
   });
@@ -541,7 +544,7 @@ describe('a vote that is queued', () => {
     fakes.votes.answerNext(err(unexpected()));
 
     await press(choiceId(VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
     expect(screen.getByTestId(voteOutcomeTestId(OPEN))).toHaveTextContent(t('voting.queued'));
     expect(fakes.outbox.snapshot()).toHaveLength(1);
@@ -603,9 +606,9 @@ describe('a vote that is refused', () => {
       fakes.votes.answerNext(err(refusal));
 
       await press(choiceId(VOTE_CHOICE.For));
-      await press(TEST_IDS.voteConfirm);
+      await press(VOTES_TEST_IDS.voteConfirm);
 
-      const message = screen.getByTestId(TEST_IDS.voteDialogError);
+      const message = screen.getByTestId(VOTES_TEST_IDS.voteDialogError);
       expect(message).toHaveTextContent(t(key));
       expect(message.props.accessibilityRole).toBe('alert');
       expect(fakes.outbox.snapshot()).toEqual([]);
@@ -619,15 +622,15 @@ describe('a vote that is refused', () => {
     await press(choiceId(VOTE_CHOICE.For));
     const requests = fakes.meetings.getCalls.length;
 
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
-    expect(screen.queryByTestId(TEST_IDS.voteConfirm)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.voteCancel)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteConfirm)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteCancel)).toBeNull();
     expect(screen.getByRole('button', { name: t('common.close') })).toBeTruthy();
     expect(fakes.meetings.getCalls.length).toBeGreaterThan(requests);
 
-    await press(TEST_IDS.voteClose);
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    await press(VOTES_TEST_IDS.voteClose);
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
   });
 
   it('shows the state the server knows once the meeting is asked again', async () => {
@@ -649,8 +652,8 @@ describe('a vote that is refused', () => {
     fakes.votes.answerNext(err({ code: VOTING_ERROR_CODE.ResolutionClosed }));
 
     await press(choiceId(VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
-    await press(TEST_IDS.voteClose);
+    await press(VOTES_TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteClose);
 
     expect(await screen.findByTestId(voteNoticeTestId(OPEN))).toHaveTextContent(
       t('voting.reason.resolutionClosed'),
@@ -674,13 +677,13 @@ describe('the biometric confirmation', () => {
       fakes.biometricGate.authentication = err(failure);
       await press(choiceId(VOTE_CHOICE.For));
 
-      await press(TEST_IDS.voteConfirm);
+      await press(VOTES_TEST_IDS.voteConfirm);
 
-      expect(screen.getByTestId(TEST_IDS.voteDialogError)).toHaveTextContent(t(key));
+      expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogError)).toHaveTextContent(t(key));
       expect(fakes.votes.received).toEqual([]);
       expect(fakes.outbox.snapshot()).toEqual([]);
       expect(screen.getByRole('button', { name: t('voting.confirm') })).toBeEnabled();
-      expect(screen.getByTestId(TEST_IDS.voteCancel)).toBeTruthy();
+      expect(screen.getByTestId(VOTES_TEST_IDS.voteCancel)).toBeTruthy();
     },
   );
 
@@ -689,13 +692,13 @@ describe('the biometric confirmation', () => {
     await findChoices();
     fakes.biometricGate.authentication = err(biometricFailed());
     await press(choiceId(VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
     fakes.biometricGate.authentication = { ok: true, value: undefined };
 
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
     expect(fakes.votes.recordedVotes()).toHaveLength(1);
-    expect(screen.queryByTestId(TEST_IDS.voteDialog)).toBeNull();
+    expect(screen.queryByTestId(VOTES_TEST_IDS.voteDialog)).toBeNull();
     expect(screen.getByTestId(voteOutcomeTestId(OPEN))).toHaveTextContent(t('voting.submitted'));
   });
 
@@ -710,11 +713,11 @@ describe('the biometric confirmation', () => {
       fakes.biometricGate.availability = err(failure);
       await press(choiceId(VOTE_CHOICE.For));
 
-      await press(TEST_IDS.voteConfirm);
+      await press(VOTES_TEST_IDS.voteConfirm);
 
-      expect(screen.getByTestId(TEST_IDS.voteDialogError)).toHaveTextContent(t(key));
-      expect(screen.queryByTestId(TEST_IDS.voteConfirm)).toBeNull();
-      expect(screen.getByTestId(TEST_IDS.voteClose)).toBeTruthy();
+      expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogError)).toHaveTextContent(t(key));
+      expect(screen.queryByTestId(VOTES_TEST_IDS.voteConfirm)).toBeNull();
+      expect(screen.getByTestId(VOTES_TEST_IDS.voteClose)).toBeTruthy();
       expect(fakes.votes.received).toEqual([]);
     },
   );
@@ -728,9 +731,9 @@ describe('a vote that cannot be saved on the device', () => {
     fakes.outbox.enqueueFailure = storageWriteFailed();
     await press(choiceId(VOTE_CHOICE.For));
 
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
-    expect(screen.getByTestId(TEST_IDS.voteDialogError)).toHaveTextContent(
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogError)).toHaveTextContent(
       t('voting.failure.storageWriteFailed'),
     );
     expect(screen.getByRole('button', { name: t('voting.confirm') })).toBeEnabled();
@@ -739,31 +742,31 @@ describe('a vote that cannot be saved on the device', () => {
 
 describe('when the session ends while the user is voting', () => {
   it('sends the user to the sign-in screen when somebody else signs in during the prompt', async () => {
-    const { fakes, uiStore } = renderMeeting();
+    const { fakes, accessStore } = renderMeeting();
     await findChoices();
     fakes.biometricGate.onPrompt = () => {
       fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
     };
 
     await press(choiceId(VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
-    expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
-    expect(uiStore.getState().sessionEndedBy).toBe('sessionChanged');
+    expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(accessStore.getState().sessionEndedBy).toBe('sessionChanged');
     expect(fakes.votes.received).toEqual([]);
   });
 
   it('sends the user to the lock screen when the app locks during the prompt', async () => {
-    const { fakes, uiStore } = renderMeeting();
+    const { fakes, accessStore } = renderMeeting();
     await findChoices();
     fakes.biometricGate.onPrompt = () => {
       fakes.appLock.lock();
     };
 
     await press(choiceId(VOTE_CHOICE.For));
-    await press(TEST_IDS.voteConfirm);
+    await press(VOTES_TEST_IDS.voteConfirm);
 
-    expect(uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(accessStore.getState().access).toBe(ACCESS.Locked);
     expect(fakes.votes.received).toEqual([]);
   });
 });
@@ -841,7 +844,7 @@ describe('in each language', () => {
       await press(choiceId(VOTE_CHOICE.For));
       expect(screen.getByRole('header', { name: t('voting.confirmTitle') })).toBeTruthy();
       expect(screen.getByText(t('voting.confirmFinal'))).toBeTruthy();
-      await press(TEST_IDS.voteConfirm);
+      await press(VOTES_TEST_IDS.voteConfirm);
 
       expect(screen.getByTestId(voteOutcomeTestId(OPEN))).toHaveTextContent(t('voting.submitted'));
     },
@@ -859,7 +862,7 @@ describe('in each language', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Confirmer mon vote' })).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.voteDialogChoice)).toHaveTextContent(
+    expect(screen.getByTestId(VOTES_TEST_IDS.voteDialogChoice)).toHaveTextContent(
       'Votre choix\u00a0: Abstention',
     );
   });

@@ -5,14 +5,14 @@ import { useTranslation } from 'react-i18next';
 import { err } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { LoadingState } from '@core/presentation/components/LoadingState';
-import { BIOMETRIC_PROMPT_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import type { BiometricReason } from '@features/auth/application/ports/BiometricGate';
 
 import { StartupFailureScreen } from '../screens/StartupFailureScreen';
 
 import { AppProviders } from './AppProviders';
 import type { AppServices } from './AppServices';
+import { SHELL_TEST_IDS } from '@composition/shell/testIds';
+import { BIOMETRIC_PROMPT_KEYS } from '@features/auth/presentation/i18n/authMessageKeys';
 
 /** What the system prompt says: its message and the label of its cancel button. */
 export interface BiometricPrompt {
@@ -70,7 +70,10 @@ export function StartupGate({ start, children }: StartupGateProps) {
 
   if (started === undefined) {
     return (
-      <LoadingState accessibilityLabel={t('startup.loading')} testID={TEST_IDS.startupLoading} />
+      <LoadingState
+        accessibilityLabel={t('startup.loading')}
+        testID={SHELL_TEST_IDS.startupLoading}
+      />
     );
   }
   return started.ok ? (

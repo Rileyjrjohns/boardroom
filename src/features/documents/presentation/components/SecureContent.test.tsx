@@ -1,11 +1,10 @@
 import { render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
-import { TEST_IDS } from '@core/presentation/testIds';
-
 import { resetSecureViewStub, secureViewStub } from '../testing/screenProtectionSecureViewStub';
 
 import { SecureContent } from './SecureContent';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 // The component that mounts the secure view of the native module, the one file of the presentation
 // that imports it. Jest gives it the stub of `testing/screenProtectionSecureViewStub.tsx`, which
@@ -28,7 +27,7 @@ describe('SecureContent', () => {
     );
 
     expect(screen.getByText(CHILD)).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.documentSecureContent)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentSecureContent)).toBeTruthy();
   });
 
   it.each([true, false])('tells the view whether the content is secure: %s', (secure) => {

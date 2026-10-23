@@ -1,4 +1,4 @@
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import type { Result } from '@core/domain/shared/Result';
 import { durationFromMillis } from '@core/domain/value-objects/Duration';
 import type { Duration } from '@core/domain/value-objects/Duration';

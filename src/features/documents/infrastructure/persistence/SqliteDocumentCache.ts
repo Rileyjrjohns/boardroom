@@ -1,4 +1,3 @@
-import { COLUMN, TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import type { LogAttributes, Monitoring } from '@core/application/ports/Monitoring';
 import type { CacheEntry } from '@core/application/ports/types/CacheEntry';
@@ -26,6 +25,7 @@ import { parseDocumentLocation } from '@features/documents/domain/value-objects/
 
 import { contentExists, deleteContent } from '../documentContent';
 
+import { DOCUMENT_COLUMN, DOCUMENT_TABLE } from './schema';
 import { documentOf, storedDocumentOf, storedDocumentSchema } from './storedDocument';
 
 export interface SqliteDocumentCacheOptions {
@@ -45,21 +45,21 @@ const RESOURCE = 'document';
 const UNREADABLE_CAUSE = 'stored entry unreadable';
 
 // The statements. A row is found by one column for each part of its key.
-const KEY = `${COLUMN.Owner} = ? AND ${COLUMN.DocumentId} = ?`;
-const SAVE = `INSERT OR REPLACE INTO ${TABLE.DocumentEntries}
-  (${COLUMN.Owner}, ${COLUMN.DocumentId}, ${COLUMN.CachedAt}, ${COLUMN.Location}, ${COLUMN.Payload})
+const KEY = `${DOCUMENT_COLUMN.Owner} = ? AND ${DOCUMENT_COLUMN.DocumentId} = ?`;
+const SAVE = `INSERT OR REPLACE INTO ${DOCUMENT_TABLE.Entries}
+  (${DOCUMENT_COLUMN.Owner}, ${DOCUMENT_COLUMN.DocumentId}, ${DOCUMENT_COLUMN.CachedAt}, ${DOCUMENT_COLUMN.Location}, ${DOCUMENT_COLUMN.Payload})
   VALUES (?, ?, ?, ?, ?)`;
-const READ = `SELECT ${COLUMN.CachedAt}, ${COLUMN.Location}, ${COLUMN.Payload}
-  FROM ${TABLE.DocumentEntries} WHERE ${KEY}`;
-const LOCATION_OF = `SELECT ${COLUMN.Location} FROM ${TABLE.DocumentEntries} WHERE ${KEY}`;
-const REMOVE = `DELETE FROM ${TABLE.DocumentEntries} WHERE ${KEY}`;
+const READ = `SELECT ${DOCUMENT_COLUMN.CachedAt}, ${DOCUMENT_COLUMN.Location}, ${DOCUMENT_COLUMN.Payload}
+  FROM ${DOCUMENT_TABLE.Entries} WHERE ${KEY}`;
+const LOCATION_OF = `SELECT ${DOCUMENT_COLUMN.Location} FROM ${DOCUMENT_TABLE.Entries} WHERE ${KEY}`;
+const REMOVE = `DELETE FROM ${DOCUMENT_TABLE.Entries} WHERE ${KEY}`;
 /** Removes an entry only while it still points where it was read to: a newer save is left alone. */
-const REMOVE_WHILE_AT = `DELETE FROM ${TABLE.DocumentEntries} WHERE ${KEY} AND ${COLUMN.Location} = ?`;
-const OTHERS_AT = `SELECT count(*) AS others FROM ${TABLE.DocumentEntries}
-  WHERE ${COLUMN.Location} = ? AND NOT (${COLUMN.Owner} = ? AND ${COLUMN.DocumentId} = ?)`;
-const ALL_LOCATIONS = `SELECT DISTINCT ${COLUMN.Location} FROM ${TABLE.DocumentEntries}`;
-const REMOVE_AT = `DELETE FROM ${TABLE.DocumentEntries} WHERE ${COLUMN.Location} = ?`;
-const REMOVE_ALL = `DELETE FROM ${TABLE.DocumentEntries}`;
+const REMOVE_WHILE_AT = `DELETE FROM ${DOCUMENT_TABLE.Entries} WHERE ${KEY} AND ${DOCUMENT_COLUMN.Location} = ?`;
+const OTHERS_AT = `SELECT count(*) AS others FROM ${DOCUMENT_TABLE.Entries}
+  WHERE ${DOCUMENT_COLUMN.Location} = ? AND NOT (${DOCUMENT_COLUMN.Owner} = ? AND ${DOCUMENT_COLUMN.DocumentId} = ?)`;
+const ALL_LOCATIONS = `SELECT DISTINCT ${DOCUMENT_COLUMN.Location} FROM ${DOCUMENT_TABLE.Entries}`;
+const REMOVE_AT = `DELETE FROM ${DOCUMENT_TABLE.Entries} WHERE ${DOCUMENT_COLUMN.Location} = ?`;
+const REMOVE_ALL = `DELETE FROM ${DOCUMENT_TABLE.Entries}`;
 
 /** What a step that touches the files answers with: a value, or the failure of the file system. */
 type Step<T> = Result<T, FileStoreFailure>;
@@ -208,7 +208,7 @@ export class SqliteDocumentCache implements DocumentCache {
     let failure: FileStoreFailure | undefined;
     const deleted: string[] = [];
     for (const row of rows) {
-      const location = String(row[COLUMN.Location]);
+      const location = String(row[DOCUMENT_COLUMN.Location]);
       const parsed = parseDocumentLocation(location);
       const result = parsed.ok ? await deleteContent(files, parsed.value) : ok(undefined);
       if (result.ok) deleted.push(location);
@@ -231,7 +231,7 @@ export class SqliteDocumentCache implements DocumentCache {
 
     const referenced = new Set(
       (await database.all(ALL_LOCATIONS)).map((row) => {
-        const parsed = parseDocumentLocation(String(row[COLUMN.Location]));
+        const parsed = parseDocumentLocation(String(row[DOCUMENT_COLUMN.Location]));
         return parsed.ok ? files.nameOf(parsed.value) : undefined;
       }),
     );
@@ -247,7 +247,7 @@ export class SqliteDocumentCache implements DocumentCache {
   /** The location an entry points at, or `undefined` when there is no entry. */
   private async locationOf(owner: UserId, id: DocumentId): Promise<string | undefined> {
     const [row] = await this.options.database.all(LOCATION_OF, [owner, id]);
-    const location = row?.[COLUMN.Location];
+    const location = row?.[DOCUMENT_COLUMN.Location];
     return typeof location === 'string' ? location : undefined;
   }
 
@@ -295,9 +295,9 @@ export class SqliteDocumentCache implements DocumentCache {
 
   /** A row read back: it is JSON of the shape stored, its values pass the domain, its file is one of the store. */
   private decode(row: SqlRow): Decoded {
-    const payload = row[COLUMN.Payload];
-    const cachedAt = parseInstant(Number(row[COLUMN.CachedAt]));
-    const location = parseDocumentLocation(String(row[COLUMN.Location]));
+    const payload = row[DOCUMENT_COLUMN.Payload];
+    const cachedAt = parseInstant(Number(row[DOCUMENT_COLUMN.CachedAt]));
+    const location = parseDocumentLocation(String(row[DOCUMENT_COLUMN.Location]));
     if (typeof payload !== 'string' || !cachedAt.ok || !location.ok) return { ok: false };
     if (this.options.files.nameOf(location.value) === undefined) return { ok: false };
 
@@ -338,7 +338,7 @@ export class SqliteDocumentCache implements DocumentCache {
       attributes,
     );
     await this.bestEffort(async () => {
-      await this.releaseContent(String(row[COLUMN.Location]), owner, id);
+      await this.releaseContent(String(row[DOCUMENT_COLUMN.Location]), owner, id);
       await this.options.database.run(REMOVE, [owner, id]);
     });
   }

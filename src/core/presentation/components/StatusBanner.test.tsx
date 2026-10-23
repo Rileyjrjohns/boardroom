@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, within } from '@testing-library/react-native';
-import { AccessibilityInfo, Platform } from 'react-native';
+import { AccessibilityInfo, Platform, Text } from 'react-native';
 
 import { epochOf } from '@composition/shell/testing/accessEpoch';
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
@@ -7,9 +7,11 @@ import { MILLIS_PER_DAY, NOW, at } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
-import { TEST_IDS } from '../testIds';
 
-import { StatusBanner } from './StatusBanner';
+import { BannerNoticesProvider, StatusBanner } from './StatusBanner';
+import type { BannerNotices } from './StatusBanner';
+import { VOTES_TEST_IDS } from '@features/votes/presentation/testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The one banner area of a screen: the connection of the device, a saved copy, and what the last
 // synchronisation did. The two facts about the connection are told apart and can be true together.
@@ -28,7 +30,7 @@ describe('StatusBanner', () => {
   it('shows nothing when the device is online, the data is current and nothing was synchronised', () => {
     renderScreen(<StatusBanner />);
 
-    expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
   });
 
   it('says the device is offline, and what happens to a vote cast meanwhile', () => {
@@ -36,17 +38,17 @@ describe('StatusBanner', () => {
 
     goOffline(uiStore);
 
-    expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
-    expect(screen.queryByTestId(TEST_IDS.staleBanner)).toBeNull();
+    expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+    expect(screen.queryByTestId(CORE_TEST_IDS.staleBanner)).toBeNull();
   });
 
   it('says the data is a saved copy, and since when, without calling the device offline', () => {
     const { t, format } = renderScreen(<StatusBanner staleSince={NOW} />);
 
-    expect(screen.getByTestId(TEST_IDS.staleBanner)).toHaveTextContent(
+    expect(screen.getByTestId(CORE_TEST_IDS.staleBanner)).toHaveTextContent(
       t('states.staleData', { date: format.dateTime(NOW) }),
     );
-    expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
   });
 
   it('keeps the two facts apart but in one block, so that the screen has one calm banner area', () => {
@@ -55,12 +57,12 @@ describe('StatusBanner', () => {
 
     goOffline(uiStore);
 
-    const banner = screen.getByTestId(TEST_IDS.statusBanner);
-    expect(screen.getAllByTestId(TEST_IDS.statusBanner)).toHaveLength(1);
-    expect(within(banner).getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(
+    const banner = screen.getByTestId(CORE_TEST_IDS.statusBanner);
+    expect(screen.getAllByTestId(CORE_TEST_IDS.statusBanner)).toHaveLength(1);
+    expect(within(banner).getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(
       t('banner.offline'),
     );
-    expect(within(banner).getByTestId(TEST_IDS.staleBanner)).toHaveTextContent(
+    expect(within(banner).getByTestId(CORE_TEST_IDS.staleBanner)).toHaveTextContent(
       t('states.staleData', { date: format.dateTime(earlier) }),
     );
   });
@@ -68,24 +70,24 @@ describe('StatusBanner', () => {
   it('goes away when the connection returns', () => {
     const { uiStore } = renderScreen(<StatusBanner />);
     goOffline(uiStore);
-    expect(screen.getByTestId(TEST_IDS.statusBanner)).toBeTruthy();
+    expect(screen.getByTestId(CORE_TEST_IDS.statusBanner)).toBeTruthy();
 
     act(() => {
       uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Online);
     });
 
-    expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
   });
 
   describe('the result of a synchronisation', () => {
     it('says how many votes were sent, with the plural of the language', () => {
-      const { uiStore, t } = renderScreen(<StatusBanner />);
+      const { accessStore, voteSyncStore, t } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(uiStore));
+        voteSyncStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(accessStore));
       });
 
-      const summary = screen.getByTestId(TEST_IDS.syncSummary);
+      const summary = screen.getByTestId(VOTES_TEST_IDS.syncSummary);
       expect(
         within(summary).getByText(t('banner.sent', { count: 1, formattedCount: '1' })),
       ).toBeTruthy();
@@ -93,13 +95,13 @@ describe('StatusBanner', () => {
     });
 
     it('says how many were rejected, and where to see them', () => {
-      const { uiStore, t } = renderScreen(<StatusBanner />);
+      const { accessStore, voteSyncStore, t } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 0, rejected: 2 }, epochOf(uiStore));
+        voteSyncStore.getState().showSyncSummary({ synced: 0, rejected: 2 }, epochOf(accessStore));
       });
 
-      const summary = screen.getByTestId(TEST_IDS.syncSummary);
+      const summary = screen.getByTestId(VOTES_TEST_IDS.syncSummary);
       expect(
         within(summary).getByText(t('banner.rejected', { count: 2, formattedCount: '2' })),
       ).toBeTruthy();
@@ -107,13 +109,13 @@ describe('StatusBanner', () => {
     });
 
     it('says both when both happened, as alerts', () => {
-      const { uiStore } = renderScreen(<StatusBanner />);
+      const { accessStore, voteSyncStore } = renderScreen(<StatusBanner />);
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 3, rejected: 1 }, epochOf(uiStore));
+        voteSyncStore.getState().showSyncSummary({ synced: 3, rejected: 1 }, epochOf(accessStore));
       });
 
-      const alerts = within(screen.getByTestId(TEST_IDS.syncSummary)).getAllByRole('alert');
+      const alerts = within(screen.getByTestId(VOTES_TEST_IDS.syncSummary)).getAllByRole('alert');
       expect(alerts.map((alert) => alert.props.accessibilityLiveRegion)).toEqual([
         'polite',
         'polite',
@@ -121,24 +123,26 @@ describe('StatusBanner', () => {
     });
 
     it('is dismissed with its button, and nothing else goes with it', () => {
-      const { uiStore } = renderScreen(<StatusBanner />);
+      const { uiStore, accessStore, voteSyncStore } = renderScreen(<StatusBanner />);
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
-        uiStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(uiStore));
+        voteSyncStore.getState().showSyncSummary({ synced: 1, rejected: 0 }, epochOf(accessStore));
       });
 
-      fireEvent.press(screen.getByTestId(TEST_IDS.syncSummaryDismiss));
+      fireEvent.press(screen.getByTestId(VOTES_TEST_IDS.syncSummaryDismiss));
 
-      expect(screen.queryByTestId(TEST_IDS.syncSummary)).toBeNull();
-      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
-      expect(uiStore.getState().syncSummary).toBeUndefined();
+      expect(screen.queryByTestId(VOTES_TEST_IDS.syncSummary)).toBeNull();
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toBeTruthy();
+      expect(voteSyncStore.getState().syncSummary).toBeUndefined();
     });
 
     it('writes the count with the grouping of the locale', () => {
-      const { uiStore } = renderScreen(<StatusBanner />, { language: 'fr' });
+      const { accessStore, voteSyncStore } = renderScreen(<StatusBanner />, { language: 'fr' });
 
       act(() => {
-        uiStore.getState().showSyncSummary({ synced: 1200, rejected: 0 }, epochOf(uiStore));
+        voteSyncStore
+          .getState()
+          .showSyncSummary({ synced: 1200, rejected: 0 }, epochOf(accessStore));
       });
 
       expect(screen.getByText(/1\s200 votes ont été envoyés\./)).toBeTruthy();
@@ -164,8 +168,8 @@ describe('StatusBanner', () => {
 
       goOffline(uiStore);
 
-      const alert = within(screen.getByTestId(TEST_IDS.offlineBanner));
-      expect(screen.getByTestId(TEST_IDS.offlineBanner).props.accessibilityLiveRegion).toBe(
+      const alert = within(screen.getByTestId(CORE_TEST_IDS.offlineBanner));
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner).props.accessibilityLiveRegion).toBe(
         'polite',
       );
       expect(alert).toBeTruthy();
@@ -178,7 +182,9 @@ describe('StatusBanner', () => {
 
       goOffline(uiStore);
 
-      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(
+        t('banner.offline'),
+      );
     });
   });
 
@@ -192,7 +198,7 @@ describe('StatusBanner', () => {
       const { notices } = aNotice(true);
       const { t } = renderScreen(<StatusBanner />, { notices });
 
-      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toHaveTextContent(
+      expect(screen.getByTestId(CORE_TEST_IDS.localDataResetNotice)).toHaveTextContent(
         t('banner.localDataReset'),
       );
       expect(t('banner.localDataReset')).toMatch(/votes/i);
@@ -202,7 +208,7 @@ describe('StatusBanner', () => {
       const { notices } = aNotice(true);
       const { t } = renderScreen(<StatusBanner />, { notices, language: SUPPORTED_LANGUAGES[1] });
 
-      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toHaveTextContent(
+      expect(screen.getByTestId(CORE_TEST_IDS.localDataResetNotice)).toHaveTextContent(
         t('banner.localDataReset'),
       );
       expect(t('banner.localDataReset')).toMatch(/votes/i);
@@ -212,7 +218,7 @@ describe('StatusBanner', () => {
       const { notices } = aNotice(false);
       renderScreen(<StatusBanner />, { notices });
 
-      expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
     });
 
     it('stays until the user has read it, then goes and is forgotten for good', async () => {
@@ -220,10 +226,10 @@ describe('StatusBanner', () => {
       const { uiStore } = renderScreen(<StatusBanner />, { notices });
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.localDataResetDismiss));
+        fireEvent.press(screen.getByTestId(CORE_TEST_IDS.localDataResetDismiss));
       });
 
-      expect(screen.queryByTestId(TEST_IDS.statusBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
       expect(acknowledge).toHaveBeenCalledTimes(1);
       expect(uiStore.getState().localDataResetNotice).toBe(false);
     });
@@ -234,23 +240,70 @@ describe('StatusBanner', () => {
       goOffline(uiStore);
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.localDataResetDismiss));
+        fireEvent.press(screen.getByTestId(CORE_TEST_IDS.localDataResetDismiss));
       });
 
-      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toBeTruthy();
-      expect(screen.queryByTestId(TEST_IDS.localDataResetNotice)).toBeNull();
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toBeTruthy();
+      expect(screen.queryByTestId(CORE_TEST_IDS.localDataResetNotice)).toBeNull();
     });
 
     it('is not forgotten when the user leaves the open app, which does not make them read it', () => {
       const { notices } = aNotice(true);
-      const { uiStore } = renderScreen(<StatusBanner />, { notices });
+      const { accessStore } = renderScreen(<StatusBanner />, { notices });
 
       act(() => {
-        uiStore.getState().signedOut();
-        uiStore.getState().signedIn();
+        accessStore.getState().signedOut();
+        accessStore.getState().signedIn();
       });
 
-      expect(screen.getByTestId(TEST_IDS.localDataResetNotice)).toBeTruthy();
+      expect(screen.getByTestId(CORE_TEST_IDS.localDataResetNotice)).toBeTruthy();
     });
+  });
+});
+
+describe('what a feature adds to the banner', () => {
+  const SAYS = 'Something a feature has to say';
+  const THE_FEATURE: BannerNotices = {
+    useHasNotices: () => true,
+    Notices: () => <Text>{SAYS}</Text>,
+  };
+  const NOTHING_TO_SAY: BannerNotices = {
+    useHasNotices: () => false,
+    Notices: () => <Text>{SAYS}</Text>,
+  };
+
+  it('is told in the one block of the banner, with the other facts', () => {
+    const { uiStore } = renderScreen(
+      <BannerNoticesProvider notices={THE_FEATURE}>
+        <StatusBanner />
+      </BannerNoticesProvider>,
+    );
+    goOffline(uiStore);
+
+    const banner = screen.getByTestId(CORE_TEST_IDS.statusBanner);
+    expect(within(banner).getByText(SAYS)).toBeTruthy();
+    expect(within(banner).getByTestId(CORE_TEST_IDS.offlineBanner)).toBeTruthy();
+  });
+
+  it('is enough for the banner to show, when nothing else has anything to say', () => {
+    renderScreen(
+      <BannerNoticesProvider notices={THE_FEATURE}>
+        <StatusBanner />
+      </BannerNoticesProvider>,
+    );
+
+    expect(screen.getByTestId(CORE_TEST_IDS.statusBanner)).toBeTruthy();
+    expect(screen.getByText(SAYS)).toBeTruthy();
+  });
+
+  it('shows nothing when the feature has nothing to say and nobody else has', () => {
+    renderScreen(
+      <BannerNoticesProvider notices={NOTHING_TO_SAY}>
+        <StatusBanner />
+      </BannerNoticesProvider>,
+    );
+
+    expect(screen.queryByTestId(CORE_TEST_IDS.statusBanner)).toBeNull();
+    expect(screen.queryByText(SAYS)).toBeNull();
   });
 });

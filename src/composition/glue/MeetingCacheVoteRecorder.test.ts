@@ -18,7 +18,7 @@ import {
   at,
 } from '@testing/domain/builders';
 
-import { recordVoteInCache } from './recordVoteInCache';
+import { MeetingCacheVoteRecorder } from './MeetingCacheVoteRecorder';
 
 const VOTE = aVote({ choice: VOTE_CHOICE.Abstain });
 const CACHED_AT = at(-5000);
@@ -27,13 +27,13 @@ const ATTRIBUTES = {
   [LOG_ATTRIBUTE.Resource]: CACHE_RESOURCE.Meeting,
 };
 
-describe('recordVoteInCache', () => {
+describe('MeetingCacheVoteRecorder', () => {
   it('records the vote on the cached meeting of the voter and keeps the date it was cached at', async () => {
     const fakes = createFakes();
     await fakes.meetingCache.saveMeeting(aUserId(), aMeeting(), CACHED_AT);
     fakes.clock.advance(60_000);
 
-    await recordVoteInCache(fakes, VOTE);
+    await new MeetingCacheVoteRecorder(fakes.meetingCache, fakes).record(VOTE);
 
     const cached = await fakes.meetingCache.readMeeting(aUserId(), aMeetingId());
     expect(cached.ok && cached.value?.cachedAt).toBe(CACHED_AT);
@@ -48,7 +48,7 @@ describe('recordVoteInCache', () => {
     const fakes = createFakes();
     await fakes.meetingCache.saveMeeting(aUserId('user-2'), aMeeting(), CACHED_AT);
 
-    await recordVoteInCache(fakes, VOTE);
+    await new MeetingCacheVoteRecorder(fakes.meetingCache, fakes).record(VOTE);
 
     const cached = await fakes.meetingCache.readMeeting(aUserId('user-2'), aMeetingId());
     expect(cached).toEqual(ok({ value: aMeeting(), cachedAt: CACHED_AT }));
@@ -57,7 +57,7 @@ describe('recordVoteInCache', () => {
   it('does nothing when the meeting is not cached', async () => {
     const fakes = createFakes();
 
-    await recordVoteInCache(fakes, VOTE);
+    await new MeetingCacheVoteRecorder(fakes.meetingCache, fakes).record(VOTE);
 
     expect(fakes.meetingCache.isEmpty()).toBe(true);
     expect(fakes.monitoring.errors).toEqual([]);
@@ -67,7 +67,7 @@ describe('recordVoteInCache', () => {
     const fakes = createFakes();
     fakes.meetingCache.readFailure = storageReadFailed();
 
-    await recordVoteInCache(fakes, VOTE);
+    await new MeetingCacheVoteRecorder(fakes.meetingCache, fakes).record(VOTE);
 
     expect(fakes.monitoring.errors).toEqual([
       {
@@ -83,7 +83,7 @@ describe('recordVoteInCache', () => {
     await fakes.meetingCache.saveMeeting(aUserId(), aMeeting(), CACHED_AT);
     fakes.meetingCache.writeFailure = storageWriteFailed();
 
-    await recordVoteInCache(fakes, VOTE);
+    await new MeetingCacheVoteRecorder(fakes.meetingCache, fakes).record(VOTE);
 
     expect(fakes.monitoring.errors).toEqual([
       {
@@ -101,7 +101,7 @@ describe('recordVoteInCache', () => {
       const cache = new HoldingMeetingCache(fakes.meetingCache);
       const held = cache.holdNextRead();
 
-      const recording = recordVoteInCache({ ...fakes, meetingCache: cache }, VOTE);
+      const recording = new MeetingCacheVoteRecorder(cache, fakes).record(VOTE);
       await held.hasAnswered;
       await closeSession(fakes);
       expect(fakes.meetingCache.isEmpty()).toBe(true);
@@ -117,7 +117,7 @@ describe('recordVoteInCache', () => {
       const cache = new HoldingMeetingCache(fakes.meetingCache);
       const held = cache.holdNextRead();
 
-      const recording = recordVoteInCache({ ...fakes, meetingCache: cache }, VOTE);
+      const recording = new MeetingCacheVoteRecorder(cache, fakes).record(VOTE);
       await held.hasAnswered;
       fakes.auth.session = aSession({ user: aUser({ id: aUserId('user-2') }) });
       await fakes.meetingCache.purge();
@@ -133,7 +133,7 @@ describe('recordVoteInCache', () => {
       const cache = new HoldingMeetingCache(fakes.meetingCache);
       const held = cache.holdNextRead();
 
-      const recording = recordVoteInCache({ ...fakes, meetingCache: cache }, VOTE);
+      const recording = new MeetingCacheVoteRecorder(cache, fakes).record(VOTE);
       await held.hasAnswered;
       fakes.appLock.lock();
       await fakes.meetingCache.purge();
@@ -149,7 +149,7 @@ describe('recordVoteInCache', () => {
       const cache = new HoldingMeetingCache(fakes.meetingCache);
       const held = cache.holdNextRead();
 
-      const recording = recordVoteInCache({ ...fakes, meetingCache: cache }, VOTE);
+      const recording = new MeetingCacheVoteRecorder(cache, fakes).record(VOTE);
       await held.hasAnswered;
       held.release();
       await recording;

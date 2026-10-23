@@ -1,10 +1,9 @@
 import { render, screen } from '@testing-library/react-native';
 
-import { TEST_IDS } from '@core/presentation/testIds';
-
 import { pdfProps, pdfStub, resetPdfStub } from '../testing/reactNativePdfStub';
 
 import { PdfViewer } from './PdfViewer';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 // The component that draws a PDF is the one file that imports `react-native-pdf`; Jest gives it the
 // stub of `testing/reactNativePdfStub.tsx`. What is checked is the conversation with the view: the
@@ -32,7 +31,7 @@ describe('PdfViewer', () => {
     renderViewer();
 
     expect(pdfProps().source).toEqual({ uri: URI, cache: false });
-    expect(screen.getByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
   });
 
   it('keeps the same source while the file is the same: another object would make the view load it again', () => {

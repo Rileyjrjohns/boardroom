@@ -2,13 +2,13 @@ import { fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
 import { createFormatters } from '@core/presentation/format/formatters';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, watermark as tokens } from '@core/presentation/theme/tokens';
 import { createWatermark } from '@features/documents/domain/value-objects/Watermark';
 import { NOW, aUser } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { DocumentWatermark, watermarkLines } from './DocumentWatermark';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 const READER = createWatermark(aUser(), NOW);
 const HIDDEN = { includeHiddenElements: true } as const;
@@ -17,8 +17,8 @@ function renderWatermark(language: 'en' | 'fr' = 'en') {
   return renderScreen(<DocumentWatermark watermark={READER} />, { language });
 }
 
-const overlay = () => screen.getByTestId(TEST_IDS.documentWatermark, HIDDEN);
-const tiles = () => screen.getAllByTestId(TEST_IDS.documentWatermarkTile, HIDDEN);
+const overlay = () => screen.getByTestId(DOCUMENTS_TEST_IDS.documentWatermark, HIDDEN);
+const tiles = () => screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, HIDDEN);
 
 /** The area of the page, as the layout would report it. */
 function layOut(width: number, height: number): void {
@@ -182,8 +182,8 @@ describe('DocumentWatermark', () => {
 
       expect(overlay().props.accessibilityElementsHidden).toBe(true);
       expect(overlay().props.importantForAccessibility).toBe('no-hide-descendants');
-      expect(screen.queryByTestId(TEST_IDS.documentWatermark)).toBeNull();
-      expect(screen.queryAllByTestId(TEST_IDS.documentWatermarkTile)).toEqual([]);
+      expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentWatermark)).toBeNull();
+      expect(screen.queryAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile)).toEqual([]);
     });
   });
 });

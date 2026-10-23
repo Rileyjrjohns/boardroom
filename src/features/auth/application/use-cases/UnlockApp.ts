@@ -1,4 +1,4 @@
-import type { BiometricError } from '@core/domain/errors/BiometricError';
+import type { BiometricError } from '@features/auth/domain/errors/BiometricError';
 import { isOk } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 

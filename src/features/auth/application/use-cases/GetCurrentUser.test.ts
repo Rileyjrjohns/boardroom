@@ -2,7 +2,7 @@ import {
   appLocked,
   notAuthenticated,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';

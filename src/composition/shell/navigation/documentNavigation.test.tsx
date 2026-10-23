@@ -3,7 +3,6 @@ import { router } from 'expo-router';
 
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { createI18n } from '@core/presentation/i18n/createI18n';
-import { TEST_IDS, documentTestId, meetingRowTestId } from '@core/presentation/testIds';
 import { pdfStub, resetPdfStub } from '@features/documents/presentation/testing/reactNativePdfStub';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
 import { createFakes } from '@testing/application/createFakes';
@@ -21,8 +20,15 @@ import type { RenderAppOptions } from '@testing/presentation/renderApp';
 import { TEST_GRACE_PERIOD_MILLIS } from '@testing/presentation/renderScreen';
 
 import { APP_STATE } from '../session/appState';
-import { ACCESS } from '../state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { driveAppState } from '../testing/appState';
+import { AUTH_TEST_IDS } from '@features/auth/presentation/testIds';
+import { DOCUMENTS_TEST_IDS } from '@features/documents/presentation/testIds';
+import {
+  documentTestId,
+  meetingRowTestId,
+  MEETINGS_TEST_IDS,
+} from '@features/meetings/presentation/testIds';
 
 // Opening a document through the real navigator and the real route files, with the real session
 // controller and the real use cases over the fakes of the ports: from the row of the meeting to
@@ -82,9 +88,9 @@ async function press(testId: string): Promise<void> {
 }
 
 async function signIn(): Promise<void> {
-  fireEvent.changeText(await screen.findByTestId(TEST_IDS.signInEmail), 'alice@example.com');
-  fireEvent.changeText(screen.getByTestId(TEST_IDS.signInPassword), PASSWORD);
-  await press(TEST_IDS.signInSubmit);
+  fireEvent.changeText(await screen.findByTestId(AUTH_TEST_IDS.signInEmail), 'alice@example.com');
+  fireEvent.changeText(screen.getByTestId(AUTH_TEST_IDS.signInPassword), PASSWORD);
+  await press(AUTH_TEST_IDS.signInSubmit);
 }
 
 /** Signs in, opens the meeting, and presses the row of a document. */
@@ -93,7 +99,7 @@ async function openDocument(documentId: string, options: RenderAppOptions = {}) 
   await signIn();
   await press(meetingRowTestId(MEETING.id));
   await press(documentTestId(documentId));
-  await screen.findByTestId(TEST_IDS.documentScreen);
+  await screen.findByTestId(DOCUMENTS_TEST_IDS.documentScreen);
   return app;
 }
 
@@ -122,7 +128,7 @@ function headerTitles(): string[] {
 
 /** Waits until the document is open and handed to the PDF view. */
 async function viewed(): Promise<void> {
-  await screen.findByTestId(TEST_IDS.documentPdf);
+  await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf);
   await settle();
 }
 
@@ -134,9 +140,11 @@ describe('opening a document from a meeting', () => {
     expect(getPathname()).toBe('/documents/report');
     expect(fakes.screenProtection.enabled).toBe(true);
     expect(screen.getByRole('header', { name: 'Remuneration report' })).toBeTruthy();
-    expect(screen.getByTestId(TEST_IDS.documentProtectedBadge)).toBeTruthy();
+    expect(screen.getByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeTruthy();
     expect(
-      screen.getAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }).length,
+      screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
+        includeHiddenElements: true,
+      }).length,
     ).toBeGreaterThan(0);
     expect(pdfStub.mounted).toBe(1);
   });
@@ -146,10 +154,12 @@ describe('opening a document from a meeting', () => {
     await viewed();
 
     expect(fakes.screenProtection.enabled).toBe(false);
-    expect(screen.queryByTestId(TEST_IDS.documentProtectedBadge)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentProtectedBadge)).toBeNull();
     // Every document viewed carries the name of the reader, protected or not.
     expect(
-      screen.getAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }).length,
+      screen.getAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
+        includeHiddenElements: true,
+      }).length,
     ).toBeGreaterThan(0);
   });
 
@@ -162,8 +172,8 @@ describe('opening a document from a meeting', () => {
     });
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.meetingDetail)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
+    expect(await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
     expect(fakes.screenProtection.enabled).toBe(false);
     expect(fakes.screenProtection.disableCalls).toBe(1);
     expect(fakes.screenProtection.listenerCount).toBe(0);
@@ -176,7 +186,7 @@ describe('opening a document from a meeting', () => {
       router.back();
     });
     await settle();
-    await screen.findByTestId(TEST_IDS.meetingDetail);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
     await press(documentTestId('report'));
     await viewed();
@@ -205,7 +215,7 @@ describe('opening a document from a meeting', () => {
       router.back();
     });
     await settle();
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
     expect(app.fakes.screenProtection.enabled).toBe(false);
   });
 
@@ -248,7 +258,7 @@ describe('the app leaving the active state while a document is shown', () => {
 
     await inactive(app);
 
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(pdfStub.latest).toBeUndefined();
     expect(app.fakes.screenProtection.enabled).toBe(true);
     expect(app.fakes.screenProtection.disableCalls).toBe(0);
@@ -260,7 +270,7 @@ describe('the app leaving the active state while a document is shown', () => {
 
     await awayAndBack(app, TEST_GRACE_PERIOD_MILLIS - 1);
 
-    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     expect(pdfStub.mounted).toBe(2);
     expect(pdfStub.latest).toBeDefined();
     expect(app.fakes.screenProtection.enabled).toBe(true);
@@ -277,7 +287,7 @@ describe('the app leaving the active state while a document is shown', () => {
     });
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     expect(pdfStub.mounted).toBe(2);
   });
 
@@ -287,9 +297,9 @@ describe('the app leaving the active state while a document is shown', () => {
 
     await awayAndBack(app, TEST_GRACE_PERIOD_MILLIS);
 
-    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.lockScreen)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(pdfStub.latest).toBeUndefined();
     // The view was mounted once, before the app left: it was never mounted for the lock to catch.
     expect(pdfStub.mounted).toBe(1);
@@ -322,13 +332,13 @@ describe('the app leaving the active state while a document is shown', () => {
     await settle();
 
     // Active again, but the lock is not judged: the cover is up and the view is out.
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(pdfStub.mounted).toBe(1);
 
     release();
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.documentPdf)).toBeTruthy();
+    expect(await screen.findByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeTruthy();
     expect(pdfStub.mounted).toBe(2);
   });
 });
@@ -354,12 +364,14 @@ describe('leaving the document without going back', () => {
     });
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.lockScreen)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
-    expect(screen.queryByTestId(TEST_IDS.documentPdf)).toBeNull();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.lockScreen)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentPdf)).toBeNull();
     expect(screen.queryByText('Remuneration report')).toBeNull();
     expect(
-      screen.queryAllByTestId(TEST_IDS.documentWatermarkTile, { includeHiddenElements: true }),
+      screen.queryAllByTestId(DOCUMENTS_TEST_IDS.documentWatermarkTile, {
+        includeHiddenElements: true,
+      }),
     ).toEqual([]);
     expect(app.fakes.screenProtection.enabled).toBe(false);
     expect(app.fakes.screenProtection.disableCalls).toBe(1);
@@ -373,12 +385,12 @@ describe('leaving the document without going back', () => {
     await viewed();
 
     act(() => {
-      app.uiStore.getState().signedOut();
+      app.accessStore.getState().signedOut();
     });
     await settle();
 
-    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
     expect(screen.queryByText('Remuneration report')).toBeNull();
     expect(app.fakes.screenProtection.enabled).toBe(false);
     expect(app.fakes.screenProtection.disableCalls).toBe(1);
@@ -395,9 +407,9 @@ describe('leaving the document without going back', () => {
       await jest.advanceTimersByTimeAsync(60_000);
     });
 
-    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
-    expect(app.uiStore.getState().access).toBe(ACCESS.SignedOut);
-    expect(screen.queryByTestId(TEST_IDS.documentScreen)).toBeNull();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
+    expect(app.accessStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(screen.queryByTestId(DOCUMENTS_TEST_IDS.documentScreen)).toBeNull();
     expect(app.fakes.screenProtection.enabled).toBe(false);
     expect(app.fakes.screenProtection.disableCalls).toBe(1);
     expect(app.queryClient.getQueryCache().getAll()).toEqual([]);
@@ -406,7 +418,7 @@ describe('leaving the document without going back', () => {
   it('does not reach a document by a link while nobody is signed in', async () => {
     const { getPathname, fakes } = startApp({ initialUrl: '/documents/report' });
 
-    expect(await screen.findByTestId(TEST_IDS.signInScreen)).toBeTruthy();
+    expect(await screen.findByTestId(AUTH_TEST_IDS.signInScreen)).toBeTruthy();
     expect(getPathname()).toBe('/sign-in');
     expect(fakes.documents.fetchContentCalls).toEqual([]);
     expect(fakes.screenProtection.enableCalls).toBe(0);

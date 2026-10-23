@@ -1,4 +1,4 @@
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
+import type { SessionChangedError } from '@features/auth/domain/errors/AuthenticationError';
 import type { StorageReadFailedError } from '@core/domain/errors/StorageError';
 import { isErr, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';

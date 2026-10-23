@@ -1,12 +1,12 @@
 import { fireEvent, screen, within } from '@testing-library/react-native';
 
-import { documentTestId } from '@core/presentation/testIds';
 import { colors, touchTarget } from '@core/presentation/theme/tokens';
 import { CONFIDENTIALITY_LEVEL } from '@features/meetings/domain/entities/Document';
 import { aDocument, aDocumentId } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { DocumentRow } from './DocumentRow';
+import { documentTestId } from '../testIds';
 
 function renderDocument(overrides: Parameters<typeof aDocument>[0], language: 'en' | 'fr' = 'en') {
   const document = aDocument({ id: aDocumentId('doc'), ...overrides });

@@ -1,25 +1,24 @@
 import type { Monitoring } from '@core/application/ports/Monitoring';
 import type { StorageWriteFailedError } from '@core/domain/errors/StorageError';
 import type { Result } from '@core/domain/shared/Result';
-import type { DocumentCache } from '@features/documents/application/ports/DocumentCache';
-import type { MeetingCache } from '@features/meetings/application/ports/MeetingCache';
 
 import type { AuthSession } from '../ports/AuthSession';
+import type { SessionDataPurger } from '../ports/SessionDataPurger';
 import type { AppLock } from '../session/AppLock';
 import { closeSession } from '../session/endSession';
 
 export interface SignOutDeps {
   readonly auth: AuthSession;
-  readonly meetingCache: MeetingCache;
-  readonly documentCache: DocumentCache;
+  /** Emptied first: see `purgeCaches`. */
+  readonly sessionDataPurgers: readonly SessionDataPurger[];
   readonly monitoring: Monitoring;
   /** The instance shared by every use case: see `AppLock`. */
   readonly appLock: AppLock;
 }
 
 /**
- * Signs the current user out, and empties the meeting and document caches first (the stored
- * content of the documents included), so that the next user of the device finds nothing of what
+ * Signs the current user out, and empties what the session left on the device first (the meeting and
+ * document caches, the stored content of the documents included), so that the next user of the device finds nothing of what
  * this one saw. Succeeds when nobody was signed in. The app is locked first, and stays locked: the
  * next sign-in opens it again.
  *

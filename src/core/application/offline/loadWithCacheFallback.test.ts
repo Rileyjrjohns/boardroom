@@ -2,7 +2,7 @@ import {
   appLocked,
   notAuthenticated,
   sessionChanged,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import {
   forbidden,
   networkUnavailable,

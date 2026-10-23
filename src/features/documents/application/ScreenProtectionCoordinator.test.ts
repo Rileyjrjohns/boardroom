@@ -1,7 +1,7 @@
 import {
   screenProtectionFailed,
   screenProtectionUnsupported,
-} from '@core/domain/errors/ScreenProtectionError';
+} from '@features/documents/domain/errors/ScreenProtectionError';
 import { err, ok } from '@core/domain/shared/Result';
 import { aDocumentId } from '@testing/domain/builders';
 

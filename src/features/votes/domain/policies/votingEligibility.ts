@@ -1,5 +1,5 @@
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { ok, err } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { Instant } from '@core/domain/value-objects/Instant';

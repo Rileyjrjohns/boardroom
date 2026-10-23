@@ -1,18 +1,11 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { AccessibilityInfo, Platform } from 'react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { unexpected } from '@core/domain/errors/RepositoryError';
 import { createFormatters } from '@core/presentation/format/formatters';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import { setDeviceLanguages } from '@core/presentation/i18n/testing/setDeviceLanguages';
-import {
-  TEST_IDS,
-  agendaItemTestId,
-  documentTestId,
-  participantTestId,
-  resolutionTestId,
-} from '@core/presentation/testIds';
 import { createAgendaItem } from '@features/meetings/domain/entities/AgendaItem';
 import { CONFIDENTIALITY_LEVEL } from '@features/meetings/domain/entities/Document';
 import { createMeeting } from '@features/meetings/domain/entities/Meeting';
@@ -43,6 +36,14 @@ import { renderScreen } from '@testing/presentation/renderScreen';
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
 import { MeetingDetailScreen } from './MeetingDetailScreen';
+import {
+  agendaItemTestId,
+  documentTestId,
+  participantTestId,
+  resolutionTestId,
+  MEETINGS_TEST_IDS,
+} from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 const CLOSES_AT = at(MILLIS_PER_DAY);
 
@@ -126,11 +127,11 @@ afterEach(() => {
 describe('MeetingDetailScreen', () => {
   it('shows a loading state, then the meeting', async () => {
     renderDetail();
-    expect(screen.getByTestId(TEST_IDS.meetingLoading)).toBeTruthy();
+    expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingLoading)).toBeTruthy();
 
-    await screen.findByTestId(TEST_IDS.meetingDetail);
+    await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
-    expect(screen.queryByTestId(TEST_IDS.meetingLoading)).toBeNull();
+    expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingLoading)).toBeNull();
   });
 
   describe('the header', () => {
@@ -146,7 +147,7 @@ describe('MeetingDetailScreen', () => {
 
     it('marks the sections as headers', async () => {
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       for (const key of ['meeting.agenda', 'meeting.documents', 'meeting.participants'] as const) {
         expect(screen.getByRole('header', { name: t(key) })).toBeTruthy();
@@ -157,7 +158,7 @@ describe('MeetingDetailScreen', () => {
   describe('the agenda', () => {
     it('lists the items in order, numbered by their position', async () => {
       renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const items = screen.getAllByTestId(/^agenda-item-/).map((item) => item.props.testID);
 
@@ -174,7 +175,7 @@ describe('MeetingDetailScreen', () => {
 
     it('shows the resolution of an item: where voting stands, its deadline and the vote of the user', async () => {
       const { t, format } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const open = screen.getByTestId(resolutionTestId('budget-vote'));
 
@@ -192,7 +193,7 @@ describe('MeetingDetailScreen', () => {
 
     it('shows a closed resolution the user did not vote on, without a date it has none to give', async () => {
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const closed = screen.getByTestId(resolutionTestId('elections-vote'));
 
@@ -204,7 +205,7 @@ describe('MeetingDetailScreen', () => {
 
     it('shows no resolution for an item that has none', async () => {
       renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       expect(
         within(screen.getByTestId(agendaItemTestId('opening'))).queryByTestId(
@@ -217,7 +218,7 @@ describe('MeetingDetailScreen', () => {
   describe('the documents', () => {
     it('shows the title, the confidentiality and the number of pages of each', async () => {
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const report = screen.getByTestId(documentTestId('report'));
       const pack = screen.getByTestId(documentTestId('pack'));
@@ -235,7 +236,7 @@ describe('MeetingDetailScreen', () => {
   describe('the participants', () => {
     it('shows the name and the role of each', async () => {
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const bruno = screen.getByTestId(participantTestId('user-2'));
 
@@ -257,7 +258,7 @@ describe('MeetingDetailScreen', () => {
   describe('opening a document', () => {
     it('makes each document a button that opens it, and nothing else on the screen a button', async () => {
       const { onOpenDocument } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const buttons = screen.getAllByRole('button');
       fireEvent.press(screen.getByTestId(documentTestId('report')));
@@ -272,7 +273,7 @@ describe('MeetingDetailScreen', () => {
 
     it('names a document by its title, its confidentiality and its pages, and says where it leads', async () => {
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const report = screen.getByTestId(documentTestId('report'));
 
@@ -288,7 +289,7 @@ describe('MeetingDetailScreen', () => {
       const { fakes, t } = renderDetail();
       fakes.meetings.removeMeeting(MEETING.id);
 
-      const notFound = await screen.findByTestId(TEST_IDS.meetingNotFound);
+      const notFound = await screen.findByTestId(MEETINGS_TEST_IDS.meetingNotFound);
 
       expect(within(notFound).getByText(t('errors.notFound'))).toBeTruthy();
       expect(screen.queryByRole('button')).toBeNull();
@@ -302,7 +303,7 @@ describe('MeetingDetailScreen', () => {
     ])('says the meeting is not found for %s, without asking the server', (_name, meetingId) => {
       const { fakes } = renderDetailAt(meetingId);
 
-      expect(screen.getByTestId(TEST_IDS.meetingNotFound)).toBeTruthy();
+      expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingNotFound)).toBeTruthy();
       expect(fakes.meetings.getCalls).toEqual([]);
     });
 
@@ -311,7 +312,7 @@ describe('MeetingDetailScreen', () => {
       await fakes.meetingCache.saveMeeting(aUserId(), MEETING, NOW);
       fakes.meetings.forbid(MEETING.id);
 
-      const error = await screen.findByTestId(TEST_IDS.meetingError);
+      const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
 
       expect(within(error).getByText(t('errors.forbidden'))).toBeTruthy();
       expect(within(error).queryByRole('button')).toBeNull();
@@ -319,14 +320,14 @@ describe('MeetingDetailScreen', () => {
     });
 
     it('sends the user to the lock screen, without asking the server, when the app is locked', async () => {
-      const { fakes, uiStore } = renderDetail();
+      const { fakes, accessStore } = renderDetail();
       fakes.appLock.lock();
 
       await waitFor(() => {
-        expect(uiStore.getState().access).toBe(ACCESS.Locked);
+        expect(accessStore.getState().access).toBe(ACCESS.Locked);
       });
 
-      expect(uiStore.getState().sessionEndedBy).toBe('appLocked');
+      expect(accessStore.getState().sessionEndedBy).toBe('appLocked');
       expect(fakes.meetings.getCalls).toEqual([]);
     });
 
@@ -334,35 +335,35 @@ describe('MeetingDetailScreen', () => {
       const { fakes, t } = renderDetail();
       fakes.meetings.failure = unexpected();
 
-      const error = await screen.findByTestId(TEST_IDS.meetingError);
+      const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
       expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
 
       fakes.meetings.failure = undefined;
       fireEvent.press(within(error).getByRole('button', { name: t('states.retry') }));
 
-      await screen.findByTestId(TEST_IDS.meetingDetail);
-      expect(screen.queryByTestId(TEST_IDS.meetingError)).toBeNull();
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
+      expect(screen.queryByTestId(MEETINGS_TEST_IDS.meetingError)).toBeNull();
     });
 
     it('keeps the meeting on the screen, with an error, when a refresh fails', async () => {
       const { fakes, queryClient, t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       fakes.meetings.failure = unexpected();
 
       act(() => {
         void queryClient.refetchQueries();
       });
 
-      const error = await screen.findByTestId(TEST_IDS.refreshError);
+      const error = await screen.findByTestId(CORE_TEST_IDS.refreshError);
       expect(within(error).getByText(t('errors.unexpected'))).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.meetingDetail)).toBeTruthy();
+      expect(screen.getByTestId(MEETINGS_TEST_IDS.meetingDetail)).toBeTruthy();
     });
 
     it('shows no banner for a meeting fresh from the server', async () => {
       renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
-      expect(screen.queryByTestId(TEST_IDS.staleBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.staleBanner)).toBeNull();
     });
 
     it('says since when a meeting is a saved copy, when the server cannot be reached', async () => {
@@ -372,7 +373,7 @@ describe('MeetingDetailScreen', () => {
       fakes.clock.advance(MILLIS_PER_DAY);
       fakes.network.goOffline();
 
-      const banner = await screen.findByTestId(TEST_IDS.staleBanner);
+      const banner = await screen.findByTestId(CORE_TEST_IDS.staleBanner);
 
       expect(
         within(banner).getByText(t('states.staleData', { date: format.dateTime(NOW) })),
@@ -385,15 +386,15 @@ describe('MeetingDetailScreen', () => {
       const { fakes } = renderDetail();
       await fakes.meetingCache.saveMeeting(aUserId(), MEETING, NOW);
       fakes.network.goOffline();
-      await screen.findByTestId(TEST_IDS.staleBanner);
+      await screen.findByTestId(CORE_TEST_IDS.staleBanner);
 
       fakes.network.goOnline();
       act(() => {
-        screen.getByTestId(TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
+        screen.getByTestId(MEETINGS_TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
       });
 
       await waitFor(() => {
-        expect(screen.queryByTestId(TEST_IDS.staleBanner)).toBeNull();
+        expect(screen.queryByTestId(CORE_TEST_IDS.staleBanner)).toBeNull();
       });
       expect(screen.getByRole('header', { name: MEETING.title })).toBeTruthy();
     });
@@ -402,7 +403,7 @@ describe('MeetingDetailScreen', () => {
       const { fakes, t } = renderDetail();
       fakes.network.goOffline();
 
-      const error = await screen.findByTestId(TEST_IDS.meetingError);
+      const error = await screen.findByTestId(MEETINGS_TEST_IDS.meetingError);
 
       expect(within(error).getByText(t('errors.networkUnavailable'))).toBeTruthy();
     });
@@ -411,7 +412,7 @@ describe('MeetingDetailScreen', () => {
   describe('in each language', () => {
     it.each(SUPPORTED_LANGUAGES)('shows the sections and the codes in %s', async (language) => {
       const { t } = renderDetail({ language });
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       expect(screen.getByRole('header', { name: t('meeting.agenda') })).toBeTruthy();
       expect(screen.getByText(t('participantRole.chair'))).toBeTruthy();
@@ -422,7 +423,7 @@ describe('MeetingDetailScreen', () => {
 
     it('translates the meeting into French: sections, roles, statuses, vote and plurals', async () => {
       renderDetail({ language: 'fr' });
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       expect(screen.getByRole('header', { name: 'Ordre du jour' })).toBeTruthy();
       expect(screen.getByRole('header', { name: 'Participants' })).toBeTruthy();
@@ -456,7 +457,7 @@ describe('MeetingDetailScreen', () => {
 
     it('shows the voting as ended, and not as open, once the window has passed at the instant of the load', async () => {
       const { t, format } = renderDetail({ fakes: fakesAt(2 * MILLIS_PER_DAY) });
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const budget = screen.getByTestId(resolutionTestId('budget-vote'));
 
@@ -473,7 +474,7 @@ describe('MeetingDetailScreen', () => {
       fakes.network.goOffline();
       const { t } = renderDetail({ fakes });
 
-      await screen.findByTestId(TEST_IDS.staleBanner);
+      await screen.findByTestId(CORE_TEST_IDS.staleBanner);
 
       const budget = screen.getByTestId(resolutionTestId('budget-vote'));
       expect(within(budget).getByText(t('votingState.windowOver'))).toBeTruthy();
@@ -483,7 +484,7 @@ describe('MeetingDetailScreen', () => {
     it('keeps the state it had at the load until the meeting is loaded again', async () => {
       const fakes = fakesAt(MILLIS_PER_HOUR);
       const { t, queryClient } = renderDetail({ fakes });
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       const budget = screen.getByTestId(resolutionTestId('budget-vote'));
       expect(within(budget).getByText(t('votingState.open'))).toBeTruthy();
 
@@ -523,11 +524,11 @@ describe('MeetingDetailScreen', () => {
       jest.replaceProperty(Platform, 'OS', 'ios');
       const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
       const { t } = renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
       announce.mockClear();
 
       await act(async () => {
-        screen.getByTestId(TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
+        screen.getByTestId(MEETINGS_TEST_IDS.meetingDetail).props.refreshControl.props.onRefresh();
       });
 
       expect(announce).toHaveBeenCalledWith(t('states.refreshing'));
@@ -547,7 +548,7 @@ describe('MeetingDetailScreen', () => {
           }),
         ),
       );
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       expect(
         within(screen.getByTestId(documentTestId('big'))).getByText('4,321 pages'),
@@ -557,7 +558,7 @@ describe('MeetingDetailScreen', () => {
     it('writes the dates the way the region of the device does', async () => {
       setDeviceLanguages('en-GB');
       renderDetail();
-      await screen.findByTestId(TEST_IDS.meetingDetail);
+      await screen.findByTestId(MEETINGS_TEST_IDS.meetingDetail);
 
       const british = createFormatters('en-GB').fullDateTime(MEETING.scheduledAt);
 

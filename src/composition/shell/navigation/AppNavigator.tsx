@@ -2,9 +2,9 @@ import { Stack } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 
 import { ROUTE_NAMES, ROUTE_PARAMS } from '@core/presentation/navigation/routes';
+import { ACCESS, useAccessStore } from '@features/auth/presentation/state/accessStore';
 
 import { HeaderActions } from '../components/HeaderActions';
-import { ACCESS, useUiStore } from '../state/uiStore';
 
 import { SCREEN_TITLE_KEYS } from './screenTitles';
 
@@ -59,7 +59,7 @@ function renderListHeaderActions() {
  */
 export function AppNavigator() {
   const { t } = useTranslation();
-  const access = useUiStore((state) => state.access);
+  const access = useAccessStore((state) => state.access);
 
   return (
     <Stack>

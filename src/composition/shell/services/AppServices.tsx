@@ -3,88 +3,34 @@ import type { ReactNode } from 'react';
 
 import type { Clock } from '@core/application/ports/Clock';
 import type { ObserveConnectivity } from '@core/application/use-cases/ObserveConnectivity';
-import type { EvaluateAppLock } from '@features/auth/application/use-cases/EvaluateAppLock';
-import type { GetCurrentUser } from '@features/auth/application/use-cases/GetCurrentUser';
-import type { RestoreSession } from '@features/auth/application/use-cases/RestoreSession';
-import type { SignIn } from '@features/auth/application/use-cases/SignIn';
-import type { SignOut } from '@features/auth/application/use-cases/SignOut';
-import type { UnlockApp } from '@features/auth/application/use-cases/UnlockApp';
-import type { CloseDocument } from '@features/documents/application/use-cases/CloseDocument';
-import type { ObserveScreenCapture } from '@features/documents/application/use-cases/ObserveScreenCapture';
-import type { OpenDocument } from '@features/documents/application/use-cases/OpenDocument';
-import type { GetMeeting } from '@features/meetings/application/use-cases/GetMeeting';
-import type { ListMeetings } from '@features/meetings/application/use-cases/ListMeetings';
-import type { AcknowledgeRejectedVote } from '@features/votes/application/use-cases/AcknowledgeRejectedVote';
-import type { CastVote } from '@features/votes/application/use-cases/CastVote';
-import type { DiscardUnreadableVotes } from '@features/votes/application/use-cases/DiscardUnreadableVotes';
-import type { ListPendingVotes } from '@features/votes/application/use-cases/ListPendingVotes';
-import type { SyncPendingVotes } from '@features/votes/application/use-cases/SyncPendingVotes';
+import type { CoreServices } from '@core/presentation/services/CoreServices';
+import type { AuthServices } from '@features/auth/presentation/services/AuthServices';
+import type { DocumentsServices } from '@features/documents/presentation/services/DocumentsServices';
+import type { MeetingsServices } from '@features/meetings/presentation/services/MeetingsServices';
+import type { VotesServices } from '@features/votes/presentation/services/VotesServices';
+
+export type {
+  AppNotices,
+  DemoAccount,
+  DemoControls,
+  DemoNetwork,
+} from '@core/presentation/services/CoreServices';
 
 /**
- * The use cases the screens need. Presentation declares the shape it depends on, and whatever
- * builds the use cases (the composition root, a test) provides it: this layer never imports the
- * composition root. Only the `execute` of a use case is part of the shape, so a stand-in needs no
- * more than that. The composition root hands over every use case of the application and this
- * interface lists the ones used so far; a screen that needs another one adds it here.
+ * The use cases of the whole application, as the shell takes them: what each feature declares for
+ * its own screens (`AuthServices`, `MeetingsServices`...), and the observation of the connection,
+ * which is the shell's (`useConnectivityStatus`). The composition root hands over every use case of
+ * the application and this interface lists the ones used so far; a screen that needs another one
+ * adds it to the services of its feature. Only the `execute` of a use case is part of the shape, so
+ * a stand-in needs no more than that.
  */
-export interface UseCases {
-  readonly restoreSession: Pick<RestoreSession, 'execute'>;
-  readonly signIn: Pick<SignIn, 'execute'>;
-  readonly signOut: Pick<SignOut, 'execute'>;
-  readonly evaluateAppLock: Pick<EvaluateAppLock, 'execute'>;
-  readonly unlockApp: Pick<UnlockApp, 'execute'>;
-  readonly getCurrentUser: Pick<GetCurrentUser, 'execute'>;
-  readonly listMeetings: Pick<ListMeetings, 'execute'>;
-  readonly getMeeting: Pick<GetMeeting, 'execute'>;
-  readonly openDocument: Pick<OpenDocument, 'execute'>;
-  readonly closeDocument: Pick<CloseDocument, 'execute'>;
-  readonly observeScreenCapture: Pick<ObserveScreenCapture, 'execute'>;
+export interface UseCases
+  extends
+    AuthServices,
+    Pick<MeetingsServices, 'listMeetings' | 'getMeeting'>,
+    DocumentsServices,
+    VotesServices {
   readonly observeConnectivity: Pick<ObserveConnectivity, 'execute'>;
-  readonly castVote: Pick<CastVote, 'execute'>;
-  readonly syncPendingVotes: Pick<SyncPendingVotes, 'execute'>;
-  readonly listPendingVotes: Pick<ListPendingVotes, 'execute'>;
-  readonly acknowledgeRejectedVote: Pick<AcknowledgeRejectedVote, 'execute'>;
-  readonly discardUnreadableVotes: Pick<DiscardUnreadableVotes, 'execute'>;
-}
-
-/** An account of the simulated server, as the sign-in screen of the demo offers it. */
-export interface DemoAccount {
-  readonly fullName: string;
-  readonly email: string;
-  /** The password of a simulated account protects nothing: it is shown to whoever runs the demo. */
-  readonly password: string;
-}
-
-/** The connection of the simulated server, which the demo switches off and on. */
-export interface DemoNetwork {
-  readonly online: boolean;
-  setOnline(online: boolean): void;
-  /** Calls the listener each time the connection goes off or comes back. Returns what stops it. */
-  subscribe(listener: (online: boolean) => void): () => void;
-}
-
-/**
- * What the demo drives: the connection of the simulated server, off and on, and the accounts of
- * the simulation. A real device has no switch to cut its own network and no account to hand out,
- * so these exist in the mock configuration only.
- */
-export interface DemoControls {
-  readonly network: DemoNetwork;
-  readonly accounts: readonly DemoAccount[];
-}
-
-/**
- * What happened to the data of the device while the app was not running, that the user is owed an
- * explanation of. The composition root reads it while it starts.
- */
-export interface AppNotices {
-  /**
-   * Local data was reset: it could not be read, and the app started on an empty one. Votes that
-   * were waiting to be sent from this device may have been lost. Told once the app is open.
-   */
-  readonly localDataReset: boolean;
-  /** The user has been told: it is forgotten, and they will not be told again. Never rejects. */
-  acknowledgeLocalDataReset(): Promise<void>;
 }
 
 /** Values of the configuration that the screens depend on. */
@@ -93,8 +39,12 @@ export interface AppSettings {
   readonly meetingsPageSize: number;
 }
 
-/** Everything the presentation layer takes from the outside. */
-export interface AppServices {
+/**
+ * Everything the presentation takes from the outside, as the composition root hands it over. The
+ * shell puts it in the context of each feature (see `AppProviders`): a feature reads its own use
+ * cases from its own context, and never imports this.
+ */
+export interface AppServices extends CoreServices {
   readonly useCases: UseCases;
   readonly settings: AppSettings;
   /**
@@ -103,10 +53,6 @@ export interface AppServices {
    * instants of the same clock.
    */
   readonly clock: Pick<Clock, 'now'>;
-  /** Only the mock configuration has demo controls. */
-  readonly demoControls?: DemoControls;
-  /** What the user is owed an explanation of. Without it, nothing is. */
-  readonly notices?: AppNotices;
 }
 
 const AppServicesContext = createContext<AppServices | undefined>(undefined);
@@ -116,7 +62,7 @@ interface AppServicesProviderProps {
   readonly children: ReactNode;
 }
 
-/** Exposes the use cases to the hooks of the layer, through React context. */
+/** Exposes the services to the hooks of the shell, through React context. */
 export function AppServicesProvider({ services, children }: AppServicesProviderProps) {
   return <AppServicesContext.Provider value={services}>{children}</AppServicesContext.Provider>;
 }

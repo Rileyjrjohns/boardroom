@@ -3,13 +3,10 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useUiStore } from '@composition/shell/state/uiStore';
 import { Button } from '@core/presentation/components/Button';
 import { DemoOfflineSwitch } from '@core/presentation/components/DemoControls';
 import { LiveText } from '@core/presentation/components/LiveText';
 import { ConnectionBanner } from '@core/presentation/components/StatusBanner';
-import { UNLOCK_ERROR_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import {
   colors,
   fontSizes,
@@ -18,9 +15,12 @@ import {
   spacing,
 } from '@core/presentation/theme/tokens';
 
+import { UNLOCK_ERROR_KEYS } from '../i18n/authMessageKeys';
+import { useAccessStore } from '../state/accessStore';
 import { SessionNotice } from '../components/SessionNotice';
 import { SignOutDialog } from '../components/SignOutDialog';
 import { useUnlockApp } from '../hooks/useUnlockApp';
+import { AUTH_TEST_IDS } from '../testIds';
 
 /**
  * The lock screen: shown after a restored session and whenever the lock is required on the way back
@@ -38,12 +38,15 @@ import { useUnlockApp } from '../hooks/useUnlockApp';
 export function LockScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
-  const endedBy = useUiStore((state) => state.sessionEndedBy);
+  const endedBy = useAccessStore((state) => state.sessionEndedBy);
   const unlock = useUnlockApp();
   const [signingOut, setSigningOut] = useState(false);
 
   return (
-    <View style={[styles.screen, { paddingBottom: insets.bottom }]} testID={TEST_IDS.lockScreen}>
+    <View
+      style={[styles.screen, { paddingBottom: insets.bottom }]}
+      testID={AUTH_TEST_IDS.lockScreen}
+    >
       <ConnectionBanner />
       <DemoOfflineSwitch />
       <View style={styles.body}>
@@ -57,7 +60,7 @@ export function LockScreen() {
             <LiveText
               message={t(UNLOCK_ERROR_KEYS[unlock.failure.code])}
               style={styles.error}
-              testID={TEST_IDS.lockError}
+              testID={AUTH_TEST_IDS.lockError}
             />
           )}
           <Button
@@ -67,7 +70,7 @@ export function LockScreen() {
             onPress={() => {
               unlock.run();
             }}
-            testID={TEST_IDS.lockUnlock}
+            testID={AUTH_TEST_IDS.lockUnlock}
           />
           <Button
             title={t('signOut.action')}
@@ -76,7 +79,7 @@ export function LockScreen() {
             onPress={() => {
               setSigningOut(true);
             }}
-            testID={TEST_IDS.lockSignOut}
+            testID={AUTH_TEST_IDS.lockSignOut}
           />
         </View>
       </View>

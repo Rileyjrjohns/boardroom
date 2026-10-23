@@ -8,7 +8,6 @@ import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import { hasDuplicates } from '@core/domain/shared/validation';
 import type { ResolutionId, UserId } from '@core/domain/value-objects/ids';
-import type { Vote } from '@features/votes/domain/entities/Vote';
 
 import type { AgendaItem } from './AgendaItem';
 import type { Document } from './Document';
@@ -74,22 +73,4 @@ export function findResolution(
 
 export function findParticipant(meeting: Meeting, userId: UserId): Participant | undefined {
   return meeting.participants.find((participant) => participant.userId === userId);
-}
-
-/**
- * A copy of the meeting in which the vote is recorded on its resolution, as the server records it
- * once the vote is accepted. Used to keep a cached copy truthful, so that the voter cannot vote
- * again from it. The meeting is returned unchanged when the vote belongs to another meeting or to a
- * resolution it does not have.
- */
-export function withVoteRecorded(meeting: Meeting, vote: Vote): Meeting {
-  if (vote.meetingId !== meeting.id) return meeting;
-  return {
-    ...meeting,
-    agenda: meeting.agenda.map((item) =>
-      item.resolution?.id === vote.resolutionId
-        ? { ...item, resolution: { ...item.resolution, recordedVote: vote.choice } }
-        : item,
-    ),
-  };
 }

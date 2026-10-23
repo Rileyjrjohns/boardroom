@@ -1,6 +1,6 @@
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
-import type { BiometricError } from '@core/domain/errors/BiometricError';
+import type { SessionChangedError } from '@features/auth/domain/errors/AuthenticationError';
+import type { BiometricError } from '@features/auth/domain/errors/BiometricError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import type {
   NetworkUnavailableError,
@@ -9,17 +9,20 @@ import type {
 } from '@core/domain/errors/RepositoryError';
 import { storageWriteFailed } from '@core/domain/errors/StorageError';
 import type { StorageError } from '@core/domain/errors/StorageError';
-import { voteInProgress, votePreviouslyRejected } from '@core/domain/errors/VoteDeliveryError';
+import {
+  voteInProgress,
+  votePreviouslyRejected,
+} from '@features/votes/domain/errors/VoteDeliveryError';
 import type {
   VoteInProgressError,
   VotePreviouslyRejectedError,
-} from '@core/domain/errors/VoteDeliveryError';
+} from '@features/votes/domain/errors/VoteDeliveryError';
 import {
   ALREADY_VOTED_SOURCE,
   VOTING_ERROR_CODE,
   isVotingError,
-} from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+} from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { err, isErr, isOk, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { ValueOf } from '@core/domain/shared/constants';
@@ -43,15 +46,17 @@ import { createVote } from '@features/votes/domain/entities/Vote';
 import type { Vote } from '@features/votes/domain/entities/Vote';
 import { checkVotingEligibility } from '@features/votes/domain/policies/votingEligibility';
 
+import type { RecordedVoteSink } from '../ports/RecordedVoteSink';
 import { ENQUEUE_OUTCOME } from '../ports/VoteOutbox';
 import type { VoteOutbox } from '../ports/VoteOutbox';
 import type { VoteRepository } from '../ports/VoteRepository';
-import { recordVoteInCache } from '../recordVoteInCache';
 
 export interface CastVoteDeps extends LoadMeetingDeps {
   readonly outbox: VoteOutbox;
   readonly votes: VoteRepository;
   readonly biometricGate: BiometricGate;
+  /** Where a vote the server recorded is written into the cached meeting. */
+  readonly recordedVoteSink: RecordedVoteSink;
 }
 
 export interface CastVoteInput {
@@ -188,7 +193,7 @@ export class CastVote {
 
     const submission = await votes.submit(vote);
     if (isOk(submission)) {
-      await recordVoteInCache(this.deps, vote);
+      await this.deps.recordedVoteSink.record(vote);
       monitoring.log(LOG_LEVEL.Info, MONITORING_EVENT.VoteSubmitted, attributes);
       return ok({ status: CAST_VOTE_STATUS.Submitted, vote });
     }

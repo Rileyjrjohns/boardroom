@@ -33,7 +33,7 @@ import { parsePageCursor } from '../src/core/domain/value-objects/PageCursor';
 import { createPageRequest } from '../src/core/domain/value-objects/PageRequest';
 import { VOTE_CHOICE } from '../src/features/meetings/domain/value-objects/VoteChoice';
 import { ROUTES, ROUTE_PARAMS } from '../src/core/presentation/navigation/routes';
-import * as testIds from '../src/core/presentation/testIds';
+import * as testIds from '../src/composition/shell/testIds';
 
 import {
   ROOT,
@@ -229,16 +229,42 @@ const ENUMERATION_SOURCES: readonly {
   { document: spec.ports, files: sourceFilesOfLayer('application', 'ports') },
   {
     document: spec.useCases,
-    files: [...sharedApplicationFiles(), ...sourceFilesOfLayer('application', 'use-cases')],
+    files: [
+      ...sharedApplicationFiles(),
+      ...sourceFilesOfLayer('application', 'use-cases'),
+      // The codes a second try can fix are declared by the core and by each feature, and put
+      // together by the composition: `RETRYABLE_CODES` of the specification is the assembled set.
+      path.join(ROOT, 'src/composition/glue/retryableCodes.ts'),
+    ],
   },
   {
     document: spec.screens,
     files: [
-      path.join(ROOT, 'src/composition/shell/state/uiStore.tsx'),
+      path.join(ROOT, 'src/features/auth/presentation/state/accessStore.tsx'),
       path.join(ROOT, 'src/features/votes/presentation/hooks/resolutionVote.ts'),
     ],
   },
 ];
+
+/**
+ * The ports that this app declares to invert a dependency between two features: the feature that
+ * owns a rule states the port it needs, another one implements it, and only the composition wires
+ * them (see docs/architecture.md, "Inversions"). They are not part of the contract that the clients
+ * of the domain share, so the specification does not know them; the Flutter twin lists them too.
+ */
+const INVERSION_PORTS = [
+  'SessionDataPurger',
+  'SessionGate',
+  'RecordedVoteSink',
+  'MeetingDocumentEvictor',
+] as const;
+
+/** The ports of the specification found in the files: all of them but the ones above. */
+function specPortsIn(files: readonly string[]) {
+  return portsIn(files).filter(
+    ({ name }) => !(INVERSION_PORTS as readonly string[]).includes(name),
+  );
+}
 
 const ERROR_CODE_CONSTANT = /_ERROR_CODE$/;
 const errorCodeConstants = enumerationsIn(sourceFilesOfLayer('domain', 'errors')).filter(
@@ -305,13 +331,13 @@ describe('the use cases', () => {
   const inCode = useCaseNamesIn(sourceFilesOfLayer('application', 'use-cases'));
   const indexTables = tablesOfKind(spec.useCases, TABLE_KIND.UseCase);
   const inSpec = indexTables.flatMap(identifiersOf);
-  const portNames = portsIn(sourceFilesOfLayer('application', 'ports')).map(({ name }) => name);
+  const portNames = specPortsIn(sourceFilesOfLayer('application', 'ports')).map(({ name }) => name);
 
   it('are found in the code', () => {
     expect(inCode.length).toBeGreaterThanOrEqual(15);
   });
 
-  it('are the use case classes of src/application/use-cases, no more, no fewer', () => {
+  it('are the use case classes of the use-cases folders, no more, no fewer', () => {
     expect(indexTables).toHaveLength(1);
     expectSameSet(inCode, inSpec);
   });
@@ -375,7 +401,7 @@ function parameterNames(cell: string): string[] {
 }
 
 describe('the ports', () => {
-  const inCode = portsIn(sourceFilesOfLayer('application', 'ports'));
+  const inCode = specPortsIn(sourceFilesOfLayer('application', 'ports'));
   const indexTables = tablesOfKind(spec.ports, TABLE_KIND.Port);
   const operationTables = tablesOfKind(spec.ports, TABLE_KIND.Operation);
 
@@ -383,12 +409,22 @@ describe('the ports', () => {
     expect(inCode.length).toBeGreaterThanOrEqual(10);
   });
 
-  it('are the interfaces with operations of src/application/ports, no more, no fewer', () => {
+  it('are the interfaces with operations of the ports folders, no more, no fewer, except the ones that invert a dependency between features', () => {
     expect(indexTables).toHaveLength(1);
     expectSameSet(
       inCode.map(({ name }) => name),
       indexTables.flatMap(identifiersOf),
     );
+  });
+
+  it('leave out the ports that invert a dependency between two features, which the specification does not know', () => {
+    const declared = portsIn(sourceFilesOfLayer('application', 'ports')).map(({ name }) => name);
+    const documented = operationTables.map((table) => table.subject);
+
+    expect(declared).toEqual(expect.arrayContaining([...INVERSION_PORTS]));
+    expect(
+      documented.filter((subject) => INVERSION_PORTS.some((port) => port === subject)),
+    ).toEqual([]);
   });
 
   it('have no table of operations for something that is not a port', () => {
@@ -678,7 +714,7 @@ describe('the constants of the application', () => {
   const tables = tablesOfKind(spec.useCases, TABLE_KIND.Constant);
   const rows = rowsOf(tables);
 
-  it('are the numeric constants of src/application/shared, no more, no fewer', () => {
+  it('are the numeric constants of the shared files of the application layer, no more, no fewer', () => {
     expect(tables).toHaveLength(1);
     expectSameSet(
       Object.keys(inCode),

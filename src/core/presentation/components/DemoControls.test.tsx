@@ -4,9 +4,9 @@ import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { SUPPORTED_LANGUAGES } from '../i18n/constants';
-import { TEST_IDS } from '../testIds';
 
 import { DemoOfflineSwitch } from './DemoControls';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 // The switch of the simulated server. It exists in the mock configuration only, is marked as the
 // demo, and drives the connection of the whole app: the screens learn it as they would on a device.
@@ -15,7 +15,7 @@ describe('DemoOfflineSwitch', () => {
   it('is absent when the services have no demo controls, which is every configuration but the mock one', () => {
     renderScreen(<DemoOfflineSwitch />);
 
-    expect(screen.queryByTestId(TEST_IDS.demoPanel)).toBeNull();
+    expect(screen.queryByTestId(CORE_TEST_IDS.demoPanel)).toBeNull();
     expect(screen.queryByRole('switch')).toBeNull();
   });
 
@@ -38,7 +38,7 @@ describe('DemoOfflineSwitch', () => {
   it('cuts the simulated server when it is turned on: the network, and what the device reports', () => {
     const { fakes, demoNetwork, uiStore } = renderScreen(<DemoOfflineSwitch />, { demo: true });
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
 
     expect(screen.getByRole('switch').props.accessibilityState).toMatchObject({ checked: true });
     expect(demoNetwork?.online).toBe(false);
@@ -48,9 +48,9 @@ describe('DemoOfflineSwitch', () => {
 
   it('brings it back when it is turned off again', () => {
     const { fakes, demoNetwork } = renderScreen(<DemoOfflineSwitch />, { demo: true });
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.demoOfflineSwitch));
+    fireEvent.press(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch));
 
     expect(screen.getByRole('switch').props.accessibilityState).toMatchObject({ checked: false });
     expect(demoNetwork?.online).toBe(true);

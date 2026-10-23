@@ -7,6 +7,7 @@ import { notFound, unauthorized, unexpected } from '@core/domain/errors/Reposito
 import { err, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 
+import { CORE_ERROR_CATALOG } from '../errors/ErrorCatalog';
 import { trackClient } from '../testing/queryClients';
 
 import { createQueryClient } from './createQueryClient';
@@ -57,7 +58,13 @@ describe('the Result to query state convention', () => {
   }
 
   function renderProbe(children: ReactNode = <Probe />) {
-    const client = trackClient(createQueryClient({ retryDelay: () => 0 }));
+    const client = trackClient(
+      createQueryClient({
+        errorCatalog: CORE_ERROR_CATALOG,
+        isSessionEndingCode: () => false,
+        retryDelay: () => 0,
+      }),
+    );
     render(<QueryClientProvider client={client}>{children}</QueryClientProvider>);
     return client;
   }

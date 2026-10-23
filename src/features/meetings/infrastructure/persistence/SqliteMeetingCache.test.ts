@@ -1,4 +1,3 @@
-import { COLUMN, TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
@@ -19,6 +18,7 @@ import {
 import { databaseDirectory, openTestDatabase } from '@testing/infrastructure/testDatabase';
 import type { TestDatabase } from '@testing/infrastructure/testDatabase';
 
+import { MEETING_COLUMN, MEETING_TABLE } from './schema';
 import { SqliteMeetingCache } from './SqliteMeetingCache';
 import { storedMeetingOf } from './storedMeeting';
 
@@ -86,7 +86,7 @@ describe('SqliteMeetingCache, on rows written by an earlier version', () => {
   it('reads a meeting as it was written then', async () => {
     const { test, monitoring, cache } = await openCache();
     await test.database.run(
-      `INSERT INTO ${TABLE.MeetingDetails} (owner, meeting_id, cached_at, payload) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO ${MEETING_TABLE.Details} (owner, meeting_id, cached_at, payload) VALUES (?, ?, ?, ?)`,
       [OWNER, MEETING.id, at(10), ROW_WRITTEN_BEFORE.meeting],
     );
 
@@ -99,7 +99,7 @@ describe('SqliteMeetingCache, on rows written by an earlier version', () => {
   it('reads a page as it was written then', async () => {
     const { test, monitoring, cache } = await openCache();
     await test.database.run(
-      `INSERT INTO ${TABLE.MeetingPages} (owner, period, cursor_key, page_limit, cached_at, payload) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ${MEETING_TABLE.Pages} (owner, period, cursor_key, page_limit, cached_at, payload) VALUES (?, ?, ?, ?, ?, ?)`,
       [OWNER, PAGE_KEY.period, 'null', PAGE_KEY.limit, at(10), ROW_WRITTEN_BEFORE.page],
     );
 
@@ -114,8 +114,8 @@ describe('SqliteMeetingCache, on rows written by an earlier version', () => {
     await cache.saveMeeting(OWNER, MEETING, at(10));
     await cache.savePage(OWNER, PAGE_KEY, createPage([aMeetingSummary()]), at(10));
 
-    const meetings = await test.database.all(`SELECT payload FROM ${TABLE.MeetingDetails}`);
-    const pages = await test.database.all(`SELECT payload FROM ${TABLE.MeetingPages}`);
+    const meetings = await test.database.all(`SELECT payload FROM ${MEETING_TABLE.Details}`);
+    const pages = await test.database.all(`SELECT payload FROM ${MEETING_TABLE.Pages}`);
 
     expect(meetings[0]?.payload).toBe(ROW_WRITTEN_BEFORE.meeting);
     expect(pages[0]?.payload).toBe(ROW_WRITTEN_BEFORE.page);
@@ -127,12 +127,14 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
   async function corrupt(payload: string) {
     const { test, monitoring, cache } = await openCache();
     await cache.saveMeeting(OWNER, MEETING, at(10));
-    await test.database.run(`UPDATE ${TABLE.MeetingDetails} SET ${COLUMN.Payload} = ?`, [payload]);
+    await test.database.run(`UPDATE ${MEETING_TABLE.Details} SET ${MEETING_COLUMN.Payload} = ?`, [
+      payload,
+    ]);
     return { test, monitoring, cache };
   }
 
   const rowsLeft = async (test: TestDatabase) =>
-    (await test.database.all(`SELECT count(*) AS total FROM ${TABLE.MeetingDetails}`))[0]?.total;
+    (await test.database.all(`SELECT count(*) AS total FROM ${MEETING_TABLE.Details}`))[0]?.total;
 
   it.each([
     ['text that is not JSON', 'not json at all'],
@@ -153,14 +155,14 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
     await cache.saveMeeting(OWNER, MEETING, at(10));
 
     await expect(
-      test.database.run(`UPDATE ${TABLE.MeetingDetails} SET ${COLUMN.Payload} = NULL`),
+      test.database.run(`UPDATE ${MEETING_TABLE.Details} SET ${MEETING_COLUMN.Payload} = NULL`),
     ).rejects.toThrow();
   });
 
   it('reads a cached instant that is not an instant as a miss', async () => {
     const { test, monitoring, cache } = await openCache();
     await cache.saveMeeting(OWNER, MEETING, at(10));
-    await test.database.run(`UPDATE ${TABLE.MeetingDetails} SET ${COLUMN.CachedAt} = -5`);
+    await test.database.run(`UPDATE ${MEETING_TABLE.Details} SET ${MEETING_COLUMN.CachedAt} = -5`);
 
     expect(await cache.readMeeting(OWNER, MEETING.id)).toStrictEqual(ok(undefined));
 
@@ -190,7 +192,7 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
   it('reads a page that no longer passes as a miss, reports it, and deletes the row', async () => {
     const { test, monitoring, cache } = await openCache();
     await cache.savePage(OWNER, PAGE_KEY, createPage([aMeetingSummary()]), at(10));
-    await test.database.run(`UPDATE ${TABLE.MeetingPages} SET ${COLUMN.Payload} = ?`, [
+    await test.database.run(`UPDATE ${MEETING_TABLE.Pages} SET ${MEETING_COLUMN.Payload} = ?`, [
       '{"items":3}',
     ]);
 
@@ -199,7 +201,7 @@ describe('SqliteMeetingCache, on rows that no longer read back', () => {
     expect(monitoring.errors.map((captured) => captured.attributes)).toEqual([
       { [LOG_ATTRIBUTE.Resource]: 'meetingPage', [LOG_ATTRIBUTE.IssuePaths]: 'items' },
     ]);
-    expect(await test.database.all(`SELECT * FROM ${TABLE.MeetingPages}`)).toEqual([]);
+    expect(await test.database.all(`SELECT * FROM ${MEETING_TABLE.Pages}`)).toEqual([]);
   });
 
   it('still returns the miss when the row cannot be deleted', async () => {
@@ -263,12 +265,12 @@ describe('SqliteMeetingCache, on a storage that does not answer', () => {
       database: test.database,
       monitoring: new FakeMonitoring(),
     });
-    await test.database.run(`DROP TABLE ${TABLE.MeetingDetails}`);
+    await test.database.run(`DROP TABLE ${MEETING_TABLE.Details}`);
 
     const failed = await cache.readMeeting(OWNER, MEETING.id);
 
     expect(failed).toStrictEqual(err(storageReadFailed('sqlite error 1')));
-    expect(JSON.stringify(failed)).not.toContain(TABLE.MeetingDetails);
+    expect(JSON.stringify(failed)).not.toContain(MEETING_TABLE.Details);
   });
 });
 
@@ -287,10 +289,10 @@ describe('the tables of SqliteMeetingCache', () => {
     );
 
     const details = await test.database.all(
-      `SELECT ${COLUMN.Owner}, ${COLUMN.MeetingId} FROM ${TABLE.MeetingDetails} ORDER BY ${COLUMN.Owner}`,
+      `SELECT ${MEETING_COLUMN.Owner}, ${MEETING_COLUMN.MeetingId} FROM ${MEETING_TABLE.Details} ORDER BY ${MEETING_COLUMN.Owner}`,
     );
     const pages = await test.database.all(
-      `SELECT ${COLUMN.CursorKey} FROM ${TABLE.MeetingPages} ORDER BY ${COLUMN.CursorKey}`,
+      `SELECT ${MEETING_COLUMN.CursorKey} FROM ${MEETING_TABLE.Pages} ORDER BY ${MEETING_COLUMN.CursorKey}`,
     );
 
     expect(details.map((row) => ({ ...row }))).toEqual([

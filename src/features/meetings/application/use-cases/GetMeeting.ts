@@ -1,11 +1,10 @@
 import type { Loaded } from '@core/application/offline/Loaded';
-import type { SessionChangedError } from '@core/domain/errors/AuthenticationError';
 import type { RepositoryError } from '@core/domain/errors/RepositoryError';
 import { isErr } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { MeetingId } from '@core/domain/value-objects/ids';
+import type { SessionGateError } from '@features/auth/application/session/AuthSessionGate';
 import { requireSession } from '@features/auth/application/session/requireSession';
-import type { SessionRequiredError } from '@features/auth/application/session/requireSession';
 import type { Meeting } from '@features/meetings/domain/entities/Meeting';
 
 import { loadMeeting } from '../loadMeeting';
@@ -17,7 +16,7 @@ export interface GetMeetingInput {
   readonly meetingId: MeetingId;
 }
 
-export type GetMeetingError = SessionRequiredError | SessionChangedError | RepositoryError;
+export type GetMeetingError = SessionGateError | RepositoryError;
 
 /**
  * A meeting with its agenda, documents and participants. Requires a valid session, like

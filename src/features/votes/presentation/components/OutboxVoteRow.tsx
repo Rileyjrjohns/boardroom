@@ -5,12 +5,6 @@ import type { MeetingId } from '@core/domain/value-objects/ids';
 import { Button } from '@core/presentation/components/Button';
 import { LiveText } from '@core/presentation/components/LiveText';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
-import { VOTE_CHOICE_KEYS } from '@core/presentation/i18n/translationKeys';
-import {
-  openVoteMeetingTestId,
-  pendingVoteTestId,
-  rejectedVoteTestId,
-} from '@core/presentation/testIds';
 import {
   borderWidths,
   colors,
@@ -25,6 +19,8 @@ import type { OutboxVote } from '@features/votes/domain/entities/OutboxVote';
 import { rejectionReasonText } from '../i18n/voteMessages';
 
 import { AcknowledgeButton } from './AcknowledgeButton';
+import { VOTE_CHOICE_KEYS } from '@features/meetings/presentation/i18n/meetingMessageKeys';
+import { openVoteMeetingTestId, pendingVoteTestId, rejectedVoteTestId } from '../testIds';
 
 interface OutboxVoteRowProps {
   readonly entry: OutboxVote;

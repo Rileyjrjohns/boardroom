@@ -1,43 +1,37 @@
 import type { Clock } from '@core/application/ports/Clock';
-import type { Monitoring } from '@core/application/ports/Monitoring';
 import {
   appLocked,
   notAuthenticated,
   sessionChanged,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import type {
   AppLockedError,
   NotAuthenticatedError,
   SessionChangedError,
   SessionExpiredError,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import type { StorageReadFailedError } from '@core/domain/errors/StorageError';
 import { err, isErr, ok } from '@core/domain/shared/Result';
 import type { Result } from '@core/domain/shared/Result';
 import type { UserId } from '@core/domain/value-objects/ids';
 import type { Session } from '@features/auth/domain/entities/Session';
 import { isSessionExpired } from '@features/auth/domain/policies/sessionExpiry';
-import type { DocumentCache } from '@features/documents/application/ports/DocumentCache';
-import type { MeetingCache } from '@features/meetings/application/ports/MeetingCache';
 
-import type { AuthSession } from '../ports/AuthSession';
-
-import type { AppLock } from './AppLock';
+import type { EndSessionDeps } from './endSession';
 import { purgeCaches } from './purgeCaches';
 
 export type SessionRequiredError =
   NotAuthenticatedError | SessionExpiredError | AppLockedError | StorageReadFailedError;
 
-export interface RequireSessionDeps {
-  readonly auth: AuthSession;
+/**
+ * What `requireSession` and `requireSameUser` need: what `closeSession` needs (the session, the
+ * lock shared by every use case, and the purgers of the data a session leaves, which run when a
+ * session is found expired: see `requireSession`) plus the clock.
+ */
+export interface RequireSessionDeps extends EndSessionDeps {
+  /** The clock the expiry of the session is judged by. */
   readonly clock: Clock;
-  /** The instance shared by every use case: see `AppLock`. */
-  readonly appLock: AppLock;
-  /** Emptied when a session is found expired: see `requireSession`. */
-  readonly meetingCache: MeetingCache;
-  readonly documentCache: DocumentCache;
-  readonly monitoring: Monitoring;
 }
 
 /**
@@ -47,7 +41,7 @@ export interface RequireSessionDeps {
  *
  * - `notAuthenticated` when nobody is signed in;
  * - `sessionExpired` when the expiry has passed. The session is never returned, and the caches are
- *   emptied (both, for every owner, as at a sign-out): a session that ends while the app is
+ *   emptied (all of them, for every owner, as at a sign-out): a session that ends while the app is
  *   running must not leave the content of its user on the device. The purge is best effort, a
  *   failure is captured and the caller still gets `sessionExpired`;
  * - `appLocked` when the session is valid but the app is locked (see `AppLock`): until the

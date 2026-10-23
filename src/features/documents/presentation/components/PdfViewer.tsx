@@ -2,8 +2,8 @@ import Pdf from 'react-native-pdf';
 import { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors } from '@core/presentation/theme/tokens';
+import { DOCUMENTS_TEST_IDS } from '../testIds';
 
 interface PdfViewerProps {
   /** Where the file is: the location `OpenDocument` gave, a file of the device. */
@@ -43,7 +43,7 @@ export function PdfViewer({ uri, onLoaded, onPageChanged, onFailed }: PdfViewerP
   const source = useMemo(() => ({ uri, cache: false }), [uri]);
 
   return (
-    <View style={styles.container} collapsable={false} testID={TEST_IDS.documentPdf}>
+    <View style={styles.container} collapsable={false} testID={DOCUMENTS_TEST_IDS.documentPdf}>
       <Pdf
         source={source}
         style={styles.pdf}

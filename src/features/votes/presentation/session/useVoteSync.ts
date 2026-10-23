@@ -1,11 +1,12 @@
 import { useCallback, useRef } from 'react';
 
-import { useAppServices } from '@composition/shell/services/AppServices';
-import { ACCESS, useUiStoreApi } from '@composition/shell/state/uiStore';
 import { isSessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+import { ACCESS, useAccessStoreApi } from '@features/auth/presentation/state/accessStore';
 import { SYNC_OUTCOME } from '@features/votes/application/use-cases/SyncPendingVotes';
 
 import { useRefreshQueries } from '../hooks/useRefreshQueries';
+import { useVotesServices } from '../services/VotesServices';
+import { useVoteSyncStoreApi } from '../state/voteSyncStore';
 
 /**
  * The one place that decides when the votes waiting in the outbox are sent. It returns
@@ -31,8 +32,9 @@ import { useRefreshQueries } from '../hooks/useRefreshQueries';
  *   request that came meanwhile is answered with a run of its own.
  */
 export function useVoteSync(): () => void {
-  const { useCases } = useAppServices();
-  const store = useUiStoreApi();
+  const { syncPendingVotes } = useVotesServices();
+  const store = useAccessStoreApi();
+  const summaries = useVoteSyncStoreApi();
   const refresh = useRefreshQueries();
   const running = useRef(false);
   const requestedAgain = useRef(false);
@@ -41,7 +43,7 @@ export function useVoteSync(): () => void {
     // The run belongs to the access it started under: if the user left meanwhile, and somebody else
     // came, what it found is neither theirs to read nor a reason to end their session.
     const epoch = store.getState().accessEpoch;
-    const result = await useCases.syncPendingVotes.execute();
+    const result = await syncPendingVotes.execute();
     if (store.getState().accessEpoch !== epoch) return;
     if (!result.ok) {
       if (isSessionEndingCode(result.error.code)) {
@@ -62,9 +64,9 @@ export function useVoteSync(): () => void {
     const synced = report.synced.length;
     const rejected = report.rejected.length;
     if (synced === 0 && rejected === 0) return;
-    store.getState().showSyncSummary({ synced, rejected }, epoch);
+    summaries.getState().showSyncSummary({ synced, rejected }, epoch);
     await Promise.all([refresh.pendingVotes(), refresh.meetings()]);
-  }, [useCases, store, refresh]);
+  }, [syncPendingVotes, store, summaries, refresh]);
 
   return useCallback(() => {
     if (store.getState().access !== ACCESS.Unlocked) return;

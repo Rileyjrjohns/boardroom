@@ -1,6 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { epochOf } from '@composition/shell/testing/accessEpoch';
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
 import {
@@ -9,22 +9,23 @@ import {
   biometricLockedOut,
   biometricNotEnrolled,
   biometricUnavailable,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import type {
   BiometricAvailabilityError,
   BiometricError,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import { storageWriteFailed } from '@core/domain/errors/StorageError';
 import { err, ok } from '@core/domain/shared/Result';
 import { SUPPORTED_LANGUAGES } from '@core/presentation/i18n/constants';
 import type { TranslationKey } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
 import { createFakes } from '@testing/application/createFakes';
 import { renderScreen } from '@testing/presentation/renderScreen';
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
 import { LockScreen } from './LockScreen';
+import { AUTH_TEST_IDS } from '../testIds';
+import { CORE_TEST_IDS } from '@core/presentation/testIds';
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -80,31 +81,33 @@ describe('LockScreen', () => {
     it('has buttons at least as tall as the touch target, and a hint for the unlock', () => {
       const { t } = renderLock();
 
-      expect(screen.getByTestId(TEST_IDS.lockUnlock)).toHaveStyle({ minHeight: 44 });
-      expect(screen.getByTestId(TEST_IDS.lockSignOut)).toHaveStyle({ minHeight: 44 });
-      expect(screen.getByTestId(TEST_IDS.lockUnlock).props.accessibilityHint).toBe(
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockUnlock)).toHaveStyle({ minHeight: 44 });
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockSignOut)).toHaveStyle({ minHeight: 44 });
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockUnlock).props.accessibilityHint).toBe(
         t('lock.unlockHint'),
       );
     });
 
     it('says why the app is locked when a failure is what sent the user here', () => {
-      const { uiStore, t } = renderLock({ access: ACCESS.Unlocked });
+      const { accessStore, t } = renderLock({ access: ACCESS.Unlocked });
       act(() => {
-        uiStore.getState().endSession('appLocked', epochOf(uiStore));
+        accessStore.getState().endSession('appLocked', epochOf(accessStore));
       });
 
-      expect(screen.getByTestId(TEST_IDS.sessionNotice)).toHaveTextContent(t('errors.appLocked'));
+      expect(screen.getByTestId(AUTH_TEST_IDS.sessionNotice)).toHaveTextContent(
+        t('errors.appLocked'),
+      );
     });
   });
 
   describe('unlocking', () => {
     it('asks for the biometric proof, once, for the right reason, and opens the app', async () => {
-      const { fakes, uiStore } = renderLock();
+      const { fakes, accessStore } = renderLock();
 
-      await press(TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
 
       expect(fakes.biometricGate.prompts).toEqual([BIOMETRIC_REASON.UnlockApp]);
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
       expect(fakes.appLock.isLocked()).toBe(false);
     });
 
@@ -117,11 +120,11 @@ describe('LockScreen', () => {
         });
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.lockUnlock));
-        fireEvent.press(screen.getByTestId(TEST_IDS.lockUnlock));
+        fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.lockUnlock));
+        fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.lockUnlock));
       });
       await settle();
-      fireEvent.press(screen.getByTestId(TEST_IDS.lockUnlock));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.lockUnlock));
 
       expect(
         screen.getByRole('button', { name: t('lock.unlocking') }).props.accessibilityState,
@@ -140,15 +143,15 @@ describe('LockScreen', () => {
     ] as [BiometricError, TranslationKey][])(
       'says what happened, and stays locked, when the prompt ends with %p',
       async (failure, key) => {
-        const { fakes, uiStore, t } = renderLock();
+        const { fakes, accessStore, t } = renderLock();
         fakes.biometricGate.authentication = err(failure);
 
-        await press(TEST_IDS.lockUnlock);
+        await press(AUTH_TEST_IDS.lockUnlock);
 
-        const message = screen.getByTestId(TEST_IDS.lockError);
+        const message = screen.getByTestId(AUTH_TEST_IDS.lockError);
         expect(message).toHaveTextContent(t(key));
         expect(message.props.accessibilityRole).toBe('alert');
-        expect(uiStore.getState().access).toBe(ACCESS.Locked);
+        expect(accessStore.getState().access).toBe(ACCESS.Locked);
         expect(fakes.appLock.isLocked()).toBe(true);
         expect(screen.getByRole('button', { name: t('lock.unlock') })).toBeEnabled();
       },
@@ -160,43 +163,43 @@ describe('LockScreen', () => {
     ] as [BiometricAvailabilityError, TranslationKey][])(
       'says the biometrics cannot be used, without any prompt, when the device answers %p',
       async (failure, key) => {
-        const { fakes, uiStore, t } = renderLock();
+        const { fakes, accessStore, t } = renderLock();
         fakes.biometricGate.availability = err(failure);
 
-        await press(TEST_IDS.lockUnlock);
+        await press(AUTH_TEST_IDS.lockUnlock);
 
-        expect(screen.getByTestId(TEST_IDS.lockError)).toHaveTextContent(t(key));
+        expect(screen.getByTestId(AUTH_TEST_IDS.lockError)).toHaveTextContent(t(key));
         expect(fakes.biometricGate.prompts).toEqual([]);
-        expect(uiStore.getState().access).toBe(ACCESS.Locked);
+        expect(accessStore.getState().access).toBe(ACCESS.Locked);
       },
     );
 
     it('says the biometrics cannot be used every time, and leaves signing out as the way forward', async () => {
-      const { fakes, uiStore, t } = renderLock();
+      const { fakes, accessStore, t } = renderLock();
       fakes.biometricGate.availability = err(biometricNotEnrolled());
 
-      await press(TEST_IDS.lockUnlock);
-      await press(TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
 
-      expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(accessStore.getState().access).toBe(ACCESS.Locked);
       expect(screen.getByRole('button', { name: t('signOut.action') })).toBeEnabled();
 
-      await press(TEST_IDS.lockSignOut);
-      await press(TEST_IDS.signOutConfirm);
+      await press(AUTH_TEST_IDS.lockSignOut);
+      await press(AUTH_TEST_IDS.signOutConfirm);
 
-      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     });
 
     it('lets the user try again after a failure, and opens the app when the proof is right', async () => {
-      const { fakes, uiStore, t } = renderLock();
+      const { fakes, accessStore, t } = renderLock();
       fakes.biometricGate.authentication = err(biometricFailed());
-      await press(TEST_IDS.lockUnlock);
-      expect(screen.getByTestId(TEST_IDS.lockError)).toBeTruthy();
+      await press(AUTH_TEST_IDS.lockUnlock);
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockError)).toBeTruthy();
 
       fakes.biometricGate.authentication = ok(undefined);
-      await press(TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
 
-      expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
+      expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
       expect(t('lock.unlock')).toBeTruthy();
     });
 
@@ -214,50 +217,50 @@ describe('LockScreen', () => {
     it('asks for a confirmation that says, in general terms, that waiting votes are kept', async () => {
       const { t } = renderLock();
 
-      await press(TEST_IDS.lockSignOut);
+      await press(AUTH_TEST_IDS.lockSignOut);
 
       expect(screen.getByRole('header', { name: t('signOut.title') })).toBeTruthy();
       expect(screen.getByText(t('signOut.message'))).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(
+      expect(screen.getByTestId(AUTH_TEST_IDS.signOutPending)).toHaveTextContent(
         t('signOut.pendingUnknown'),
       );
     });
 
     it('signs out when confirmed: the session is forgotten, and the user goes to the sign-in screen', async () => {
-      const { fakes, uiStore } = renderLock();
+      const { fakes, accessStore } = renderLock();
 
-      await press(TEST_IDS.lockSignOut);
-      await press(TEST_IDS.signOutConfirm);
+      await press(AUTH_TEST_IDS.lockSignOut);
+      await press(AUTH_TEST_IDS.signOutConfirm);
 
       expect(fakes.auth.signOutCalls).toBe(1);
       expect(fakes.auth.session).toBeUndefined();
-      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+      expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     });
 
     it('does nothing when cancelled', async () => {
-      const { fakes, uiStore } = renderLock();
+      const { fakes, accessStore } = renderLock();
 
-      await press(TEST_IDS.lockSignOut);
-      await press(TEST_IDS.signOutCancel);
+      await press(AUTH_TEST_IDS.lockSignOut);
+      await press(AUTH_TEST_IDS.signOutCancel);
 
-      expect(screen.queryByTestId(TEST_IDS.signOutDialog)).toBeNull();
+      expect(screen.queryByTestId(AUTH_TEST_IDS.signOutDialog)).toBeNull();
       expect(fakes.auth.signOutCalls).toBe(0);
-      expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(accessStore.getState().access).toBe(ACCESS.Locked);
     });
 
     it('says when the session could not be forgotten, and lets the user try again', async () => {
-      const { fakes, uiStore, t } = renderLock();
+      const { fakes, accessStore, t } = renderLock();
       fakes.auth.signOutFailure = storageWriteFailed();
-      await press(TEST_IDS.lockSignOut);
+      await press(AUTH_TEST_IDS.lockSignOut);
 
-      await press(TEST_IDS.signOutConfirm);
+      await press(AUTH_TEST_IDS.signOutConfirm);
 
-      expect(screen.getByTestId(TEST_IDS.signOutError)).toHaveTextContent(t('signOut.failed'));
-      expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signOutError)).toHaveTextContent(t('signOut.failed'));
+      expect(accessStore.getState().access).toBe(ACCESS.Locked);
 
       fakes.auth.signOutFailure = undefined;
-      await press(TEST_IDS.signOutConfirm);
-      expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+      await press(AUTH_TEST_IDS.signOutConfirm);
+      expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     });
   });
 
@@ -268,42 +271,44 @@ describe('LockScreen', () => {
         throw new Error('boom');
       };
 
-      await press(TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
 
-      expect(screen.getByTestId(TEST_IDS.lockError)).toHaveTextContent(t('errors.unexpected'));
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockError)).toHaveTextContent(t('errors.unexpected'));
     });
   });
 
   describe('a device that is offline', () => {
     it('says so at the top, and nothing when the connection is there', () => {
       const { t, uiStore } = renderLock();
-      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
 
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
       });
 
-      expect(screen.getByTestId(TEST_IDS.offlineBanner)).toHaveTextContent(t('banner.offline'));
+      expect(screen.getByTestId(CORE_TEST_IDS.offlineBanner)).toHaveTextContent(
+        t('banner.offline'),
+      );
       act(() => {
         uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Online);
       });
-      expect(screen.queryByTestId(TEST_IDS.offlineBanner)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.offlineBanner)).toBeNull();
     });
 
     it('offers the switch of the demo in the mock configuration only', () => {
       const demo = renderLock({ demo: true });
-      expect(screen.getByTestId(TEST_IDS.demoOfflineSwitch)).toBeTruthy();
+      expect(screen.getByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeTruthy();
       demo.unmount();
 
       renderLock();
-      expect(screen.queryByTestId(TEST_IDS.demoOfflineSwitch)).toBeNull();
+      expect(screen.queryByTestId(CORE_TEST_IDS.demoOfflineSwitch)).toBeNull();
     });
 
     it('keeps the unlock and the sign-out where they were', () => {
       renderLock({ demo: true });
 
-      expect(screen.getByTestId(TEST_IDS.lockUnlock)).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.lockSignOut)).toBeTruthy();
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockUnlock)).toBeTruthy();
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockSignOut)).toBeTruthy();
     });
   });
 
@@ -312,11 +317,11 @@ describe('LockScreen', () => {
       const { fakes, t } = renderLock({ language });
       fakes.biometricGate.authentication = err(biometricLockedOut());
 
-      await press(TEST_IDS.lockUnlock);
+      await press(AUTH_TEST_IDS.lockUnlock);
 
       expect(screen.getByRole('header', { name: t('lock.title') })).toBeTruthy();
       expect(screen.getByText(t('lock.message'))).toBeTruthy();
-      expect(screen.getByTestId(TEST_IDS.lockError)).toHaveTextContent(
+      expect(screen.getByTestId(AUTH_TEST_IDS.lockError)).toHaveTextContent(
         t('unlockErrors.biometricLockedOut'),
       );
     });

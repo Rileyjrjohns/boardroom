@@ -1,11 +1,13 @@
 import { ObserveConnectivity } from '@core/application/use-cases/ObserveConnectivity';
 import { AppLock } from '@features/auth/application/session/AppLock';
+import { AuthSessionGate } from '@features/auth/application/session/AuthSessionGate';
 import { EvaluateAppLock } from '@features/auth/application/use-cases/EvaluateAppLock';
 import { GetCurrentUser } from '@features/auth/application/use-cases/GetCurrentUser';
 import { RestoreSession } from '@features/auth/application/use-cases/RestoreSession';
 import { SignIn } from '@features/auth/application/use-cases/SignIn';
 import { SignOut } from '@features/auth/application/use-cases/SignOut';
 import { UnlockApp } from '@features/auth/application/use-cases/UnlockApp';
+import { DocumentCacheEvictor } from '@features/documents/application/DocumentCacheEvictor';
 import { ScreenProtectionCoordinator } from '@features/documents/application/ScreenProtectionCoordinator';
 import { CloseDocument } from '@features/documents/application/use-cases/CloseDocument';
 import { ObserveScreenCapture } from '@features/documents/application/use-cases/ObserveScreenCapture';
@@ -17,6 +19,9 @@ import { CastVote } from '@features/votes/application/use-cases/CastVote';
 import { DiscardUnreadableVotes } from '@features/votes/application/use-cases/DiscardUnreadableVotes';
 import { ListPendingVotes } from '@features/votes/application/use-cases/ListPendingVotes';
 import { SyncPendingVotes } from '@features/votes/application/use-cases/SyncPendingVotes';
+
+import { MeetingCacheVoteRecorder } from '../glue/MeetingCacheVoteRecorder';
+import { sessionDataPurgers } from '../glue/sessionDataPurgers';
 
 import type { Ports, UseCaseSettings } from './Ports';
 
@@ -80,29 +85,55 @@ export function wireUseCases(ports: Ports, settings: UseCaseSettings): UseCases 
   const appLock = new AppLock({ locked: startsLocked });
   const screenProtectionCoordinator = new ScreenProtectionCoordinator({ screenProtection });
 
-  // What the session guard needs, which every use case that serves the user is given.
-  const guard = { auth, clock, appLock, meetingCache, documentCache, monitoring };
-  const cacheFallback = { ...guard, maxCacheAge };
+  // What the session guard needs, which every use case that serves the user is given. The data a
+  // session leaves on the device is emptied through one purger for each feature that keeps some
+  // (`auth` declares the port and does not know them: the composition makes the list).
+  const guard = {
+    auth,
+    clock,
+    appLock,
+    sessionDataPurgers: sessionDataPurgers({ meetingCache, documentCache }),
+    monitoring,
+  };
+  // What the offline policy needs of the session is the gate of `auth`, handed over as a port of
+  // the core; the documents of a refused meeting are dropped through the port of the meetings,
+  // which the documents implement; a vote the server recorded is written into the cached meeting
+  // by the glue between the votes and the meetings.
+  const cacheFallback = { ...guard, sessionGate: new AuthSessionGate(guard), maxCacheAge };
+  const loadMeeting = {
+    ...cacheFallback,
+    meetings,
+    meetingCache,
+    documentEvictor: new DocumentCacheEvictor(documentCache),
+  };
+  const recordedVoteSink = new MeetingCacheVoteRecorder(meetingCache, guard);
 
   return {
-    signIn: new SignIn({ auth, meetingCache, documentCache, monitoring, appLock }),
-    signOut: new SignOut({ auth, meetingCache, documentCache, monitoring, appLock }),
+    signIn: new SignIn({ ...guard }),
+    signOut: new SignOut({ ...guard }),
     restoreSession: new RestoreSession({ ...guard }),
     getCurrentUser: new GetCurrentUser({ ...guard }),
     evaluateAppLock: new EvaluateAppLock({ auth, clock, gracePeriod, appLock }),
     unlockApp: new UnlockApp({ biometricGate, appLock }),
-    listMeetings: new ListMeetings({ ...cacheFallback, meetings }),
-    getMeeting: new GetMeeting({ ...cacheFallback, meetings }),
+    listMeetings: new ListMeetings({ ...cacheFallback, meetings, meetingCache }),
+    getMeeting: new GetMeeting(loadMeeting),
     openDocument: new OpenDocument({
       ...cacheFallback,
       documents,
+      documentCache,
       screenProtectionCoordinator,
     }),
     closeDocument: new CloseDocument({ screenProtectionCoordinator }),
     observeScreenCapture: new ObserveScreenCapture({ ...guard, screenProtection }),
     observeConnectivity: new ObserveConnectivity({ connectivity }),
-    castVote: new CastVote({ ...cacheFallback, meetings, outbox, votes, biometricGate }),
-    syncPendingVotes: new SyncPendingVotes({ ...guard, outbox, votes, maxAttempts }),
+    castVote: new CastVote({ ...loadMeeting, outbox, votes, biometricGate, recordedVoteSink }),
+    syncPendingVotes: new SyncPendingVotes({
+      ...guard,
+      outbox,
+      votes,
+      maxAttempts,
+      recordedVoteSink,
+    }),
     listPendingVotes: new ListPendingVotes({ ...guard, outbox }),
     acknowledgeRejectedVote: new AcknowledgeRejectedVote({ ...guard, outbox }),
     discardUnreadableVotes: new DiscardUnreadableVotes({ ...guard, outbox }),

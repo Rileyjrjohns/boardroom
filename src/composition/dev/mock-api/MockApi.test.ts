@@ -1,4 +1,4 @@
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { HTTP_HEADER, HTTP_STATUS, ROUTES } from '@core/infrastructure/http/protocol';
 import { hasPdfSignature } from '@features/documents/infrastructure/pdfSignature';
 import { VOTE_CHOICE } from '@features/meetings/domain/value-objects/VoteChoice';

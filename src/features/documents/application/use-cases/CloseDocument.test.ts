@@ -1,4 +1,4 @@
-import { screenProtectionFailed } from '@core/domain/errors/ScreenProtectionError';
+import { screenProtectionFailed } from '@features/documents/domain/errors/ScreenProtectionError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';
 import { aConfidentialDocument, aDocumentId, aDocumentLocation } from '@testing/domain/builders';

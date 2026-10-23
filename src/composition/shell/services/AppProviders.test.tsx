@@ -3,14 +3,14 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { Pressable, Text } from 'react-native';
 
 import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { QueryFailure } from '@core/presentation/query/QueryFailure';
 import { trackClient } from '@core/presentation/testing/queryClients';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { MEETING_PERIOD } from '@features/meetings/domain/value-objects/MeetingPeriod';
+import { useMeetingsStore } from '@features/meetings/presentation/state/meetingsStore';
 import { unusedServices } from '@testing/presentation/unusedServices';
-
-import { ACCESS, useUiStore } from '../state/uiStore';
 
 import { AppProviders, createAppState } from './AppProviders';
 import { useAppServices } from './AppServices';
@@ -25,8 +25,8 @@ const clients: unknown[] = [];
 function Probe({ name }: { readonly name: string }) {
   const { settings } = useAppServices();
   const client = useQueryClient();
-  const period = useUiStore((state) => state.meetingsPeriod);
-  const select = useUiStore((state) => state.selectMeetingsPeriod);
+  const period = useMeetingsStore((state) => state.meetingsPeriod);
+  const select = useMeetingsStore((state) => state.selectMeetingsPeriod);
   clients.push(client);
   const text = `${name}: ${settings.meetingsPageSize} ${period}`;
   return (
@@ -103,16 +103,19 @@ describe('createAppState', () => {
 
     expect(first.queryClient).not.toBe(second.queryClient);
     expect(first.uiStore).not.toBe(second.uiStore);
+    expect(first.accessStore).not.toBe(second.accessStore);
+    expect(first.meetingsStore).not.toBe(second.meetingsStore);
+    expect(first.voteSyncStore).not.toBe(second.voteSyncStore);
   });
 
   it('has the store told why when a failure ends the session, and the cache emptied', async () => {
-    const { queryClient, uiStore } = createAppState({
+    const { queryClient, accessStore } = createAppState({
       retryDelay: () => 0,
       access: ACCESS.Unlocked,
     });
     trackClient(queryClient);
     queryClient.setQueryData(['rows'], 'the rows of the user');
-    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+    expect(accessStore.getState().sessionEndedBy).toBeUndefined();
 
     await queryClient
       .fetchQuery({
@@ -122,13 +125,13 @@ describe('createAppState', () => {
       })
       .catch(() => undefined);
 
-    expect(uiStore.getState().sessionEndedBy).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
-    expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(accessStore.getState().sessionEndedBy).toBe(REPOSITORY_ERROR_CODE.Unauthorized);
+    expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
   });
 
   it('does the same when a mutation is the one that meets the end of the session', async () => {
-    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    const { queryClient, accessStore } = createAppState({ access: ACCESS.Unlocked });
     trackClient(queryClient);
     queryClient.setQueryData(['rows'], 'the rows of the user');
 
@@ -141,37 +144,37 @@ describe('createAppState', () => {
       .execute(undefined)
       .catch(() => undefined);
 
-    expect(uiStore.getState().access).toBe(ACCESS.Locked);
-    expect(uiStore.getState().sessionEndedBy).toBe(AUTHENTICATION_ERROR_CODE.AppLocked);
+    expect(accessStore.getState().access).toBe(ACCESS.Locked);
+    expect(accessStore.getState().sessionEndedBy).toBe(AUTHENTICATION_ERROR_CODE.AppLocked);
     await waitFor(() => {
       expect(queryClient.getQueryCache().getAll()).toEqual([]);
     });
   });
 
   it.each([
-    ['signs out', (store: AppState['uiStore']) => store.getState().signedOut()],
+    ['signs out', (store: AppState['accessStore']) => store.getState().signedOut()],
     [
       'locks',
-      (store: AppState['uiStore']) => store.getState().locked(store.getState().accessEpoch),
+      (store: AppState['accessStore']) => store.getState().locked(store.getState().accessEpoch),
     ],
   ])('empties the cache, queries and mutations, when the user %s', (_action, leave) => {
-    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    const { queryClient, accessStore } = createAppState({ access: ACCESS.Unlocked });
     trackClient(queryClient);
     queryClient.setQueryData(['rows'], 'the rows of the user');
     void queryClient.getMutationCache().build(queryClient, { mutationFn: () => Promise.resolve() });
 
-    leave(uiStore);
+    leave(accessStore);
 
     expect(queryClient.getQueryCache().getAll()).toEqual([]);
     expect(queryClient.getMutationCache().getAll()).toEqual([]);
   });
 
   it('ignores the failure of an action that a user who left had started, for the user who came after', async () => {
-    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    const { queryClient, accessStore } = createAppState({ access: ACCESS.Unlocked });
     trackClient(queryClient);
-    const first = uiStore.getState().accessEpoch;
-    uiStore.getState().signedOut();
-    uiStore.getState().signedIn();
+    const first = accessStore.getState().accessEpoch;
+    accessStore.getState().signedOut();
+    accessStore.getState().signedIn();
 
     await queryClient
       .getMutationCache()
@@ -184,12 +187,12 @@ describe('createAppState', () => {
       .execute(undefined)
       .catch(() => undefined);
 
-    expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
-    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+    expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(accessStore.getState().sessionEndedBy).toBeUndefined();
   });
 
   it('does not let a query that was removed from the cache end the session of the next user', async () => {
-    const { queryClient, uiStore } = createAppState({ access: ACCESS.Unlocked });
+    const { queryClient, accessStore } = createAppState({ access: ACCESS.Unlocked });
     trackClient(queryClient);
     let refuse: () => void = () => undefined;
     const pending = queryClient
@@ -203,29 +206,29 @@ describe('createAppState', () => {
           }),
       })
       .catch(() => undefined);
-    uiStore.getState().signedOut();
-    uiStore.getState().signedIn();
+    accessStore.getState().signedOut();
+    accessStore.getState().signedIn();
 
     refuse();
     await pending;
 
-    expect(uiStore.getState().access).toBe(ACCESS.Unlocked);
-    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+    expect(accessStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(accessStore.getState().sessionEndedBy).toBeUndefined();
   });
 
   it('keeps the cache while the user goes from one screen of the open app to another', () => {
-    const { queryClient, uiStore } = createAppState({ access: ACCESS.Locked });
+    const { queryClient, accessStore, uiStore } = createAppState({ access: ACCESS.Locked });
     trackClient(queryClient);
     queryClient.setQueryData(['rows'], 'the rows of the user');
 
-    uiStore.getState().unlocked();
+    accessStore.getState().unlocked();
     uiStore.getState().setConnectivity(CONNECTIVITY_STATUS.Offline);
 
     expect(queryClient.getQueryData(['rows'])).toBe('the rows of the user');
   });
 
   it('leaves the store alone for a failure that does not end the session', async () => {
-    const { queryClient, uiStore } = createAppState({ retryDelay: () => 0 });
+    const { queryClient, accessStore } = createAppState({ retryDelay: () => 0 });
     trackClient(queryClient);
 
     await queryClient
@@ -235,7 +238,7 @@ describe('createAppState', () => {
       })
       .catch(() => undefined);
 
-    expect(uiStore.getState().sessionEndedBy).toBeUndefined();
+    expect(accessStore.getState().sessionEndedBy).toBeUndefined();
   });
 
   it('is the state AppProviders uses when it is given one', () => {

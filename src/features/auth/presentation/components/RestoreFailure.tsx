@@ -2,18 +2,18 @@ import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { StorageReadFailedError } from '@core/domain/errors/StorageError';
 import { Button } from '@core/presentation/components/Button';
 import { ErrorState } from '@core/presentation/components/ErrorState';
 import { LiveText } from '@core/presentation/components/LiveText';
-import type { MeetingsErrorCode } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes, maxContentWidth, spacing } from '@core/presentation/theme/tokens';
 
 import { useSignOut } from '../hooks/useSignOut';
+import { AUTH_TEST_IDS } from '../testIds';
 
 interface RestoreFailureProps {
   /** Why the session saved on this device could not be read. */
-  readonly code: MeetingsErrorCode;
+  readonly code: StorageReadFailedError['code'];
   /** Asks again. */
   readonly onRetry: () => void;
 }
@@ -33,14 +33,14 @@ export function RestoreFailure({ code, onRetry }: RestoreFailureProps) {
 
   return (
     <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
-      <ErrorState code={code} onRetry={onRetry} testID={TEST_IDS.restoreError} />
+      <ErrorState code={code} onRetry={onRetry} testID={AUTH_TEST_IDS.restoreError} />
       <View style={styles.escape}>
         <Text style={styles.text}>{t('startup.forgetExplanation')}</Text>
         {signOut.failure === undefined ? null : (
           <LiveText
             message={t('signOut.failed')}
             style={styles.error}
-            testID={TEST_IDS.restoreForgetError}
+            testID={AUTH_TEST_IDS.restoreForgetError}
           />
         )}
         <Button
@@ -48,7 +48,7 @@ export function RestoreFailure({ code, onRetry }: RestoreFailureProps) {
           variant="secondary"
           busy={signOut.isPending}
           onPress={signOut.run}
-          testID={TEST_IDS.restoreForget}
+          testID={AUTH_TEST_IDS.restoreForget}
         />
       </View>
     </View>

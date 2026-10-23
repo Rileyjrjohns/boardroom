@@ -1,4 +1,4 @@
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import { err, ok } from '@core/domain/shared/Result';
 import { parseInstant } from '@core/domain/value-objects/Instant';
 import { describeAuthSessionContract } from '@features/auth/application/testing/contracts/authSessionContract';

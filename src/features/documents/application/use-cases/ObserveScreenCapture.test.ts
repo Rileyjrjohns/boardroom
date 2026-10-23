@@ -3,7 +3,7 @@ import {
   appLocked,
   notAuthenticated,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import { err } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';
 import { NOW, aDocumentId, aSession, aUser, aUserId } from '@testing/domain/builders';

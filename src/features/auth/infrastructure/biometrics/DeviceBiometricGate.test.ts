@@ -2,7 +2,7 @@ import type { LocalAuthenticationError } from 'expo-local-authentication';
 
 import { MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
-import { BIOMETRIC_ERROR_CODE } from '@core/domain/errors/BiometricError';
+import { BIOMETRIC_ERROR_CODE } from '@features/auth/domain/errors/BiometricError';
 import { err, ok } from '@core/domain/shared/Result';
 import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
 import type { BiometricReason } from '@features/auth/application/ports/BiometricGate';

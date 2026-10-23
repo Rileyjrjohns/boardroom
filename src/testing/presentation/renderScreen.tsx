@@ -4,8 +4,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppProviders, createAppState } from '@composition/shell/services/AppProviders';
 import type { AppNotices, AppServices, DemoAccount } from '@composition/shell/services/AppServices';
-import { ACCESS } from '@composition/shell/state/uiStore';
-import type { Access } from '@composition/shell/state/uiStore';
 import { FakeDemoNetwork } from '@composition/shell/testing/FakeDemoNetwork';
 import { ObserveConnectivity } from '@core/application/use-cases/ObserveConnectivity';
 import type { Duration } from '@core/domain/value-objects/Duration';
@@ -21,6 +19,8 @@ import { RestoreSession } from '@features/auth/application/use-cases/RestoreSess
 import { SignIn } from '@features/auth/application/use-cases/SignIn';
 import { SignOut } from '@features/auth/application/use-cases/SignOut';
 import { UnlockApp } from '@features/auth/application/use-cases/UnlockApp';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
+import type { Access } from '@features/auth/presentation/state/accessStore';
 import { CloseDocument } from '@features/documents/application/use-cases/CloseDocument';
 import { ObserveScreenCapture } from '@features/documents/application/use-cases/ObserveScreenCapture';
 import { OpenDocument } from '@features/documents/application/use-cases/OpenDocument';
@@ -156,6 +156,9 @@ export function createHarness(options: RenderScreenOptions) {
     fakes,
     queryClient: state.queryClient,
     uiStore: state.uiStore,
+    accessStore: state.accessStore,
+    meetingsStore: state.meetingsStore,
+    voteSyncStore: state.voteSyncStore,
     services,
     state,
     demoNetwork,

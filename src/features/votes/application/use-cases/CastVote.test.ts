@@ -4,12 +4,12 @@ import {
   notAuthenticated,
   sessionChanged,
   sessionExpired,
-} from '@core/domain/errors/AuthenticationError';
+} from '@features/auth/domain/errors/AuthenticationError';
 import {
   biometricCancelled,
   biometricLockedOut,
   biometricUnavailable,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import {
   networkUnavailable,
   notFound,
@@ -21,9 +21,9 @@ import {
   voteInProgress,
   votePreviouslyRejected,
   voteUndeliverable,
-} from '@core/domain/errors/VoteDeliveryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
-import type { VotingError } from '@core/domain/errors/VotingError';
+} from '@features/votes/domain/errors/VoteDeliveryError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
+import type { VotingError } from '@features/votes/domain/errors/VotingError';
 import { err, ok } from '@core/domain/shared/Result';
 import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
 import { createMeeting, findResolution } from '@features/meetings/domain/entities/Meeting';

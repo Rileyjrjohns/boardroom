@@ -2,7 +2,7 @@ import {
   biometricCancelled,
   biometricNotEnrolled,
   biometricUnavailable,
-} from '@core/domain/errors/BiometricError';
+} from '@features/auth/domain/errors/BiometricError';
 import { err, ok } from '@core/domain/shared/Result';
 
 import { BIOMETRIC_REASON } from '../ports/BiometricGate';

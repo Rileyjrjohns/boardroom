@@ -1,5 +1,5 @@
 import { MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { err, ok } from '@core/domain/shared/Result';

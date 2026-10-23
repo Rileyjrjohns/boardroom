@@ -3,10 +3,11 @@ import { AppState } from 'react-native';
 import type { AppStateStatus } from 'react-native';
 
 import type { Instant } from '@core/domain/value-objects/Instant';
+import { useUiStoreApi } from '@core/presentation/state/uiStore';
 import { useSessionCheck } from '@features/auth/presentation/session/useSessionCheck';
+import { ACCESS, useAccessStoreApi } from '@features/auth/presentation/state/accessStore';
 
 import { useAppServices } from '../services/AppServices';
-import { ACCESS, useUiStoreApi } from '../state/uiStore';
 
 import { APP_STATE, isHidden } from './appState';
 
@@ -38,7 +39,8 @@ import { APP_STATE, isHidden } from './appState';
  */
 export function useAppLifecycle(onResumed: () => void): void {
   const { useCases, clock } = useAppServices();
-  const store = useUiStoreApi();
+  const store = useAccessStoreApi();
+  const ui = useUiStoreApi();
   const checkSession = useSessionCheck();
   const latestOnResumed = useRef(onResumed);
 
@@ -49,7 +51,7 @@ export function useAppLifecycle(onResumed: () => void): void {
   useEffect(() => {
     let current: AppStateStatus = AppState.currentState;
     let backgroundedAt: Instant | undefined;
-    store.getState().setPrivacyCover(isHidden(current));
+    ui.getState().setPrivacyCover(isHidden(current));
 
     const resume = async (since: Instant): Promise<void> => {
       const epoch = store.getState().accessEpoch;
@@ -62,7 +64,7 @@ export function useAppLifecycle(onResumed: () => void): void {
         }
       }
       // The app may have gone away again while the lock was being judged: it stays covered then.
-      if (!isHidden(current)) store.getState().setPrivacyCover(false);
+      if (!isHidden(current)) ui.getState().setPrivacyCover(false);
       if (!isHidden(current) && store.getState().access === ACCESS.Unlocked) {
         latestOnResumed.current();
       }
@@ -71,7 +73,7 @@ export function useAppLifecycle(onResumed: () => void): void {
     const subscription = AppState.addEventListener('change', (next) => {
       current = next;
       if (isHidden(next)) {
-        store.getState().setPrivacyCover(true);
+        ui.getState().setPrivacyCover(true);
         if (next === APP_STATE.Background && backgroundedAt === undefined) {
           backgroundedAt = clock.now();
         }
@@ -80,7 +82,7 @@ export function useAppLifecycle(onResumed: () => void): void {
       const since = backgroundedAt;
       backgroundedAt = undefined;
       if (since === undefined) {
-        store.getState().setPrivacyCover(false);
+        ui.getState().setPrivacyCover(false);
         return;
       }
       void resume(since);
@@ -88,5 +90,5 @@ export function useAppLifecycle(onResumed: () => void): void {
     return () => {
       subscription.remove();
     };
-  }, [store, useCases, clock, checkSession]);
+  }, [store, ui, useCases, clock, checkSession]);
 }

@@ -1,6 +1,5 @@
 import type { z } from 'zod';
 
-import { COLUMN, TABLE } from '@composition/persistence/schema';
 import { LOG_ATTRIBUTE, MONITORING_EVENT } from '@core/application/ports/Monitoring';
 import type { LogAttributes, Monitoring } from '@core/application/ports/Monitoring';
 import type { CacheEntry } from '@core/application/ports/types/CacheEntry';
@@ -29,6 +28,7 @@ import type {
 import type { Meeting } from '@features/meetings/domain/entities/Meeting';
 import type { MeetingSummary } from '@features/meetings/domain/entities/MeetingSummary';
 
+import { MEETING_COLUMN, MEETING_TABLE } from './schema';
 import {
   meetingOf,
   pageOf,
@@ -54,22 +54,22 @@ const STORED = {
 const UNREADABLE_CAUSE = 'stored entry unreadable';
 
 // The statements. A row is found by one column for each part of its key.
-const SAVE_PAGE = `INSERT OR REPLACE INTO ${TABLE.MeetingPages}
-  (${COLUMN.Owner}, ${COLUMN.Period}, ${COLUMN.CursorKey}, ${COLUMN.PageLimit}, ${COLUMN.CachedAt}, ${COLUMN.Payload})
+const SAVE_PAGE = `INSERT OR REPLACE INTO ${MEETING_TABLE.Pages}
+  (${MEETING_COLUMN.Owner}, ${MEETING_COLUMN.Period}, ${MEETING_COLUMN.CursorKey}, ${MEETING_COLUMN.PageLimit}, ${MEETING_COLUMN.CachedAt}, ${MEETING_COLUMN.Payload})
   VALUES (?, ?, ?, ?, ?, ?)`;
-const PAGE_KEY = `${COLUMN.Owner} = ? AND ${COLUMN.Period} = ? AND ${COLUMN.CursorKey} = ? AND ${COLUMN.PageLimit} = ?`;
-const READ_PAGE = `SELECT ${COLUMN.CachedAt}, ${COLUMN.Payload} FROM ${TABLE.MeetingPages} WHERE ${PAGE_KEY}`;
-const REMOVE_PAGE = `DELETE FROM ${TABLE.MeetingPages} WHERE ${PAGE_KEY}`;
+const PAGE_KEY = `${MEETING_COLUMN.Owner} = ? AND ${MEETING_COLUMN.Period} = ? AND ${MEETING_COLUMN.CursorKey} = ? AND ${MEETING_COLUMN.PageLimit} = ?`;
+const READ_PAGE = `SELECT ${MEETING_COLUMN.CachedAt}, ${MEETING_COLUMN.Payload} FROM ${MEETING_TABLE.Pages} WHERE ${PAGE_KEY}`;
+const REMOVE_PAGE = `DELETE FROM ${MEETING_TABLE.Pages} WHERE ${PAGE_KEY}`;
 
-const SAVE_MEETING = `INSERT OR REPLACE INTO ${TABLE.MeetingDetails}
-  (${COLUMN.Owner}, ${COLUMN.MeetingId}, ${COLUMN.CachedAt}, ${COLUMN.Payload})
+const SAVE_MEETING = `INSERT OR REPLACE INTO ${MEETING_TABLE.Details}
+  (${MEETING_COLUMN.Owner}, ${MEETING_COLUMN.MeetingId}, ${MEETING_COLUMN.CachedAt}, ${MEETING_COLUMN.Payload})
   VALUES (?, ?, ?, ?)`;
-const MEETING_KEY = `${COLUMN.Owner} = ? AND ${COLUMN.MeetingId} = ?`;
-const READ_MEETING = `SELECT ${COLUMN.CachedAt}, ${COLUMN.Payload} FROM ${TABLE.MeetingDetails} WHERE ${MEETING_KEY}`;
-const REMOVE_MEETING = `DELETE FROM ${TABLE.MeetingDetails} WHERE ${MEETING_KEY}`;
+const MEETING_KEY = `${MEETING_COLUMN.Owner} = ? AND ${MEETING_COLUMN.MeetingId} = ?`;
+const READ_MEETING = `SELECT ${MEETING_COLUMN.CachedAt}, ${MEETING_COLUMN.Payload} FROM ${MEETING_TABLE.Details} WHERE ${MEETING_KEY}`;
+const REMOVE_MEETING = `DELETE FROM ${MEETING_TABLE.Details} WHERE ${MEETING_KEY}`;
 
-const PURGE_PAGES = `DELETE FROM ${TABLE.MeetingPages}`;
-const PURGE_MEETINGS = `DELETE FROM ${TABLE.MeetingDetails}`;
+const PURGE_PAGES = `DELETE FROM ${MEETING_TABLE.Pages}`;
+const PURGE_MEETINGS = `DELETE FROM ${MEETING_TABLE.Details}`;
 
 /**
  * The cache of meetings on SQLite. It keeps the pages and the meetings of each owner as JSON in
@@ -201,8 +201,8 @@ export class SqliteMeetingCache implements MeetingCache {
     const [row] = rows.value;
     if (row === undefined) return ok(undefined);
 
-    const payload = row[COLUMN.Payload];
-    const cachedAt = parseInstant(Number(row[COLUMN.CachedAt]));
+    const payload = row[MEETING_COLUMN.Payload];
+    const cachedAt = parseInstant(Number(row[MEETING_COLUMN.CachedAt]));
     const decoded = typeof payload === 'string' ? decodePayload(payload) : undefined;
     if (decoded?.ok === true && cachedAt.ok) {
       return ok({ value: decoded.value, cachedAt: cachedAt.value });

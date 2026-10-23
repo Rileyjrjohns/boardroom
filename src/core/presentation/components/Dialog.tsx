@@ -2,8 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { AccessibilityInfo, Modal, StyleSheet, Text, View } from 'react-native';
 
-import { useUiStore } from '@composition/shell/state/uiStore';
-
+import { useUiStore } from '../state/uiStore';
 import {
   colors,
   dimmedOpacity,

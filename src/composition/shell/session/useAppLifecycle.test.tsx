@@ -1,7 +1,7 @@
 import { act } from '@testing-library/react-native';
 import type { AppStateStatus } from 'react-native';
 
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { storageReadFailed } from '@core/domain/errors/StorageError';
 import { ok } from '@core/domain/shared/Result';
 import { createFakes } from '@testing/application/createFakes';
@@ -9,7 +9,7 @@ import { MILLIS_PER_MINUTE, aSession, at } from '@testing/domain/builders';
 import { TEST_GRACE_PERIOD_MILLIS, renderScreen } from '@testing/presentation/renderScreen';
 import type { RenderScreenOptions } from '@testing/presentation/renderScreen';
 
-import { ACCESS } from '../state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { driveAppState } from '../testing/appState';
 
 import { useAppLifecycle } from './useAppLifecycle';
@@ -154,7 +154,7 @@ describe('the lock on the way back', () => {
 
     await awayFor(rendered, TEST_GRACE_PERIOD_MILLIS - 1);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     expect(rendered.fakes.appLock.isLocked()).toBe(false);
     expect(rendered.uiStore.getState().privacyCover).toBe(false);
     expect(rendered.onResumed).toHaveBeenCalledTimes(1);
@@ -165,7 +165,7 @@ describe('the lock on the way back', () => {
 
     await awayFor(rendered, TEST_GRACE_PERIOD_MILLIS);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
     expect(rendered.fakes.appLock.isLocked()).toBe(true);
     expect(rendered.onResumed).not.toHaveBeenCalled();
   });
@@ -175,7 +175,7 @@ describe('the lock on the way back', () => {
 
     await awayFor(rendered, 10 * MILLIS_PER_MINUTE);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
   });
 
   it('counts the time from the moment the app went to the background, not from the moment it went inactive', async () => {
@@ -189,7 +189,7 @@ describe('the lock on the way back', () => {
       rendered.appState.emit(APP_STATE.Active);
     });
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
   });
 
   it('does not count the system prompt of the biometrics as being away', async () => {
@@ -201,7 +201,7 @@ describe('the lock on the way back', () => {
       rendered.appState.emit(APP_STATE.Active);
     });
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     expect(rendered.fakes.appLock.isLocked()).toBe(false);
   });
 
@@ -214,7 +214,7 @@ describe('the lock on the way back', () => {
       rendered.appState.emit(APP_STATE.Active);
     });
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
   });
 
   it('locks when the stored session cannot be read, since it cannot say there is nothing to protect', async () => {
@@ -223,7 +223,7 @@ describe('the lock on the way back', () => {
 
     await awayFor(rendered, 1000);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
     expect(rendered.uiStore.getState().privacyCover).toBe(false);
   });
 
@@ -254,7 +254,7 @@ describe('the lock on the way back', () => {
       await awayFor(rendered, 10 * MILLIS_PER_MINUTE);
 
       expect(evaluate).not.toHaveBeenCalled();
-      expect(rendered.uiStore.getState().access).toBe(access);
+      expect(rendered.accessStore.getState().access).toBe(access);
       expect(rendered.uiStore.getState().privacyCover).toBe(false);
       expect(rendered.onResumed).not.toHaveBeenCalled();
     },
@@ -267,7 +267,7 @@ describe('the lock on the way back', () => {
     await awayFor(rendered, 1000);
 
     expect(check).toHaveBeenCalledTimes(1);
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
   });
 
   it('does not check the session when it locks: the unlock will', async () => {
@@ -309,9 +309,14 @@ describe('a session that ended while the app was away', () => {
     fakes.auth.session = aSession({ expiresAt: at(EXPIRES_IN) });
     const rendered = setup({ fakes });
     const snapshots: { access: string; covered: boolean }[] = [];
-    rendered.uiStore.subscribe((state) => {
-      snapshots.push({ access: state.access, covered: state.privacyCover });
-    });
+    const snapshot = (): void => {
+      snapshots.push({
+        access: rendered.accessStore.getState().access,
+        covered: rendered.uiStore.getState().privacyCover,
+      });
+    };
+    rendered.accessStore.subscribe(snapshot);
+    rendered.uiStore.subscribe(snapshot);
     return { ...rendered, snapshots };
   }
 
@@ -321,7 +326,8 @@ describe('a session that ended while the app was away', () => {
 
     await awayFor(rendered, AWAY);
 
-    const { access, sessionEndedBy, privacyCover } = rendered.uiStore.getState();
+    const { access, sessionEndedBy } = rendered.accessStore.getState();
+    const { privacyCover } = rendered.uiStore.getState();
     expect(access).toBe(ACCESS.SignedOut);
     expect(sessionEndedBy).toBe(AUTHENTICATION_ERROR_CODE.SessionExpired);
     expect(privacyCover).toBe(false);
@@ -340,8 +346,8 @@ describe('a session that ended while the app was away', () => {
 
     await awayFor(rendered, AWAY);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.SignedOut);
-    expect(rendered.uiStore.getState().sessionEndedBy).toBe(
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(rendered.accessStore.getState().sessionEndedBy).toBe(
       AUTHENTICATION_ERROR_CODE.NotAuthenticated,
     );
   });
@@ -360,7 +366,7 @@ describe('a session that ended while the app was away', () => {
 
     await awayFor(rendered, 1000);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Locked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Locked);
     expect(rendered.uiStore.getState().privacyCover).toBe(false);
     expect(rendered.onResumed).not.toHaveBeenCalled();
   });
@@ -384,13 +390,13 @@ describe('a session that ended while the app was away', () => {
     });
 
     act(() => {
-      rendered.uiStore.getState().signedOut();
+      rendered.accessStore.getState().signedOut();
     });
     await act(async () => {
       answer();
     });
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.SignedOut);
   });
 
   it('does not end the session of the user who signed in while it was being checked', async () => {
@@ -412,15 +418,15 @@ describe('a session that ended while the app was away', () => {
     });
 
     act(() => {
-      rendered.uiStore.getState().signedOut();
-      rendered.uiStore.getState().signedIn();
+      rendered.accessStore.getState().signedOut();
+      rendered.accessStore.getState().signedIn();
     });
     await act(async () => {
       answer();
     });
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
-    expect(rendered.uiStore.getState().sessionEndedBy).toBeUndefined();
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().sessionEndedBy).toBeUndefined();
   });
 
   it('leaves a session that is still good alone, and uncovers the app', async () => {
@@ -429,7 +435,7 @@ describe('a session that ended while the app was away', () => {
 
     await awayFor(rendered, 1000);
 
-    expect(rendered.uiStore.getState().access).toBe(ACCESS.Unlocked);
+    expect(rendered.accessStore.getState().access).toBe(ACCESS.Unlocked);
     expect(rendered.uiStore.getState().privacyCover).toBe(false);
     expect(rendered.queryClient.getQueryData(['rows'])).toBe('the rows of the user');
   });

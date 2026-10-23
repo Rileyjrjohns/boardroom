@@ -1,4 +1,4 @@
-import { VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { valuesOf } from '@core/domain/shared/constants';
 import { parseInstant } from '@core/domain/value-objects/Instant';
 import { CONFIDENTIALITY_LEVEL } from '@features/meetings/domain/entities/Document';

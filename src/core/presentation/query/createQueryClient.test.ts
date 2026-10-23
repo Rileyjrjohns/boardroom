@@ -1,11 +1,13 @@
 import { QueryClient } from '@tanstack/react-query';
 
-import { AUTHENTICATION_ERROR_CODE } from '@core/domain/errors/AuthenticationError';
+import { ERROR_CATALOG } from '@composition/shell/errorCatalog';
+import { isSessionEndingCode } from '@features/auth/application/session/sessionPolicy';
+import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { VALIDATION_ERROR_CODE } from '@core/domain/errors/ValidationError';
 
-import type { MeetingsErrorCode } from '../i18n/translationKeys';
+import type { MeetingsErrorCode } from '@features/meetings/presentation/i18n/meetingMessageKeys';
 
 import {
   QUERY_GC_TIME_MILLIS,
@@ -16,10 +18,11 @@ import {
 import { trackClient } from '../testing/queryClients';
 
 import { QueryFailure } from './QueryFailure';
-import { retryDelay, shouldRetry } from './retryPolicy';
+import { retryDelay } from './retryPolicy';
 
-const newClient = (options?: Parameters<typeof createQueryClient>[0]): QueryClient =>
-  trackClient(createQueryClient(options));
+/** A client with the catalog of errors and the session policy of the app, which the composition hands over. */
+const newClient = (options?: Partial<Parameters<typeof createQueryClient>[0]>): QueryClient =>
+  trackClient(createQueryClient({ errorCatalog: ERROR_CATALOG, isSessionEndingCode, ...options }));
 
 describe('createQueryClient', () => {
   it('creates a new client at every call: two apps never share a cache', () => {
@@ -35,7 +38,14 @@ describe('createQueryClient', () => {
   it('retries according to the error code, with the delay of the policy', () => {
     const { queries } = newClient().getDefaultOptions();
 
-    expect(queries?.retry).toBe(shouldRetry);
+    const retry = queries?.retry;
+    expect(typeof retry).toBe('function');
+    if (typeof retry === 'function') {
+      expect(retry(0, new QueryFailure({ code: REPOSITORY_ERROR_CODE.NetworkUnavailable }))).toBe(
+        true,
+      );
+      expect(retry(0, new QueryFailure({ code: REPOSITORY_ERROR_CODE.Forbidden }))).toBe(false);
+    }
     expect(queries?.retryDelay).toBe(retryDelay);
   });
 
@@ -91,7 +101,7 @@ const OTHERS: MeetingsErrorCode[] = [
 ];
 
 /** Runs a query that fails with `code` in a client whose cache holds other data. */
-async function failWith(code: MeetingsErrorCode, endings: MeetingsErrorCode[]) {
+async function failWith(code: MeetingsErrorCode, endings: string[]) {
   const client = newClient({
     retryDelay: () => 0,
     onSessionEnded: (ended) => endings.push(ended),
@@ -108,7 +118,7 @@ async function failWith(code: MeetingsErrorCode, endings: MeetingsErrorCode[]) {
 
 describe('a failure that ends the session', () => {
   it.each(SESSION_ENDING)('empties the whole cache, whichever query failed: %s', async (code) => {
-    const endings: MeetingsErrorCode[] = [];
+    const endings: string[] = [];
 
     const client = await failWith(code, endings);
 
@@ -118,7 +128,7 @@ describe('a failure that ends the session', () => {
   });
 
   it.each(OTHERS)('leaves the cache alone for %s', async (code) => {
-    const endings: MeetingsErrorCode[] = [];
+    const endings: string[] = [];
 
     const client = await failWith(code, endings);
 

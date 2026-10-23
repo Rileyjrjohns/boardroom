@@ -1,14 +1,14 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { Modal } from 'react-native';
 
-import { ACCESS } from '@composition/shell/state/uiStore';
+import { ACCESS } from '@features/auth/presentation/state/accessStore';
 import { storageWriteFailed } from '@core/domain/errors/StorageError';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { createFakes } from '@testing/application/createFakes';
 import { aPendingVote, aResolutionId, aVote } from '@testing/domain/builders';
 import { renderScreen } from '@testing/presentation/renderScreen';
 
 import { SignOutDialog } from './SignOutDialog';
+import { AUTH_TEST_IDS } from '../testIds';
 
 beforeEach(() => {
   jest.useFakeTimers();
@@ -24,7 +24,7 @@ describe('SignOutDialog', () => {
 
     expect(screen.getByRole('header', { name: t('signOut.title') })).toBeTruthy();
     expect(screen.getByText(t('signOut.message'))).toBeTruthy();
-    expect(screen.queryByTestId(TEST_IDS.signOutPending)).toBeNull();
+    expect(screen.queryByTestId(AUTH_TEST_IDS.signOutPending)).toBeNull();
   });
 
   it.each([
@@ -55,7 +55,7 @@ describe('SignOutDialog', () => {
         language,
       });
 
-      expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(text);
+      expect(screen.getByTestId(AUTH_TEST_IDS.signOutPending)).toHaveTextContent(text);
     },
   );
 
@@ -64,7 +64,7 @@ describe('SignOutDialog', () => {
       <SignOutDialog visible pendingCount={undefined} onDismiss={jest.fn()} />,
     );
 
-    expect(screen.getByTestId(TEST_IDS.signOutPending)).toHaveTextContent(
+    expect(screen.getByTestId(AUTH_TEST_IDS.signOutPending)).toHaveTextContent(
       t('signOut.pendingUnknown'),
     );
   });
@@ -72,19 +72,19 @@ describe('SignOutDialog', () => {
   it('keeps the votes that wait when the user signs out, and empties the rest', async () => {
     const fakes = createFakes();
     fakes.outbox.seed(aPendingVote(aVote({ resolutionId: aResolutionId('r1') })));
-    const { uiStore } = renderScreen(
+    const { accessStore } = renderScreen(
       <SignOutDialog visible pendingCount={1} onDismiss={jest.fn()} />,
       { fakes },
     );
 
     await act(async () => {
-      fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
     });
     await act(async () => {
       await jest.advanceTimersByTimeAsync(0);
     });
 
-    expect(uiStore.getState().access).toBe(ACCESS.SignedOut);
+    expect(accessStore.getState().access).toBe(ACCESS.SignedOut);
     expect(fakes.outbox.snapshot()).toHaveLength(1);
     expect(fakes.auth.session).toBeUndefined();
   });
@@ -95,7 +95,7 @@ describe('SignOutDialog', () => {
       <SignOutDialog visible pendingCount={0} onDismiss={onDismiss} />,
     );
 
-    fireEvent.press(screen.getByTestId(TEST_IDS.signOutCancel));
+    fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutCancel));
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(fakes.auth.signOutCalls).toBe(0);
@@ -106,7 +106,7 @@ describe('SignOutDialog', () => {
 
     const names = screen.getAllByRole('button').map((button) => button.props.testID);
 
-    expect(names).toEqual([TEST_IDS.signOutCancel, TEST_IDS.signOutConfirm]);
+    expect(names).toEqual([AUTH_TEST_IDS.signOutCancel, AUTH_TEST_IDS.signOutConfirm]);
     expect(screen.getByRole('button', { name: t('signOut.action') })).toBeTruthy();
   });
 
@@ -131,7 +131,7 @@ describe('SignOutDialog', () => {
       const onDismiss = jest.fn();
       renderScreen(<SignOutDialog visible pendingCount={0} onDismiss={onDismiss} />, { fakes });
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+        fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
       });
       await act(async () => {
         await jest.advanceTimersByTimeAsync(0);
@@ -140,7 +140,7 @@ describe('SignOutDialog', () => {
       act(() => {
         screen.UNSAFE_getByType(Modal).props.onRequestClose();
       });
-      fireEvent.press(screen.getByTestId(TEST_IDS.signOutCancel));
+      fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutCancel));
 
       expect(onDismiss).not.toHaveBeenCalled();
     });
@@ -151,7 +151,7 @@ describe('SignOutDialog', () => {
       const onDismiss = jest.fn();
       renderScreen(<SignOutDialog visible pendingCount={0} onDismiss={onDismiss} />, { fakes });
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+        fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
       });
       await act(async () => {
         await jest.advanceTimersByTimeAsync(0);
@@ -169,21 +169,21 @@ describe('SignOutDialog', () => {
     it('follows the use case, which has locked the app, to the lock screen', async () => {
       const fakes = createFakes();
       fakes.auth.signOutFailure = storageWriteFailed();
-      const { uiStore, queryClient } = renderScreen(
+      const { accessStore, queryClient } = renderScreen(
         <SignOutDialog visible pendingCount={0} onDismiss={jest.fn()} />,
         { fakes },
       );
       queryClient.setQueryData(['rows'], 'the rows of the user');
 
       await act(async () => {
-        fireEvent.press(screen.getByTestId(TEST_IDS.signOutConfirm));
+        fireEvent.press(screen.getByTestId(AUTH_TEST_IDS.signOutConfirm));
       });
       await act(async () => {
         await jest.advanceTimersByTimeAsync(0);
       });
 
       expect(fakes.appLock.isLocked()).toBe(true);
-      expect(uiStore.getState().access).toBe(ACCESS.Locked);
+      expect(accessStore.getState().access).toBe(ACCESS.Locked);
       expect(queryClient.getQueryData(['rows'])).toBeUndefined();
     });
   });

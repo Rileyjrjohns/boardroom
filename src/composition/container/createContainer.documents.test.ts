@@ -5,7 +5,7 @@ import { FRESHNESS } from '@core/application/offline/Loaded';
 import { FakeClock } from '@core/application/testing/FakeClock';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
-import { SCREEN_PROTECTION_ERROR_CODE } from '@core/domain/errors/ScreenProtectionError';
+import { SCREEN_PROTECTION_ERROR_CODE } from '@features/documents/domain/errors/ScreenProtectionError';
 import type { Result } from '@core/domain/shared/Result';
 import { createPageRequest } from '@core/domain/value-objects/PageRequest';
 import type { FileStore } from '@core/infrastructure/files/FileStore';

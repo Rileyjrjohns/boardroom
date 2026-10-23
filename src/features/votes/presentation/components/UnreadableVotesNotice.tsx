@@ -7,11 +7,11 @@ import { Dialog } from '@core/presentation/components/Dialog';
 import { LiveText } from '@core/presentation/components/LiveText';
 import { useFormatters } from '@core/presentation/format/FormattersProvider';
 import { translateCount } from '@core/presentation/i18n/translateCount';
-import { DISCARD_ERROR_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes, spacing } from '@core/presentation/theme/tokens';
 
 import { useDiscardUnreadableVotes } from '../hooks/useDiscardUnreadableVotes';
+import { DISCARD_ERROR_KEYS } from '../i18n/voteMessageKeys';
+import { VOTES_TEST_IDS } from '../testIds';
 
 interface UnreadableVotesNoticeProps {
   /** How many saved votes of the user can no longer be read. The notice is for one or more. */
@@ -38,7 +38,7 @@ export function UnreadableVotesNotice({ count }: UnreadableVotesNoticeProps) {
   };
 
   return (
-    <View style={styles.notice} testID={TEST_IDS.unreadableVotes}>
+    <View style={styles.notice} testID={VOTES_TEST_IDS.unreadableVotes}>
       <Text style={styles.text}>{translateCount(t, 'pendingVotes.unreadable', count, number)}</Text>
       <Button
         title={t('pendingVotes.discard')}
@@ -47,13 +47,13 @@ export function UnreadableVotesNotice({ count }: UnreadableVotesNoticeProps) {
         onPress={() => {
           setAsking(true);
         }}
-        testID={TEST_IDS.unreadableVotesDiscard}
+        testID={VOTES_TEST_IDS.unreadableVotesDiscard}
       />
       <Dialog
         visible={asking}
         title={t('pendingVotes.discardTitle')}
         onDismiss={dismiss}
-        testID={TEST_IDS.unreadableVotesDialog}
+        testID={VOTES_TEST_IDS.unreadableVotesDialog}
         actions={
           <>
             <Button
@@ -61,7 +61,7 @@ export function UnreadableVotesNotice({ count }: UnreadableVotesNoticeProps) {
               variant="secondary"
               disabled={isPending}
               onPress={dismiss}
-              testID={TEST_IDS.unreadableVotesCancel}
+              testID={VOTES_TEST_IDS.unreadableVotesCancel}
             />
             <Button
               title={isPending ? t('pendingVotes.discarding') : t('pendingVotes.discard')}
@@ -70,7 +70,7 @@ export function UnreadableVotesNotice({ count }: UnreadableVotesNoticeProps) {
               onPress={() => {
                 run();
               }}
-              testID={TEST_IDS.unreadableVotesConfirm}
+              testID={VOTES_TEST_IDS.unreadableVotesConfirm}
             />
           </>
         }
@@ -82,7 +82,7 @@ export function UnreadableVotesNotice({ count }: UnreadableVotesNoticeProps) {
           <LiveText
             message={t(DISCARD_ERROR_KEYS[failure.code])}
             style={styles.error}
-            testID={TEST_IDS.unreadableVotesError}
+            testID={VOTES_TEST_IDS.unreadableVotesError}
           />
         )}
       </Dialog>

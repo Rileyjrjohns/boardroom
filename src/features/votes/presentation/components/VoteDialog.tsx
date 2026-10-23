@@ -1,20 +1,20 @@
 import { useTranslation } from 'react-i18next';
 import { StyleSheet, Text } from 'react-native';
 
-import { isRetryableCode } from '@core/application/retryableCodes';
-import { BIOMETRIC_ERROR_CODE } from '@core/domain/errors/BiometricError';
+import { BIOMETRIC_ERROR_CODE } from '@features/auth/domain/errors/BiometricError';
 import type { UnexpectedError } from '@core/domain/errors/RepositoryError';
 import { STORAGE_ERROR_CODE } from '@core/domain/errors/StorageError';
 import { Button } from '@core/presentation/components/Button';
 import { Dialog } from '@core/presentation/components/Dialog';
+import { useErrorCatalog } from '@core/presentation/errors/ErrorCatalog';
 import { LiveText } from '@core/presentation/components/LiveText';
-import { VOTE_CHOICE_KEYS } from '@core/presentation/i18n/translationKeys';
-import { TEST_IDS } from '@core/presentation/testIds';
 import { colors, fontSizes, fontWeights } from '@core/presentation/theme/tokens';
 import type { VoteChoice } from '@features/meetings/domain/value-objects/VoteChoice';
 import type { CastVoteError } from '@features/votes/application/use-cases/CastVote';
 
 import { castVoteErrorText } from '../i18n/voteMessages';
+import { VOTE_CHOICE_KEYS } from '@features/meetings/presentation/i18n/meetingMessageKeys';
+import { VOTES_TEST_IDS } from '../testIds';
 
 /**
  * The failures after which pressing "confirm" again can work, beyond the ones a query may be tried
@@ -31,7 +31,10 @@ const RETRYABLE_BY_THE_USER: ReadonlySet<string> = new Set([
   STORAGE_ERROR_CODE.WriteFailed,
 ]);
 
-function canConfirmAgain(failure: CastVoteError | UnexpectedError): boolean {
+function canConfirmAgain(
+  failure: CastVoteError | UnexpectedError,
+  isRetryableCode: (code: string) => boolean,
+): boolean {
   return isRetryableCode(failure.code) || RETRYABLE_BY_THE_USER.has(failure.code);
 }
 
@@ -68,24 +71,25 @@ export function VoteDialog({
   onDismiss,
 }: VoteDialogProps) {
   const { t } = useTranslation();
+  const { isRetryableCode } = useErrorCatalog();
   const dismiss = () => {
     if (!pending) onDismiss();
   };
-  const final = failure !== undefined && !canConfirmAgain(failure);
+  const final = failure !== undefined && !canConfirmAgain(failure, isRetryableCode);
 
   return (
     <Dialog
       visible={choice !== undefined}
       title={t('voting.confirmTitle')}
       onDismiss={dismiss}
-      testID={TEST_IDS.voteDialog}
+      testID={VOTES_TEST_IDS.voteDialog}
       actions={
         final ? (
           <Button
             title={t('common.close')}
             variant="secondary"
             onPress={dismiss}
-            testID={TEST_IDS.voteClose}
+            testID={VOTES_TEST_IDS.voteClose}
           />
         ) : (
           <>
@@ -94,13 +98,13 @@ export function VoteDialog({
               variant="secondary"
               disabled={pending}
               onPress={dismiss}
-              testID={TEST_IDS.voteCancel}
+              testID={VOTES_TEST_IDS.voteCancel}
             />
             <Button
               title={pending ? t('voting.confirming') : t('voting.confirm')}
               busy={pending}
               onPress={onConfirm}
-              testID={TEST_IDS.voteConfirm}
+              testID={VOTES_TEST_IDS.voteConfirm}
             />
           </>
         )
@@ -108,16 +112,16 @@ export function VoteDialog({
     >
       <Text style={styles.resolution}>{resolutionTitle}</Text>
       {choice === undefined ? null : (
-        <Text style={styles.choice} testID={TEST_IDS.voteDialogChoice}>
+        <Text style={styles.choice} testID={VOTES_TEST_IDS.voteDialogChoice}>
           {t('voting.confirmChoice', { choice: t(VOTE_CHOICE_KEYS[choice]) })}
         </Text>
       )}
-      <Text style={styles.text} testID={TEST_IDS.voteDialogFinal}>
+      <Text style={styles.text} testID={VOTES_TEST_IDS.voteDialogFinal}>
         {t('voting.confirmFinal')}
       </Text>
       <Text style={styles.text}>{t('voting.confirmBiometric')}</Text>
       {offline ? (
-        <Text style={styles.text} testID={TEST_IDS.voteDialogOffline}>
+        <Text style={styles.text} testID={VOTES_TEST_IDS.voteDialogOffline}>
           {t('voting.confirmOffline')}
         </Text>
       ) : null}
@@ -125,7 +129,7 @@ export function VoteDialog({
         <LiveText
           message={castVoteErrorText(t, failure)}
           style={styles.error}
-          testID={TEST_IDS.voteDialogError}
+          testID={VOTES_TEST_IDS.voteDialogError}
         />
       )}
     </Dialog>

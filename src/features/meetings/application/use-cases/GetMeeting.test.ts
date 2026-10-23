@@ -1,7 +1,7 @@
 import { CACHE_RESOURCE } from '@core/application/offline/CacheResource';
 import { FRESHNESS } from '@core/application/offline/Loaded';
 import { LOG_ATTRIBUTE, LOG_LEVEL, MONITORING_EVENT } from '@core/application/ports/Monitoring';
-import { notAuthenticated, sessionExpired } from '@core/domain/errors/AuthenticationError';
+import { notAuthenticated, sessionExpired } from '@features/auth/domain/errors/AuthenticationError';
 import {
   forbidden,
   networkUnavailable,

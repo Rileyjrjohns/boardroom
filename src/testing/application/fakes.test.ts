@@ -1,6 +1,6 @@
-import { invalidCredentials } from '@core/domain/errors/AuthenticationError';
+import { invalidCredentials } from '@features/auth/domain/errors/AuthenticationError';
 import { notFound, networkUnavailable, unauthorized } from '@core/domain/errors/RepositoryError';
-import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@core/domain/errors/VotingError';
+import { ALREADY_VOTED_SOURCE, VOTING_ERROR_CODE } from '@features/votes/domain/errors/VotingError';
 import { err, ok } from '@core/domain/shared/Result';
 import { createPage } from '@core/domain/value-objects/Page';
 import { parsePageCursor } from '@core/domain/value-objects/PageCursor';
