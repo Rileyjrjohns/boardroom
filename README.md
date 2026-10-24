@@ -52,7 +52,7 @@ flowchart LR
     end
 
     subgraph adapters["Adapters (the infrastructure folders)"]
-        MEM["<b>In-memory</b><br/>simulated server, stores, outbox,<br/>biometrics, connectivity"]
+        MEM["<b>In-memory</b><br/>simulated server, stores, outbox,<br/>biometrics (simulated where none is enrolled), connectivity"]
         HTTP["<b>HTTP + zod</b><br/>one HttpClient over fetch"]
         SQL["<b>SQLite / SQLCipher</b><br/>expo-sqlite"]
         SEC["<b>SecureStore</b><br/>keychain, keystore"]
