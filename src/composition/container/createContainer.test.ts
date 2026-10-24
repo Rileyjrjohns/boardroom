@@ -4,6 +4,8 @@ import { CONNECTIVITY_STATUS } from '@core/application/ports/Connectivity';
 import type { ConnectivityStatus } from '@core/application/ports/Connectivity';
 import { FakeClock } from '@core/application/testing/FakeClock';
 import { FakeMonitoring } from '@core/application/testing/FakeMonitoring';
+import type { DevicePlatform } from '@composition/device/DevicePlatform';
+import { BIOMETRIC_REASON } from '@features/auth/application/ports/BiometricGate';
 import { AUTHENTICATION_ERROR_CODE } from '@features/auth/domain/errors/AuthenticationError';
 import { REPOSITORY_ERROR_CODE } from '@core/domain/errors/RepositoryError';
 import { VOTE_DELIVERY_ERROR_CODE } from '@features/votes/domain/errors/VoteDeliveryError';
@@ -61,6 +63,32 @@ function simulatedScreenProtection(container: MockContainer): InMemoryScreenProt
   const { screenProtection } = container.controls;
   if (screenProtection === undefined) throw new Error('The screen protection is not simulated.');
   return screenProtection;
+}
+
+/** What the fake local authentication of a device is and does; the prompts it showed are recorded. */
+interface FakeBiometrics {
+  hardware: boolean;
+  enrolled: boolean;
+  readonly prompts: string[];
+}
+
+/**
+ * A device whose local authentication is scripted. The mock configuration reads nothing else of the
+ * platform here (the screen protection module is absent, so it stays the simulation).
+ */
+function aDeviceWithBiometrics(overrides: Partial<FakeBiometrics> = {}) {
+  const biometrics: FakeBiometrics = { hardware: true, enrolled: true, prompts: [], ...overrides };
+  const platform = {
+    localAuthentication: {
+      hasHardware: () => Promise.resolve(biometrics.hardware),
+      isEnrolled: () => Promise.resolve(biometrics.enrolled),
+      authenticate: (options: { readonly promptMessage: string }) => {
+        biometrics.prompts.push(options.promptMessage);
+        return Promise.resolve({ success: true } as const);
+      },
+    },
+  } as unknown as DevicePlatform;
+  return { biometrics, platform };
 }
 
 const ALICE = 'alice.martin@boardroom.example';
@@ -639,6 +667,71 @@ const DEVELOPMENT = { development: true };
 
 /** The raw settings of the environment, for the mock adapters. */
 const MOCK_SETTINGS = { adapters: ADAPTERS.Mock, apiBaseUrl: undefined } as const;
+
+describe('createContainer, mock configuration, the biometrics', () => {
+  async function onDevice(device: { platform: DevicePlatform }): Promise<MockContainer> {
+    const created = await createContainer(
+      mock(),
+      silentRuntime({
+        platform: device.platform,
+        biometricPromptText: (reason) => ({ message: `prompt:${reason}`, cancelLabel: 'cancel' }),
+      }),
+    );
+    if (!created.ok)
+      throw new Error(`The container was not built: ${JSON.stringify(created.error)}`);
+    return created.value;
+  }
+
+  async function castOne(container: MockContainer) {
+    const { meeting, resolution } = await anOpenResolution(container);
+    return container.useCases.castVote.execute({
+      meetingId: meeting.id,
+      resolutionId: resolution.id,
+      choice: VOTE_CHOICE.For,
+    });
+  }
+
+  it('shows the prompt of the device on the unlock and on the vote when a finger or a face is enrolled', async () => {
+    const device = aDeviceWithBiometrics();
+    const container = await onDevice(device);
+
+    valueOf(await container.useCases.unlockApp.execute());
+    valueOf(await castOne(container));
+
+    expect(device.biometrics.prompts).toEqual([
+      `prompt:${BIOMETRIC_REASON.UnlockApp}`,
+      `prompt:${BIOMETRIC_REASON.ConfirmVote}`,
+    ]);
+  });
+
+  it.each([
+    ['nothing is enrolled', { enrolled: false }],
+    ['the device has no biometric hardware', { hardware: false }],
+  ])('recognises the user without a prompt when %s', async (_name, overrides) => {
+    const device = aDeviceWithBiometrics(overrides);
+    const container = await onDevice(device);
+
+    expect(isOk(await container.useCases.unlockApp.execute())).toBe(true);
+    expect(isOk(await castOne(container))).toBe(true);
+    expect(device.biometrics.prompts).toEqual([]);
+  });
+
+  it('recognises the user without a prompt when the device cannot be asked', async () => {
+    const device = aDeviceWithBiometrics();
+    device.platform.localAuthentication.hasHardware = () => Promise.reject(new Error('no module'));
+    const container = await onDevice(device);
+
+    expect(isOk(await container.useCases.unlockApp.execute())).toBe(true);
+    expect(device.biometrics.prompts).toEqual([]);
+  });
+
+  it('recognises the user without a prompt when it is handed no platform', async () => {
+    const { container } = await aContainer();
+
+    expect(isOk(await container.useCases.unlockApp.execute())).toBe(true);
+    expect(isOk(await castOne(container))).toBe(true);
+  });
+});
 
 describe('createContainer, mock configuration, a vote recorded while the user signs out', () => {
   /**

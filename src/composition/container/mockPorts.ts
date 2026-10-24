@@ -16,6 +16,9 @@ import type { Result } from '@core/domain/shared/Result';
 import { SystemClock } from '@core/infrastructure/clock/SystemClock';
 import { timerSleep } from '@core/infrastructure/clock/sleep';
 import { createExpoFileStore } from '@core/infrastructure/files/createExpoFileStore';
+import type { BiometricGate } from '@features/auth/application/ports/BiometricGate';
+import { DeviceBiometricGate } from '@features/auth/infrastructure/biometrics/DeviceBiometricGate';
+import { ExpoLocalAuthentication } from '@features/auth/infrastructure/biometrics/ExpoLocalAuthentication';
 import type { ScreenProtection } from '@features/documents/application/ports/ScreenProtection';
 import { InMemoryDocumentCache } from '@features/documents/infrastructure/InMemoryDocumentCache';
 import { InMemoryScreenProtection } from '@features/documents/infrastructure/InMemoryScreenProtection';
@@ -24,6 +27,7 @@ import { loadScreenProtectionModule } from '@features/documents/infrastructure/n
 import { InMemoryMeetingCache } from '@features/meetings/infrastructure/InMemoryMeetingCache';
 import { InMemoryVoteOutbox } from '@features/votes/infrastructure/InMemoryVoteOutbox';
 
+import { ALLOW_DEVICE_PASSCODE_FALLBACK } from './config';
 import type { MockConfiguration } from './configuration';
 import type { ContainerRuntime } from './ContainerRuntime';
 import { createMonitoring } from './createMonitoring';
@@ -67,10 +71,15 @@ interface MockWiring {
  * windows on one simulated server (`InMemoryBackend`), which learns who is calling from the
  * session store (`InMemoryAuthSession`) and shares its network with it; the caches and the outbox
  * are in memory (the documents' content is in files of the device, written by the repository the
- * way the http configuration does); the biometrics always succeed. The connectivity is that of the
- * simulated network, so that its offline switch drives the app. The seed is not generated: it is
+ * way the http configuration does). The connectivity is that of the simulated network, so that its
+ * offline switch drives the app. The seed is not generated: it is
  * loaded from the frozen fixtures of docs/spec/fixtures, with every date shifted by whole days to
  * the clock (see `buildSeed`), so there are always upcoming and past meetings.
+ *
+ * The biometrics are a concern of the device too: on a phone or a simulator where a finger or a
+ * face is enrolled they are the device's, so that the lock screen and the confirmation of a vote
+ * show the system prompt (see `chooseBiometricGate`). Where none can be used, the simulation
+ * recognises the user, so that the demo runs anyway.
  *
  * The screen protection is a concern of the device, not of the backend that is simulated: on a
  * build that has the native module it is the device's, as in the http configuration. Only without
@@ -118,13 +127,14 @@ export async function createMockPorts(
     );
   }
   const screenProtection = chooseScreenProtection(runtime, monitoring);
+  const biometricGate = await chooseBiometricGate(runtime, monitoring);
 
   return ok({
     ports: {
       clock,
       monitoring,
       auth,
-      biometricGate: new InMemoryBiometricGate(),
+      biometricGate,
       connectivity: new SimulatedConnectivity(backend.network),
       screenProtection: screenProtection.port,
       meetings: new InMemoryMeetingRepository(backend),
@@ -170,4 +180,28 @@ function chooseScreenProtection(
 
   const simulation = new InMemoryScreenProtection();
   return { port: simulation, simulation };
+}
+
+/**
+ * The biometrics of the mock configuration: the device's when it can use them, else the simulation.
+ * The device's gate is built as the http configuration builds it (the local authentication of the
+ * platform, the text of the prompt, the passcode setting) and asked once, now, whether biometrics
+ * can be used: hardware, and a finger or a face enrolled. If so, it is the one in use and every
+ * unlock and every vote confirmation shows the system prompt. If not (no hardware, nothing
+ * enrolled, no module in the build, no answer in time), the simulation is used, which always
+ * recognises the user, so that a simulator without enrolment still runs the demo. The answer is
+ * read once per container: enrolling later takes effect at the next start.
+ */
+async function chooseBiometricGate(
+  runtime: ContainerRuntime,
+  monitoring: Monitoring,
+): Promise<BiometricGate> {
+  const device = new DeviceBiometricGate({
+    api: runtime.platform?.localAuthentication ?? new ExpoLocalAuthentication(),
+    promptText: runtime.biometricPromptText,
+    monitoring,
+    allowDevicePasscode: ALLOW_DEVICE_PASSCODE_FALLBACK,
+  });
+  const availability = await device.checkAvailability();
+  return availability.ok ? device : new InMemoryBiometricGate();
 }
