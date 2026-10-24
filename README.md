@@ -147,4 +147,4 @@ For a live native app the default is brownfield, not a rewrite: React Native scr
 - [The shared specification](docs/spec/README.md): the domain, the use cases, the ports, the screens and the demo data, independent of any framework, and checked against the code by a test.
 - [Security](docs/security.md), [the native module](docs/native-module.md), [CI/CD](docs/ci-cd.md), [design in depth](docs/design-in-depth.md), [conventions](docs/conventions.md), [the HTTP API](docs/api.md): the full index is [docs/README.md](docs/README.md).
 
-Same domain, another framework — in progress: [boardroom-flutter](https://github.com/Rileyjrjohns/boardroom-flutter).
+Same domain, another framework: [boardroom-flutter](https://github.com/Rileyjrjohns/boardroom-flutter), the Flutter port, with the same specification, the same feature graph and the same port names. Every domain and application test scenario of this repository has a Dart test of the same name there, checked by its CI.
