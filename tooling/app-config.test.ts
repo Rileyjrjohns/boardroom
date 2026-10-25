@@ -80,14 +80,28 @@ describe('app.config.ts, the Face ID text in the languages of the app', () => {
     expect(Object.keys(config.locales ?? {}).sort()).toEqual([...others].sort());
   });
 
+  // Expo writes the keys at the root of a locale file into the resources of both platforms. Android
+  // has no default for an Info.plist key, so its release lint refuses the build (ExtraTranslation):
+  // every key of these files belongs under `ios`.
+  it.each(others)(
+    'keeps the strings of %s for iOS only, so that Android lint accepts them',
+    (language) => {
+      const file = (config.locales ?? {})[language];
+      if (typeof file !== 'string') throw new Error(`No file of strings for ${language}.`);
+
+      const content = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')) as object;
+
+      expect(Object.keys(content)).toEqual(['ios']);
+    },
+  );
+
   it.each(others)('has the Face ID text in %s, which is not the English one', (language) => {
     const file = (config.locales ?? {})[language];
     if (typeof file !== 'string') throw new Error(`No file of strings for ${language}.`);
 
-    const strings = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')) as Record<
-      string,
-      string
-    >;
+    const { ios: strings = {} } = JSON.parse(fs.readFileSync(path.join(ROOT, file), 'utf8')) as {
+      ios?: Record<string, string>;
+    };
 
     expect(strings[FACE_ID_KEY]?.trim()).toBeTruthy();
     expect(strings[FACE_ID_KEY]).not.toBe(

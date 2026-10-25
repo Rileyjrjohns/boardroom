@@ -7,8 +7,8 @@ import type { ExpoConfig } from 'expo/config';
 const SUPPORTED_LOCALES = ['en', 'fr'];
 
 // What the system asks the user when the app first uses Face ID, in English, which is also the
-// default of the other languages. The French text is in locales/fr.json, which Expo turns into the
-// localised Info.plist strings of the iOS project (see `locales` below). Android has no such
+// default of the other languages. The French text is in locales/fr.json, under its `ios` key, which
+// Expo turns into the localised Info.plist strings of the iOS project only (see `locales` below). Android has no such
 // prompt text: the text of its biometric prompt is the one the app passes at run time, translated.
 // It is the same for both plugins that write it, so that neither can overwrite the other's.
 const FACE_ID_USAGE_DESCRIPTION =
